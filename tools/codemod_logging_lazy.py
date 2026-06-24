@@ -17,6 +17,13 @@ Supported rewrites:
 * **G201 (logging-exc-info)** -- inside an ``except`` block,
   ``logging.error(msg, exc_info=True)`` becomes ``logging.exception(msg)``.
 
+Recognized logger receivers (any of these on the left of ``.<level>(...)``):
+
+* a known logger name -- ``logging``, ``logger``, ``log``, ``self.logger`` (see
+  ``LOGGER_NAMES``);
+* a **dynamic** ``getLogger(...)`` call -- ``logging.getLogger(__name__).info(...)``
+  or ``getLogger(__name__).info(...)`` (issue #439).
+
 CLI flags (all optional):
 
 * ``--dry-run`` -- write nothing; report what would change.
@@ -56,6 +63,7 @@ LOGGER_NAMES: frozenset[str] = frozenset(  # Names the codemod recognizes as a l
 LEVEL_METHODS: frozenset[str] = frozenset(  # Method names that take a message + args.
     {"debug", "info", "warning", "warn", "error", "critical", "exception", "log"}
 )
+GET_LOGGER_NAME: str = "getLogger"  # The stdlib factory whose result is a Logger we can rewrite against.
 
 
 @dataclass
@@ -253,7 +261,21 @@ class LoggingLazyCodemod(cst.CSTTransformer):
                 return True  # Direct match against known logger names.
             if isinstance(value, cst.Attribute) and value.attr.value in LOGGER_NAMES:  # self.logger.info(...)
                 return True  # Matches attribute-chain access to a logger.
+            if isinstance(value, cst.Call) and self._is_get_logger_call(value):  # logging.getLogger(__name__).info(...)
+                return True  # Issue #439: dynamic logger obtained inline from a getLogger(...) call.
         return False  # Anything else is not a logging call we touch.
+
+    @staticmethod
+    def _is_get_logger_call(expr: cst.BaseExpression) -> bool:
+        """Return True if ``expr`` is a ``getLogger(...)`` call (issue #439 dynamic-logger receiver)."""
+        if not isinstance(expr, cst.Call):  # Dynamic loggers come from a call expression, not a bare name.
+            return False  # Not a call -> not a getLogger receiver.
+        get_logger_func = expr.func  # The callable producing the Logger (the getLogger part).
+        if isinstance(get_logger_func, cst.Attribute) and get_logger_func.attr.value == GET_LOGGER_NAME:
+            return True  # Module-qualified form: logging.getLogger(...).
+        if isinstance(get_logger_func, cst.Name) and get_logger_func.value == GET_LOGGER_NAME:
+            return True  # From-import form: getLogger(...) after `from logging import getLogger`.
+        return False  # Some other call expression -> not a logger factory.
 
     def _line_of(self, node: cst.CSTNode) -> int:
         """Look up the 1-based source line for a node via libcst metadata."""
