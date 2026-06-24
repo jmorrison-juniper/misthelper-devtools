@@ -70,6 +70,32 @@ class AnalysisContext:
     code_lines: set[int]  # Line numbers that contain executable code.
     inline_comment_lines: set[int]  # Code lines that also carry an inline comment.
 
+    def noqa_rules(self, line_number: int) -> frozenset[str]:
+        """Return the set of rule IDs marked ``# noqa: <RULE>`` on the given source line.
+
+        Recognises both ``# noqa: STRUCT-PARAMS`` and ``# noqa: STRUCT-PARAMS, ARCH-DELEGATE``
+        forms. A bare ``# noqa`` (no specific rule) is intentionally NOT supported here so
+        suppressions stay explicit -- callers must name the rule they are exempting from.
+
+        Issue #431: introduced so externally-constrained signatures (subclass overrides,
+        framework callbacks, library protocol implementations) can document their
+        exemption inline rather than triggering false-positive violations.
+        """
+        if line_number < 1 or line_number > len(self.lines):  # Defensive bounds check.
+            return frozenset()  # Out-of-range lines never have suppressions.
+        line_text = self.lines[line_number - 1]  # Pull the source line at the 1-based offset.
+        marker = "# noqa:"  # Project convention: noqa always uses the colon form.
+        index = line_text.find(marker)  # Locate the marker; -1 means no marker present.
+        if index < 0:  # No noqa annotation on this line.
+            return frozenset()  # Return empty set so callers see "nothing suppressed".
+        tail = line_text[index + len(marker) :]  # Slice the rules portion after `# noqa:`.
+        rules: set[str] = set()  # Accumulate parsed rule IDs.
+        for piece in tail.split(","):  # Comma-separated rule IDs follow the marker.
+            cleaned = piece.strip().split()[0] if piece.strip() else ""  # Stop at first whitespace per rule.
+            if cleaned:  # Skip empty entries produced by stray commas.
+                rules.add(cleaned)  # Record this rule as suppressed for this line.
+        return frozenset(rules)  # Frozen so callers cannot accidentally mutate the result.
+
 
 @dataclass
 class FileReport:

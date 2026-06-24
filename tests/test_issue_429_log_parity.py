@@ -118,9 +118,9 @@ def _render_at_line(module: cst.Module, line_hint: int, inputs: dict[str, Any]) 
         return None  # Caller will fall back to scan.
     try:
         msg, args = _extract_msg_and_args(collector.found, inputs)  # Pull (msg, args).
-    except (KeyError, ValueError, AttributeError, TypeError):  # Inputs do not match this call.
-        return None  # Caller will scan instead.
-    return _render_log(msg, args)  # Render via real LogRecord.getMessage().
+        return _render_log(msg, args)  # Render via real LogRecord.getMessage().
+    except (KeyError, ValueError, AttributeError, TypeError):  # Template/args mismatch or input miss.
+        return None  # Cheap path failed; caller falls back to a full content scan.
 
 
 def _render_first_match(module: cst.Module, inputs: dict[str, Any], expected: str) -> str | None:

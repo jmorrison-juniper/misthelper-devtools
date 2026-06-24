@@ -120,17 +120,25 @@ class StructuralComplexityAnalyzer:
         violations: list[Violation] = []  # Collect findings across every function.
         for node in ast.walk(context.tree):  # Visit every node in the module.
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):  # Only functions are checked.
-                violations.extend(self._check_function(node))  # Append this function's findings.
+                violations.extend(self._check_function(node, context))  # Append this function's findings.
         return violations  # Return the combined list.
 
-    def _check_function(self, function: ast.FunctionDef | ast.AsyncFunctionDef) -> list[Violation]:
+    def _check_function(  # Signature gained `context` so noqa suppressions can be honored per-line.
+        self, function: ast.FunctionDef | ast.AsyncFunctionDef, context: AnalysisContext
+    ) -> list[Violation]:
         """Run every structural check against a single function."""
         found: list[Violation] = []  # Collect violations for this function.
-        self._maybe(found, self._check_parameters(function))  # Parameter-count rule.
-        self._maybe(found, self._check_length(function))  # Function-length rule.
-        self._maybe(found, self._check_complexity(function))  # Cyclomatic-complexity rule.
-        self._maybe(found, self._check_blocks(function))  # Logical-block-count rule.
-        self._maybe(found, self._check_nesting(function))  # Nesting-depth rule.
+        noqa = context.noqa_rules(function.lineno)  # Look up any noqa suppressions on the def line.
+        if "STRUCT-PARAMS" not in noqa:  # Skip param-count check when explicitly suppressed.
+            self._maybe(found, self._check_parameters(function))  # Parameter-count rule.
+        if "STRUCT-LENGTH" not in noqa:  # Skip length check when explicitly suppressed.
+            self._maybe(found, self._check_length(function))  # Function-length rule.
+        if "STRUCT-COMPLEXITY" not in noqa:  # Skip complexity check when explicitly suppressed.
+            self._maybe(found, self._check_complexity(function))  # Cyclomatic-complexity rule.
+        if "STRUCT-BLOCKS" not in noqa:  # Skip block-count check when explicitly suppressed.
+            self._maybe(found, self._check_blocks(function))  # Logical-block-count rule.
+        if "STRUCT-NESTING" not in noqa:  # Skip nesting check when explicitly suppressed.
+            self._maybe(found, self._check_nesting(function))  # Nesting-depth rule.
         return found  # Return all findings for this function.
 
     @staticmethod
@@ -544,12 +552,33 @@ class ConventionAnalyzer:
     def _check_tree(self, tree: ast.Module) -> list[Violation]:
         """Run per-node convention checks across the whole module."""
         found: list[Violation] = []  # Collect per-node findings.
+        enclosing_by_node = self._build_enclosing_function_map(tree)  # Map node id -> nearest enclosing function name.
         for node in ast.walk(tree):  # Visit every node in the module.
-            self._append(found, self._check_input(node))  # Raw input() usage.
+            enclosing = enclosing_by_node.get(id(node))  # Resolve enclosing function name for context.
+            self._append(  # Raw input() usage with safe_input self-reference exemption.
+                found, self._check_input(node, enclosing_function=enclosing)
+            )
             self._append(found, self._check_logging(node))  # Logging f-string usage.
             self._append(found, self._check_path(node))  # Hardcoded path separators.
             self._append(found, self._check_loop_name(node))  # Single-letter loop variables.
         return found  # Return all per-node findings.
+
+    @staticmethod
+    def _build_enclosing_function_map(tree: ast.Module) -> dict[int, str]:
+        """Map every AST node id() -> name of the nearest enclosing function (or '')."""
+        mapping: dict[int, str] = {}  # Result map; missing entries imply module scope.
+        stack: list[tuple[ast.AST, str]] = [(tree, "")]  # DFS stack with current function name context.
+        while stack:  # Walk the tree iteratively to avoid Python recursion-depth limits.
+            current, enclosing = stack.pop()  # Take the next node + its inherited enclosing function name.
+            for child in ast.iter_child_nodes(current):  # Visit each direct child of the current node.
+                child_enclosing = enclosing  # Inherit the parent's enclosing function name by default.
+                if isinstance(  # Function definitions start a new scope -- record their name.
+                    child, (ast.FunctionDef, ast.AsyncFunctionDef)
+                ):
+                    child_enclosing = child.name  # Update context so descendants see this function name.
+                mapping[id(child)] = child_enclosing  # Record the enclosing-function name for this child.
+                stack.append((child, child_enclosing))  # Recurse with the (possibly updated) context.
+        return mapping  # Return the fully populated map.
 
     @staticmethod
     def _append(target: list[Violation], violation: Violation | None) -> None:
@@ -580,12 +609,19 @@ class ConventionAnalyzer:
         )
 
     @staticmethod
-    def _check_input(node: ast.AST) -> Violation | None:
-        """Flag direct input() calls that are not EOF-safe."""
+    def _check_input(node: ast.AST, *, enclosing_function: str | None = None) -> Violation | None:
+        """Flag direct input() calls that are not EOF-safe.
+
+        Exempts the canonical `safe_input` implementation itself -- the rule's
+        whole purpose is to drive callers TO `safe_input`, so flagging the
+        implementation would be self-referential.
+        """
         if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):  # Only simple calls.
             return None  # Not an input() call.
         if node.func.id != "input":  # Only the builtin input function matters.
             return None  # Not an input() call.
+        if enclosing_function == "safe_input":  # The canonical safe_input wrapper is allowed to call input().
+            return None  # Self-reference exemption.
         return Violation(
             rule_id="CONV-INPUT",  # Stable rule identifier.
             category="Conventions",  # Report grouping.
@@ -626,12 +662,25 @@ class ConventionAnalyzer:
 
     @staticmethod
     def _check_path(node: ast.AST) -> Violation | None:
-        """Flag string literals that hardcode Windows drive path separators."""
+        """Flag string literals that hardcode Windows drive path separators.
+
+        Heuristic: requires the literal to LOOK like a real drive path -- a
+        letter immediately before the colon, followed by colon + backslash.
+        This avoids flagging regex character classes (e.g. `r"[:\\-.]"`) that
+        happen to contain `:\\` for unrelated reasons.
+        """
         if not isinstance(node, ast.Constant) or not isinstance(node.value, str):  # Only string literals.
             return None  # Not a string literal.
+        text = node.value  # Pull out the literal value once.
         drive_marker = ":" + chr(92)  # Colon + backslash, built from parts to avoid self-flagging.
-        if drive_marker not in node.value:  # Match a drive-style path such as C:\Users.
+        if drive_marker not in text:  # Cheap reject -- no drive-style fragment at all.
             return None  # No hardcoded drive path present.
+        index = text.index(drive_marker)  # Locate the marker for context inspection.
+        if index == 0:  # No preceding character to anchor against -- ambiguous, skip.
+            return None  # Likely not a drive path (drives start with a letter).
+        preceding = text[index - 1]  # Look at the char immediately before the colon.
+        if not preceding.isalpha():  # Real drive paths look like `C:\` (letter, colon, backslash).
+            return None  # Not a drive-letter pattern -- skip regex char classes etc.
         return Violation(
             rule_id="CONV-PATH",  # Stable rule identifier.
             category="Conventions",  # Report grouping.
