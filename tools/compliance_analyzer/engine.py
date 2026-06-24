@@ -86,7 +86,17 @@ class ComplianceAnalyzer:
     """Read Python files, run the analyzers, and score each file."""
 
     # Path fragments that are always skipped during directory scans.
-    _DEFAULT_EXCLUDES = (".venv", "site-packages", "__pycache__", ".git", "node_modules")
+    # Both POSIX and Windows separators are listed for tests/fixtures so the analyzer
+    # ignores intentionally-broken codemod input corpora regardless of host OS.
+    _DEFAULT_EXCLUDES = (
+        ".venv",
+        "site-packages",
+        "__pycache__",
+        ".git",
+        "node_modules",
+        "tests/fixtures",
+        "tests\\fixtures",
+    )
 
     def __init__(
         self,

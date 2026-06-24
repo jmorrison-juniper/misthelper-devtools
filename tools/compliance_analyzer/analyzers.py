@@ -366,7 +366,31 @@ class ArchitecturalAnalyzer:
             return None  # Not an alias assignment.
         if target.id.isupper():  # ALL_CAPS targets are intentional constants.
             return None  # Constants are allowed, not flagged.
+        if self._is_type_alias_placeholder(target.id, statement.value):  # Type aliases such as `MyFn = Any`.
+            return None  # Type-only aliases are documentation, not architectural indirection.
         return target.id, isinstance(statement.value, ast.Name)  # Pure-name RHS is the classic alias.
+
+    @staticmethod
+    def _is_type_alias_placeholder(target_name: str, value: ast.expr) -> bool:
+        """Return True when the assignment is a PEP 613-style placeholder type alias.
+
+        Recognised forms (all common in this project before PEP 695 adoption):
+            MyFn = Any                 # narrowest signal; bare `Any` is type-only
+            MyFn = TypeAlias           # explicit typing.TypeAlias marker
+            MyFn = typing.Any          # qualified `typing.Any`
+        The target name must be PascalCase (not snake_case and not ALL_CAPS)
+        to qualify -- runtime identifiers normally follow snake_case so this
+        avoids accidentally exempting genuine pass-through aliases.
+        """
+        if not target_name or not target_name[0].isupper():  # PascalCase is the convention for type aliases.
+            return False  # snake_case or _private targets are runtime identifiers, not type aliases.
+        if "_" in target_name and target_name.lower() == target_name:  # snake_case fallback (paranoid).
+            return False  # Belt-and-suspenders: never exempt snake_case names.
+        if isinstance(value, ast.Name) and value.id in {"Any", "TypeAlias", "object"}:  # Bare type-alias markers.
+            return True  # Treat as type alias and skip.
+        if isinstance(value, ast.Attribute):  # Handle `typing.Any` / `typing.TypeAlias` qualified forms.
+            return value.attr in {"Any", "TypeAlias"}  # Same marker set, on a qualified RHS.
+        return False  # Anything else (e.g. `MyFn = SomeRealClass`) stays flagged.
 
     def _alias_violation(self, name: str, is_pure_name: bool, line: int, scope: str) -> Violation:
         """Build the violation for a detected alias/pointer assignment."""
