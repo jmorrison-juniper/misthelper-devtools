@@ -339,12 +339,36 @@ class ArchitecturalAnalyzer:
         """Return all architectural violations found in the file."""
         violations: list[Violation] = []  # Collect findings across the module.
         violations.extend(self._scope_aliases(context.tree.body, "module"))  # Module-level aliases.
+        nested_ids = self._collect_nested_function_ids(context.tree)  # Closures to skip in the delegation rule.
         for node in ast.walk(context.tree):  # Visit every node in the module.
             if isinstance(node, ast.ClassDef):  # Class bodies can also hold aliases.
                 violations.extend(self._scope_aliases(node.body, node.name))  # Class-level aliases.
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):  # Functions get smell checks.
-                violations.extend(self._check_function(node))  # Wrapper/stub/naming checks.
+                nested = id(node) in nested_ids  # Closures forward outer-scope state; skip delegation.
+                violations.extend(self._check_function(node, is_nested=nested))  # Wrapper/stub/naming checks.
         return violations  # Return the combined findings.
+
+    @staticmethod
+    def _collect_nested_function_ids(tree: ast.AST) -> set[int]:
+        """Return the id() of every function nested inside another function.
+
+        ``analyze`` walks the module with ``ast.walk`` which flattens the tree
+        and loses parent context, so a closure looks identical to a top-level
+        delegator. This pre-pass records the identity of every function found
+        in another function's subtree, letting the delegation rule skip
+        closures (which forward outer-scope state by design). ``id()`` is
+        stable within a single ``analyze`` call because the AST nodes persist.
+        """
+        nested: set[int] = set()  # Collect identities of inner (closure) functions.
+        for node in ast.walk(tree):  # Inspect every node looking for function parents.
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):  # Only functions can host closures.
+                continue  # Skip non-function nodes.
+            for descendant in ast.walk(node):  # Walk this function's own subtree.
+                if descendant is node:  # The parent itself is not nested within itself.
+                    continue  # Skip the parent node.
+                if isinstance(descendant, (ast.FunctionDef, ast.AsyncFunctionDef)):  # Function inside a function.
+                    nested.add(id(descendant))  # Record its identity as nested.
+        return nested  # Return the set of closure identities.
 
     def _scope_aliases(self, body: list[ast.stmt], scope: str) -> list[Violation]:
         """Flag pass-through alias assignments at a module or class scope."""
@@ -405,13 +429,15 @@ class ArchitecturalAnalyzer:
             remediation="Remove the alias and update call sites to use the canonical symbol directly.",
         )
 
-    def _check_function(self, function: ast.FunctionDef | ast.AsyncFunctionDef) -> list[Violation]:
+    def _check_function(
+        self, function: ast.FunctionDef | ast.AsyncFunctionDef, is_nested: bool = False
+    ) -> list[Violation]:
         """Run wrapper, stub, and naming checks against one function."""
         found: list[Violation] = []  # Collect findings for this function.
-        naming = self._naming_violation(function)  # Naming-token smell check.
+        naming = self._naming_violation(function)  # Naming-token smell check (applies to nested functions too).
         if naming is not None:  # Only append when a token matched.
             found.append(naming)  # Record the naming violation.
-        if self._is_delegation(function):  # Pass-through wrapper/delegator check.
+        if not is_nested and self._is_delegation(function):  # Delegation rule targets class/module-level funcs only.
             found.append(self._delegation_violation(function))  # Record the delegation violation.
         elif self._is_stub(function):  # Facade/stub check (mutually exclusive with delegation).
             found.append(self._stub_violation(function))  # Record the stub violation.
@@ -443,6 +469,8 @@ class ArchitecturalAnalyzer:
 
     def _is_delegation(self, function: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
         """Return True when a function only forwards to another call."""
+        if function.name.startswith("__") and function.name.endswith("__"):  # Dunder forwarders are not wrappers.
+            return False  # __call__/__getattr__ are Python's delegation protocol, never architectural shims.
         body = AstHelpers.body_without_docstring(function)  # Ignore any leading docstring.
         if len(body) != 1:  # Real logic has more than a single statement.
             return False  # Not a pure delegation.

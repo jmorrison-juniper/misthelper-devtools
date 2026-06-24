@@ -39,6 +39,38 @@ class Greeter:  # Encapsulate greeting behavior in a class.
         return greeting  # Return the finished greeting.
 '''
 
+# Python dunder forwarders: __call__/__getattr__ are the language's delegation protocol, not wrappers.
+DUNDER_FORWARDER_SOURCE = """
+class Handler:
+    def __init__(self, impl):
+        self._impl = impl
+
+    def __call__(self, payload):
+        return self._impl.handle(payload)
+
+    def __getattr__(self, name):
+        return getattr(self._impl, name)
+"""
+
+# A nested closure that forwards an argument to outer-scope state; closures are not architectural wrappers.
+NESTED_CLOSURE_SOURCE = """
+def build_runner(client):
+    def run(request):
+        return client.send(request)
+
+    return run
+"""
+
+# A genuine class-level pass-through that MUST stay flagged so the exemptions do not over-broaden.
+CLASS_DELEGATOR_SOURCE = """
+class Service:
+    def __init__(self, impl):
+        self._impl = impl
+
+    def fetch(self, site_id):
+        return self._impl.fetch(site_id)
+"""
+
 
 def test_detects_wrapper_and_alias(tmp_path: Path) -> None:
     """The analyzer flags pass-through wrappers and module-level aliases."""
@@ -49,6 +81,34 @@ def test_detects_wrapper_and_alias(tmp_path: Path) -> None:
     assert "ARCH-DELEGATE" in rule_ids  # The pass-through wrapper must be flagged.
     assert "ARCH-ALIAS" in rule_ids  # The module-level alias must be flagged.
     assert report.score < 100.0  # Violations must lower the score.
+
+
+def test_dunder_forwarders_not_flagged_as_delegation(tmp_path: Path) -> None:
+    """Python dunder forwarders (__call__, __getattr__) must not be flagged as ARCH-DELEGATE."""
+    target = tmp_path / "dunder.py"  # Path for the throwaway dunder sample.
+    target.write_text(DUNDER_FORWARDER_SOURCE, encoding="utf-8")  # Write the dunder-forwarder sample.
+    report = ComplianceAnalyzer().analyze_file(target)  # Analyze the sample file.
+    delegations = [v for v in report.violations if v.rule_id == "ARCH-DELEGATE"]  # Collect delegation findings.
+    assert delegations == []  # Dunders are the language's delegation protocol, never architectural wrappers.
+
+
+def test_nested_closures_not_flagged_as_delegation(tmp_path: Path) -> None:
+    """Nested closures forward outer-scope state by design and must not be flagged as ARCH-DELEGATE."""
+    target = tmp_path / "closure.py"  # Path for the throwaway closure sample.
+    target.write_text(NESTED_CLOSURE_SOURCE, encoding="utf-8")  # Write the nested-closure sample.
+    report = ComplianceAnalyzer().analyze_file(target)  # Analyze the sample file.
+    delegations = [v for v in report.violations if v.rule_id == "ARCH-DELEGATE"]  # Collect delegation findings.
+    assert delegations == []  # Closures capture outer state; they are not standalone pass-through wrappers.
+
+
+def test_class_level_delegator_still_flagged(tmp_path: Path) -> None:
+    """A genuine class-level pass-through must STILL be flagged so the exemptions do not over-broaden."""
+    target = tmp_path / "service.py"  # Path for the throwaway class-delegator sample.
+    target.write_text(CLASS_DELEGATOR_SOURCE, encoding="utf-8")  # Write the class-level delegator sample.
+    report = ComplianceAnalyzer().analyze_file(target)  # Analyze the sample file.
+    delegations = [v for v in report.violations if v.rule_id == "ARCH-DELEGATE"]  # Collect delegation findings.
+    assert len(delegations) == 1  # The real class-level delegator must remain flagged.
+    assert delegations[0].symbol == "fetch"  # The forwarding method is the one reported.
 
 
 def test_clean_file_scores_well(tmp_path: Path) -> None:
