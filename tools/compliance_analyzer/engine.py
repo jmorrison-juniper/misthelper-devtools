@@ -5,6 +5,7 @@ from __future__ import annotations  # Enable modern annotation syntax.
 import ast  # Parsing source into an AST for the analyzers.
 import io  # Wrap source text in a stream for the tokenizer.
 import logging  # Structured action logging before and after each step.
+import subprocess  # Query git so the scan can skip version-control-ignored files.
 import tokenize  # Token stream powers inline-comment coverage measurement.
 from collections.abc import Iterable  # Type hint for the target collection.
 from pathlib import Path  # Portable filesystem path handling.
@@ -204,7 +205,43 @@ class ComplianceAnalyzer:
         collected: list[Path] = []  # Accumulate matching Python files.
         for target in targets:  # Process each requested target.
             collected.extend(self._expand_target(Path(target), recursive, exclude_tokens))  # Expand it.
-        return collected  # Return every collected Python file.
+        return self._filter_git_ignored(collected)  # Drop git-ignored files so scans match a clean checkout.
+
+    @staticmethod
+    def _filter_git_ignored(files: list[Path]) -> list[Path]:
+        """Drop files that git ignores so scans match a clean checkout / CI.
+
+        Compliance applies to version-controlled source. Untracked, ignored
+        trees (data dumps, build output, or packages accidentally shadowed by a
+        broad ignore rule) do not exist in a fresh clone, so reporting on them
+        yields phantom findings that nobody can fix via the repo. ``git
+        check-ignore`` provides exact gitignore semantics and never reports
+        tracked files; this degrades to a no-op when git is unavailable or the
+        target is not inside a repository (fail open: scan everything).
+
+        NUL-delimited (-z) binary I/O is used so Windows newline translation
+        cannot corrupt paths in the stdin pipe and git never quotes output.
+        """
+        if not files:  # No collected files means nothing to filter.
+            return files  # Preserve the identity result for empty inputs.
+        payload = b"\0".join(path.as_posix().encode("utf-8") for path in files)  # NUL-delimited path list.
+        try:
+            completed = subprocess.run(  # Ask git which of these paths are ignored.
+                ["git", "check-ignore", "-z", "--stdin"],  # -z: NUL-delimited in and out, no quoting.
+                input=payload,  # Feed the collected file list as raw bytes.
+                capture_output=True,  # Capture the ignored-path bytes from stdout.
+                check=False,  # Exit 1 (none ignored) is normal, not an error.
+            )
+        except (OSError, ValueError):  # git binary missing or stdin write failure.
+            return files  # Fail open: never hide files when git cannot be consulted.
+        if completed.returncode not in (0, 1):  # 128 => not a git repo; other codes => unknown failure.
+            return files  # Fail open on fatal git errors (e.g., scanning outside a repo).
+        ignored = {  # Decode each NUL-delimited ignored path back into a comparable string.
+            chunk.decode("utf-8") for chunk in completed.stdout.split(b"\0") if chunk
+        }
+        if not ignored:  # Fast path when git reports nothing ignored.
+            return files  # Return the original ordering unchanged.
+        return [path for path in files if path.as_posix() not in ignored]  # Keep only non-ignored files.
 
     def _expand_target(self, target: Path, recursive: bool, exclude_tokens: tuple[str, ...]) -> list[Path]:
         """Expand one target path into the Python files it contributes."""

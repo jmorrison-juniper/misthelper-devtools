@@ -2,8 +2,11 @@
 
 from __future__ import annotations  # Enable modern annotation syntax.
 
+import subprocess  # Initialize a throwaway git repo to exercise the ignore filter.
 import sys  # Adjust the import path so the tools package is importable.
 from pathlib import Path  # Build throwaway sample files and resolve the repo root.
+
+import pytest  # MonkeyPatch fixture for changing the working directory in a test.
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # Add repo root to sys.path.
 
@@ -176,3 +179,20 @@ def test_generated_and_vendored_paths_are_excluded(tmp_path: Path) -> None:
     assert any(included_rel in p for p in collected)  # The ordinary src/ file is analyzed.
     for rel in excluded_rel:  # None of the generated/vendored files may appear.
         assert not any(rel in p for p in collected), f"{rel} should have been excluded"  # Assert exclusion.
+
+
+def test_git_ignored_files_are_skipped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Files git ignores are skipped so scans match a clean checkout / CI (issue #454)."""
+    sample = "x = 1  # trivial module body.\n"  # Minimal valid Python for each throwaway file.
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)  # Real repo for check-ignore semantics.
+    (tmp_path / ".gitignore").write_text("ignored_dir/\n", encoding="utf-8")  # Ignore one directory tree.
+    ignored = tmp_path / "ignored_dir" / "dead.py"  # Untracked + ignored file that must be skipped.
+    kept = tmp_path / "src" / "live.py"  # Ordinary tracked-eligible source that must be analyzed.
+    for path in (ignored, kept):  # Materialize both samples on disk.
+        path.parent.mkdir(parents=True, exist_ok=True)  # Create intermediate directories.
+        path.write_text(sample, encoding="utf-8")  # Write the minimal module body.
+    monkeypatch.chdir(tmp_path)  # Run from inside the repo so check-ignore resolves the local .gitignore.
+    reports = ComplianceAnalyzer().analyze_targets(["."], recursive=True)  # Scan the throwaway tree.
+    collected = {Path(r.path).as_posix() for r in reports}  # Normalize collected paths for matching.
+    assert any("src/live.py" in p for p in collected)  # The non-ignored source file is analyzed.
+    assert not any("dead.py" in p for p in collected)  # The git-ignored file is skipped entirely.
