@@ -111,6 +111,22 @@ def test_class_level_delegator_still_flagged(tmp_path: Path) -> None:
     assert delegations[0].symbol == "fetch"  # The forwarding method is the one reported.
 
 
+def test_conv_path_distinguishes_drive_paths_from_regex(tmp_path: Path) -> None:
+    """CONV-PATH flags real drive paths but not regex escapes like `:\\d` (issue #453)."""
+    sample = (
+        "import re\n"
+        'real = "C:\\\\Users\\\\j\\\\data"\n'  # Genuine hardcoded Windows drive path -> must flag.
+        'prompt = re.compile(r"{master:\\\\d+}")\n'  # Juniper prompt regex -> must NOT flag.
+        'doc = re.compile(r"API doc:\\\\s*(https?://\\\\S+)")\n'  # Doc-link regex -> must NOT flag.
+    )
+    target = tmp_path / "paths.py"  # Throwaway sample file.
+    target.write_text(sample, encoding="utf-8")  # Write the mixed sample.
+    report = ComplianceAnalyzer().analyze_file(target)  # Analyze it.
+    path_hits = [v for v in report.violations if v.rule_id == "CONV-PATH"]  # Collect CONV-PATH findings.
+    assert len(path_hits) == 1, [v.line for v in path_hits]  # Only the genuine drive path is flagged.
+    assert path_hits[0].line == 2  # Specifically the real "C:\\Users..." literal on line 2.
+
+
 def test_clean_file_scores_well(tmp_path: Path) -> None:
     """A compliant file earns a high score and grade."""
     target = tmp_path / "clean.py"  # Path for the throwaway clean sample.

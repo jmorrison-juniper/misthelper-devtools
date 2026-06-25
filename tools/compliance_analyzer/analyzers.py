@@ -717,9 +717,11 @@ class ConventionAnalyzer:
         """Flag string literals that hardcode Windows drive path separators.
 
         Heuristic: requires the literal to LOOK like a real drive path -- a
-        letter immediately before the colon, followed by colon + backslash.
-        This avoids flagging regex character classes (e.g. `r"[:\\-.]"`) that
-        happen to contain `:\\` for unrelated reasons.
+        single letter immediately before the colon, followed by colon + backslash,
+        with a token boundary (string start or non-alphanumeric) before that letter.
+        This avoids flagging regex character classes (e.g. `r"[:\\-.]"`) and regex
+        escapes embedded in longer words (e.g. `r"{master:\\d+}"`, `r"doc:\\s*"`)
+        that happen to contain `:\\` for unrelated reasons.
         """
         if not isinstance(node, ast.Constant) or not isinstance(node.value, str):  # Only string literals.
             return None  # Not a string literal.
@@ -733,6 +735,8 @@ class ConventionAnalyzer:
         preceding = text[index - 1]  # Look at the char immediately before the colon.
         if not preceding.isalpha():  # Real drive paths look like `C:\` (letter, colon, backslash).
             return None  # Not a drive-letter pattern -- skip regex char classes etc.
+        if index >= 2 and text[index - 2].isalnum():  # The "letter" is part of a longer word, not a lone drive.
+            return None  # Skip regex escapes like `master:\d+` or `doc:\s*` (multi-char word before `:\`).
         return Violation(
             rule_id="CONV-PATH",  # Stable rule identifier.
             category="Conventions",  # Report grouping.
