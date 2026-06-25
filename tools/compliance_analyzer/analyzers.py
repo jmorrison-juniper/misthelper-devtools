@@ -8,6 +8,7 @@ can run them in any combination.
 from __future__ import annotations  # Enable modern annotation syntax on Python 3.13.
 
 import ast  # The standard library AST powers all structural inspection.
+import re  # Word-segment splitting so naming tokens match whole words, not substrings.
 
 from .models import AnalysisContext, Severity, Violation  # Shared record/enum types.
 
@@ -445,14 +446,33 @@ class ArchitecturalAnalyzer:
 
     def _naming_violation(self, function: ast.FunctionDef | ast.AsyncFunctionDef) -> Violation | None:
         """Flag functions whose name signals a prohibited indirection layer."""
-        lowered = function.name.lower()  # Normalize the name for token matching.
+        lowered = function.name.lower()  # Normalize the name for multi-word token matching.
+        segments = self._name_segments(function.name)  # Whole-word segments for single-word tokens.
         for token in self._HIGH_TOKENS:  # Check the strong indirection tokens first.
-            if token in lowered:  # The name embeds a prohibited token.
+            if self._token_matches(token, lowered, segments):  # Whole-word (or multi-word) match.
                 return self._make_naming(function, token, Severity.MEDIUM)  # Medium-severity smell.
         for token in self._LOW_TOKENS:  # Check the softer helper tokens next.
-            if token in lowered:  # The name embeds a helper token.
+            if self._token_matches(token, lowered, segments):  # Whole-word match only.
                 return self._make_naming(function, token, Severity.LOW)  # Low-severity smell.
         return None  # No suspicious naming token found.
+
+    @staticmethod
+    def _name_segments(name: str) -> set[str]:
+        """Split an identifier into lowercased word segments (underscore + camelCase aware)."""
+        return {part.lower() for part in re.findall(r"[A-Za-z][a-z]*|\d+", name)}  # Whole words only.
+
+    @classmethod
+    def _token_matches(cls, token: str, lowered: str, segments: set[str]) -> bool:
+        """Return True when a naming token applies as a whole word (avoids substring false positives).
+
+        Multi-word tokens such as ``pass_through`` are already specific, so they match as a
+        substring of the full lowered name. Single-word tokens (``compat``, ``legacy``,
+        ``helper``) must match a complete word segment so ``compat`` no longer flags
+        ``compatibility`` and ``helper`` no longer flags the product name ``misthelper``.
+        """
+        if "_" in token:  # Multi-word tokens are specific enough to match as a substring.
+            return token in lowered  # e.g., pass_through.
+        return token in segments  # Single-word tokens must equal a whole word segment.
 
     @staticmethod
     def _make_naming(function: ast.FunctionDef | ast.AsyncFunctionDef, token: str, severity: Severity) -> Violation:
@@ -467,6 +487,25 @@ class ArchitecturalAnalyzer:
             remediation="Fold the behavior into the owning class/method instead of a named indirection layer.",
         )
 
+    # Literal receiver node types: a method call on one of these is a self-contained
+    # computation (e.g., ``{...}.get(x)`` or ``[...].index(x)``), not delegation to a collaborator.
+    _LITERAL_RECEIVERS = (
+        ast.Dict,
+        ast.List,
+        ast.Set,
+        ast.Tuple,
+        ast.Constant,
+        ast.DictComp,
+        ast.ListComp,
+        ast.SetComp,
+        ast.GeneratorExp,
+        ast.JoinedStr,
+    )
+
+    # Output-sink call targets: forwarding a parameter to logging/printing is an output
+    # operation, not delegation to a collaborator object that the guidelines prohibit.
+    _OUTPUT_SINK_RECEIVERS = ("logging", "logger", "log")
+
     def _is_delegation(self, function: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
         """Return True when a function only forwards to another call."""
         if function.name.startswith("__") and function.name.endswith("__"):  # Dunder forwarders are not wrappers.
@@ -477,9 +516,22 @@ class ArchitecturalAnalyzer:
         call = self._single_call(body[0])  # Extract a lone call expression if present.
         if call is None or not isinstance(call.func, (ast.Name, ast.Attribute)):  # Must call a named target.
             return False  # Not a delegation to a named callable.
+        if isinstance(call.func, ast.Attribute) and isinstance(call.func.value, self._LITERAL_RECEIVERS):
+            return False  # A method on a literal (e.g., {...}.get(x)) is a computation, not delegation.
+        if self._is_output_sink_call(call):  # logging.info(...) / logger.debug(...) / print(...) are output ops.
+            return False  # Emitting output is not architectural delegation to a collaborator.
         if self._called_name(call)[:1].isupper():  # CapWords target is a constructor/factory, not a wrapper.
             return False  # Building and returning an object is not pass-through delegation.
         return self._forwards_parameters(function, call)  # Confirm it forwards its own parameters.
+
+    @classmethod
+    def _is_output_sink_call(cls, call: ast.Call) -> bool:
+        """Return True when a call writes to a logging/print output sink rather than a collaborator."""
+        if isinstance(call.func, ast.Name):  # Bare-name call such as print(...).
+            return call.func.id == "print"  # Printing is output, not delegation.
+        if isinstance(call.func, ast.Attribute) and isinstance(call.func.value, ast.Name):  # name.attr(...).
+            return call.func.value.id in cls._OUTPUT_SINK_RECEIVERS  # logging./logger./log. emit output.
+        return False  # Any other target may be a genuine collaborator delegation.
 
     @staticmethod
     def _called_name(call: ast.Call) -> str:
