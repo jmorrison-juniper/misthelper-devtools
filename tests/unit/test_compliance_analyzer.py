@@ -138,3 +138,25 @@ def test_scorer_grades_and_minimums() -> None:
     assert scorer.grade(59.0) == "F"  # A failing score is an F grade.
     assert scorer.meets_minimum("B", "C")  # A B grade satisfies a C minimum.
     assert not scorer.meets_minimum("D", "C")  # A D grade fails a C minimum.
+
+
+def test_generated_and_vendored_paths_are_excluded(tmp_path: Path) -> None:
+    """Generated/vendored trees are skipped by default so they do not inflate counts (issue #451)."""
+    sample = "x = 1  # trivial module body.\n"  # Minimal valid Python for each throwaway file.
+    # Files that MUST be excluded by default: generated protobuf + vendored skill scripts.
+    excluded_rel = [
+        "starlink-api-reference/device-api/device_pb2_grpc.py",  # Generated gRPC stub.
+        ".agents/skills/caveman/scripts/compress.py",  # Vendored skill script.
+        "data/skills/caveman/scripts/validate.py",  # Mirror of the vendored skill script.
+    ]
+    # A normal source file that MUST still be collected.
+    included_rel = "src/example_module.py"  # Ordinary project source under src/.
+    for rel in [*excluded_rel, included_rel]:  # Materialize every sample on disk.
+        path = tmp_path / rel  # Resolve under the throwaway temp root.
+        path.parent.mkdir(parents=True, exist_ok=True)  # Create intermediate dirs.
+        path.write_text(sample, encoding="utf-8")  # Write the minimal module.
+    reports = ComplianceAnalyzer().analyze_targets([str(tmp_path)], recursive=True)  # Scan the tree.
+    collected = {Path(r.path).as_posix() for r in reports}  # Normalize collected paths for matching.
+    assert any(included_rel in p for p in collected)  # The ordinary src/ file is analyzed.
+    for rel in excluded_rel:  # None of the generated/vendored files may appear.
+        assert not any(rel in p for p in collected), f"{rel} should have been excluded"  # Assert exclusion.

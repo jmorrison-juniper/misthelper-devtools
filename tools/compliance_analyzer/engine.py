@@ -86,8 +86,9 @@ class ComplianceAnalyzer:
     """Read Python files, run the analyzers, and score each file."""
 
     # Path fragments that are always skipped during directory scans.
-    # Both POSIX and Windows separators are listed for tests/fixtures so the analyzer
-    # ignores intentionally-broken codemod input corpora regardless of host OS.
+    # Matching is performed against the POSIX form of each path (see _is_excluded), so the
+    # tokens below use forward slashes. The Windows "tests\\fixtures" form is kept only for
+    # backward compatibility with callers that pass pre-normalized Windows fragments.
     _DEFAULT_EXCLUDES = (
         ".venv",
         "site-packages",
@@ -96,6 +97,9 @@ class ComplianceAnalyzer:
         "node_modules",
         "tests/fixtures",
         "tests\\fixtures",
+        "starlink-api-reference",  # Third-party reference + generated gRPC protobuf (device_pb2*.py).
+        ".agents/skills",  # Vendored Copilot skill scripts -- not project source.
+        "data/skills",  # Mirror of the vendored skill scripts under the runtime data dir.
     )
 
     def __init__(
