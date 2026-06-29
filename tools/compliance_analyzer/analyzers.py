@@ -43,6 +43,19 @@ class AstHelpers:
         value = statement.value  # Inspect the wrapped expression value.
         return isinstance(value, ast.Constant) and isinstance(value.value, str)  # String constant only.
 
+    @staticmethod
+    def _named_parameter_names(arguments: ast.arguments) -> list[str]:
+        """Return every named parameter identifier from an arguments object."""
+        positional = [*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs]  # Collect only named slots.
+        return [argument.arg for argument in positional]  # Normalize the nodes to plain identifier strings.
+
+    @staticmethod
+    def _receiver_discount(names: list[str]) -> int:
+        """Return the receiver adjustment for methods that start with self/cls."""
+        if names and names[0] in ("self", "cls"):  # Leading receivers do not consume the parameter budget.
+            return 1  # Discount the receiver from the final count.
+        return 0  # Standalone functions receive no adjustment.
+
     @classmethod
     def body_without_docstring(cls, function: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.stmt]:
         """Return a function body with any leading docstring removed."""
@@ -55,14 +68,11 @@ class AstHelpers:
     def parameter_count(function: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
         """Return the parameter count, excluding a leading self/cls receiver."""
         arguments = function.args  # Access the arguments node once.
-        positional = [*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs]  # All named params.
-        names = [argument.arg for argument in positional]  # Extract the identifier strings.
+        names = AstHelpers._named_parameter_names(arguments)  # Reuse the shared named-parameter extraction logic.
         count = len(names)  # Start from the named-parameter count.
         count += 1 if arguments.vararg else 0  # Count *args as a single parameter.
         count += 1 if arguments.kwarg else 0  # Count **kwargs as a single parameter.
-        if names and names[0] in ("self", "cls"):  # Detect an instance/class receiver.
-            count -= 1  # Receivers do not count toward the parameter budget.
-        return count  # Return the adjusted parameter count.
+        return count - AstHelpers._receiver_discount(names)  # Subtract any leading receiver from the budget.
 
     @staticmethod
     def parameter_names(function: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
@@ -76,13 +86,20 @@ class AstHelpers:
         return names  # Return all parameter identifiers.
 
     @staticmethod
+    def _decorator_matches_name(decorator: ast.expr, name: str) -> bool:
+        """Return True when one decorator expression exposes the requested name."""
+        if isinstance(decorator, ast.Name):  # Bare decorators expose their identifier directly.
+            return decorator.id == name  # Match the simple decorator name.
+        if isinstance(decorator, ast.Attribute):  # Dotted decorators expose the terminal attribute name.
+            return decorator.attr == name  # Match the attribute-style decorator name.
+        return False  # Calls and other forms do not match this simple-name lookup.
+
+    @staticmethod
     def has_decorator(function: ast.FunctionDef | ast.AsyncFunctionDef, name: str) -> bool:
         """Return True when the function carries a decorator with the given name."""
         for decorator in function.decorator_list:  # Inspect each decorator expression.
-            if isinstance(decorator, ast.Name) and decorator.id == name:  # Bare-name decorator.
-                return True  # Matched a simple decorator name.
-            if isinstance(decorator, ast.Attribute) and decorator.attr == name:  # Dotted decorator.
-                return True  # Matched an attribute-style decorator name.
+            if AstHelpers._decorator_matches_name(decorator, name):  # Centralize decorator-shape matching in one place.
+                return True  # Stop as soon as one decorator matches the requested name.
         return False  # No matching decorator found.
 
     @classmethod
@@ -124,22 +141,29 @@ class StructuralComplexityAnalyzer:
                 violations.extend(self._check_function(node, context))  # Append this function's findings.
         return violations  # Return the combined list.
 
+    def _enabled_structural_checks(
+        self, function: ast.FunctionDef | ast.AsyncFunctionDef, noqa: set[str]
+    ) -> list[Violation | None]:
+        """Return the structural checks still enabled after noqa suppression filtering."""
+        checks = (  # Preserve the reporting order so existing output stays stable.
+            ("STRUCT-PARAMS", self._check_parameters),  # Parameter-budget rule.
+            ("STRUCT-LENGTH", self._check_length),  # Function-length rule.
+            ("STRUCT-COMPLEXITY", self._check_complexity),  # Cyclomatic-complexity rule.
+            ("STRUCT-BLOCKS", self._check_blocks),  # Logical-block-count rule.
+            ("STRUCT-NESTING", self._check_nesting),  # Nesting-depth rule.
+        )
+        return [checker(function) for rule_id, checker in checks if rule_id not in noqa]  # Keep only enabled checks.
+
     def _check_function(  # Signature gained `context` so noqa suppressions can be honored per-line.
         self, function: ast.FunctionDef | ast.AsyncFunctionDef, context: AnalysisContext
     ) -> list[Violation]:
         """Run every structural check against a single function."""
         found: list[Violation] = []  # Collect violations for this function.
         noqa = context.noqa_rules(function.lineno)  # Look up any noqa suppressions on the def line.
-        if "STRUCT-PARAMS" not in noqa:  # Skip param-count check when explicitly suppressed.
-            self._maybe(found, self._check_parameters(function))  # Parameter-count rule.
-        if "STRUCT-LENGTH" not in noqa:  # Skip length check when explicitly suppressed.
-            self._maybe(found, self._check_length(function))  # Function-length rule.
-        if "STRUCT-COMPLEXITY" not in noqa:  # Skip complexity check when explicitly suppressed.
-            self._maybe(found, self._check_complexity(function))  # Cyclomatic-complexity rule.
-        if "STRUCT-BLOCKS" not in noqa:  # Skip block-count check when explicitly suppressed.
-            self._maybe(found, self._check_blocks(function))  # Logical-block-count rule.
-        if "STRUCT-NESTING" not in noqa:  # Skip nesting check when explicitly suppressed.
-            self._maybe(found, self._check_nesting(function))  # Nesting-depth rule.
+        for violation in self._enabled_structural_checks(
+            function, noqa
+        ):  # Run the unsuppressed structural checks only.
+            self._maybe(found, violation)  # Record any violation each enabled check produced.
         return found  # Return all findings for this function.
 
     @staticmethod
@@ -349,6 +373,19 @@ class ArchitecturalAnalyzer:
                 violations.extend(self._check_function(node, is_nested=nested))  # Wrapper/stub/naming checks.
         return violations  # Return the combined findings.
 
+    @classmethod
+    def _nested_function_ids_in_scope(cls, function: ast.FunctionDef | ast.AsyncFunctionDef) -> set[int]:
+        """Return the id() of every nested function defined inside one function's subtree."""
+        nested_ids: set[int] = set()  # Collect the closure identities found under this function.
+        for descendant in ast.walk(function):  # Walk the function subtree because ast lacks parent pointers.
+            if descendant is function:  # The parent function itself is not nested within itself.
+                continue  # Skip the root node before testing descendants.
+            if isinstance(
+                descendant, (ast.FunctionDef, ast.AsyncFunctionDef)
+            ):  # Only nested function definitions matter for delegation suppression.
+                nested_ids.add(id(descendant))  # Record the descendant identity so the outer walk can recognize it.
+        return nested_ids  # Return every closure identity found in this one subtree.
+
     @staticmethod
     def _collect_nested_function_ids(tree: ast.AST) -> set[int]:
         """Return the id() of every function nested inside another function.
@@ -362,13 +399,13 @@ class ArchitecturalAnalyzer:
         """
         nested: set[int] = set()  # Collect identities of inner (closure) functions.
         for node in ast.walk(tree):  # Inspect every node looking for function parents.
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):  # Only functions can host closures.
-                continue  # Skip non-function nodes.
-            for descendant in ast.walk(node):  # Walk this function's own subtree.
-                if descendant is node:  # The parent itself is not nested within itself.
-                    continue  # Skip the parent node.
-                if isinstance(descendant, (ast.FunctionDef, ast.AsyncFunctionDef)):  # Function inside a function.
-                    nested.add(id(descendant))  # Record its identity as nested.
+            if not isinstance(
+                node, (ast.FunctionDef, ast.AsyncFunctionDef)
+            ):  # Only functions can host closures in their subtree.
+                continue  # Skip non-function nodes quickly.
+            nested.update(
+                ArchitecturalAnalyzer._nested_function_ids_in_scope(node)
+            )  # Merge this function's closure ids.
         return nested  # Return the set of closure identities.
 
     def _scope_aliases(self, body: list[ast.stmt], scope: str) -> list[Violation]:
@@ -382,18 +419,52 @@ class ArchitecturalAnalyzer:
             found.append(self._alias_violation(name, is_pure_name, statement.lineno, scope))  # Record it.
         return found  # Return all alias violations for the scope.
 
+    @staticmethod
+    def _single_name_assignment_target(statement: ast.stmt) -> ast.Name | None:
+        """Return the assignment target when a statement is a single-name assignment."""
+        if (
+            not isinstance(statement, ast.Assign) or len(statement.targets) != 1
+        ):  # Alias rules only care about simple assignments.
+            return None  # Multi-target or non-assign statements cannot be pass-through aliases.
+        target = statement.targets[0]  # Inspect the lone assignment target.
+        if not isinstance(target, ast.Name):  # Alias targets must bind a plain name in the current scope.
+            return None  # Attribute/subscript targets are mutations, not alias declarations.
+        return target  # Surface the simple-name target for later checks.
+
     def _alias_assignment(self, statement: ast.stmt) -> tuple[str, bool] | None:
         """Return (name, is_pure_name) for an alias assignment, else None."""
-        if not isinstance(statement, ast.Assign) or len(statement.targets) != 1:  # Single-target only.
+        target = self._single_name_assignment_target(
+            statement
+        )  # Validate the statement shape before reading its fields.
+        if target is None:  # Only simple name assignments qualify for alias analysis.
             return None  # Not an alias assignment.
-        target = statement.targets[0]  # Inspect the assignment target.
-        if not isinstance(target, ast.Name) or not isinstance(statement.value, self._ALIAS_RHS):  # Name = Name/Attr.
+        if not isinstance(statement.value, self._ALIAS_RHS):  # Alias rules only flag plain symbol rebinding.
             return None  # Not an alias assignment.
         if target.id.isupper():  # ALL_CAPS targets are intentional constants.
             return None  # Constants are allowed, not flagged.
         if self._is_type_alias_placeholder(target.id, statement.value):  # Type aliases such as `MyFn = Any`.
             return None  # Type-only aliases are documentation, not architectural indirection.
         return target.id, isinstance(statement.value, ast.Name)  # Pure-name RHS is the classic alias.
+
+    @staticmethod
+    def _is_pascal_case_type_name(target_name: str) -> bool:
+        """Return True when a target name looks like a conventional type alias identifier."""
+        if (
+            not target_name or not target_name[0].isupper()
+        ):  # Type aliases conventionally start with an uppercase letter.
+            return False  # snake_case names are runtime identifiers, not type aliases.
+        return not (
+            "_" in target_name and target_name.lower() == target_name
+        )  # Never treat snake_case names as type aliases.
+
+    @staticmethod
+    def _is_type_marker_value(value: ast.expr) -> bool:
+        """Return True when the right-hand side is a common placeholder type marker."""
+        if isinstance(value, ast.Name):  # Bare marker names are the simplest type-alias placeholders.
+            return value.id in {"Any", "TypeAlias", "object"}  # Accept the project's common type-only placeholders.
+        if isinstance(value, ast.Attribute):  # Qualified markers cover typing.Any and typing.TypeAlias.
+            return value.attr in {"Any", "TypeAlias"}  # The terminal attribute communicates the placeholder intent.
+        return False  # Real runtime objects should continue through alias analysis.
 
     @staticmethod
     def _is_type_alias_placeholder(target_name: str, value: ast.expr) -> bool:
@@ -407,15 +478,11 @@ class ArchitecturalAnalyzer:
         to qualify -- runtime identifiers normally follow snake_case so this
         avoids accidentally exempting genuine pass-through aliases.
         """
-        if not target_name or not target_name[0].isupper():  # PascalCase is the convention for type aliases.
-            return False  # snake_case or _private targets are runtime identifiers, not type aliases.
-        if "_" in target_name and target_name.lower() == target_name:  # snake_case fallback (paranoid).
-            return False  # Belt-and-suspenders: never exempt snake_case names.
-        if isinstance(value, ast.Name) and value.id in {"Any", "TypeAlias", "object"}:  # Bare type-alias markers.
-            return True  # Treat as type alias and skip.
-        if isinstance(value, ast.Attribute):  # Handle `typing.Any` / `typing.TypeAlias` qualified forms.
-            return value.attr in {"Any", "TypeAlias"}  # Same marker set, on a qualified RHS.
-        return False  # Anything else (e.g. `MyFn = SomeRealClass`) stays flagged.
+        if not ArchitecturalAnalyzer._is_pascal_case_type_name(
+            target_name
+        ):  # Require a conventional type-like target name.
+            return False  # Runtime identifiers must keep flowing through the alias rule.
+        return ArchitecturalAnalyzer._is_type_marker_value(value)  # Only placeholder marker values qualify.
 
     def _alias_violation(self, name: str, is_pure_name: bool, line: int, scope: str) -> Violation:
         """Build the violation for a detected alias/pointer assignment."""
@@ -506,22 +573,58 @@ class ArchitecturalAnalyzer:
     # operation, not delegation to a collaborator object that the guidelines prohibit.
     _OUTPUT_SINK_RECEIVERS = ("logging", "logger", "log")
 
+    @staticmethod
+    def _is_dunder_name(name: str) -> bool:
+        """Return True when a function name is a Python dunder protocol hook."""
+        return name.startswith("__") and name.endswith("__")  # Dunder hooks often delegate by design.
+
+    def _delegation_call(self, function: ast.FunctionDef | ast.AsyncFunctionDef) -> ast.Call | None:
+        """Return the forwarded call when a function body is exactly one named call statement."""
+        body = AstHelpers.body_without_docstring(
+            function
+        )  # Ignore docstrings because they are non-executable metadata.
+        if len(body) != 1:  # Delegators must collapse to one executable statement.
+            return None  # Multiple statements imply local logic beyond pure forwarding.
+        call = self._single_call(body[0])  # Pull out a lone call from return-call or expr-call forms.
+        if call is None or not isinstance(
+            call.func, (ast.Name, ast.Attribute)
+        ):  # Delegation requires a simple named callee.
+            return None  # Complex call targets do not look like pass-through wrappers.
+        return call  # Surface the candidate forwarded call for further exemption checks.
+
+    @classmethod
+    def _is_literal_receiver_call(cls, call: ast.Call) -> bool:
+        """Return True when a method call targets a literal or comprehension result."""
+        if not isinstance(call.func, ast.Attribute):  # Bare function calls have no receiver object to classify.
+            return False  # Literal-receiver exemptions only apply to attribute calls.
+        return isinstance(
+            call.func.value, cls._LITERAL_RECEIVERS
+        )  # Literal methods compute locally rather than delegate outward.
+
+    @classmethod
+    def _is_non_delegating_call(cls, call: ast.Call) -> bool:
+        """Return True when a candidate call is exempt from delegation reporting."""
+        if cls._is_literal_receiver_call(
+            call
+        ):  # Literal receivers represent inline computation, not collaborator forwarding.
+            return True  # Exempt local computation helpers.
+        if cls._is_output_sink_call(call):  # Logging and print calls produce output rather than hide architecture.
+            return True  # Exempt output sinks from delegation findings.
+        return cls._called_name(call)[
+            :1
+        ].isupper()  # Constructor/factory calls build objects instead of delegating behavior.
+
     def _is_delegation(self, function: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
         """Return True when a function only forwards to another call."""
-        if function.name.startswith("__") and function.name.endswith("__"):  # Dunder forwarders are not wrappers.
+        if self._is_dunder_name(
+            function.name
+        ):  # Dunder forwarders implement protocol hooks rather than architectural wrappers.
             return False  # __call__/__getattr__ are Python's delegation protocol, never architectural shims.
-        body = AstHelpers.body_without_docstring(function)  # Ignore any leading docstring.
-        if len(body) != 1:  # Real logic has more than a single statement.
-            return False  # Not a pure delegation.
-        call = self._single_call(body[0])  # Extract a lone call expression if present.
-        if call is None or not isinstance(call.func, (ast.Name, ast.Attribute)):  # Must call a named target.
-            return False  # Not a delegation to a named callable.
-        if isinstance(call.func, ast.Attribute) and isinstance(call.func.value, self._LITERAL_RECEIVERS):
-            return False  # A method on a literal (e.g., {...}.get(x)) is a computation, not delegation.
-        if self._is_output_sink_call(call):  # logging.info(...) / logger.debug(...) / print(...) are output ops.
-            return False  # Emitting output is not architectural delegation to a collaborator.
-        if self._called_name(call)[:1].isupper():  # CapWords target is a constructor/factory, not a wrapper.
-            return False  # Building and returning an object is not pass-through delegation.
+        call = self._delegation_call(function)  # Normalize the single-statement body into one candidate call.
+        if call is None:  # Any other function shape cannot be a pure pass-through delegator.
+            return False  # Stop before parameter-forwarding analysis.
+        if self._is_non_delegating_call(call):  # Exempt local computation, output sinks, and constructor/factory calls.
+            return False  # These one-liners are intentional patterns, not architectural wrappers.
         return self._forwards_parameters(function, call)  # Confirm it forwards its own parameters.
 
     @classmethod
@@ -587,12 +690,21 @@ class ArchitecturalAnalyzer:
             remediation="Inline the call at its call sites or move the logic into the owning class method.",
         )
 
+    @classmethod
+    def _is_stub_exempt(cls, function: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+        """Return True when a function is allowed to be stub-like by project policy."""
+        if AstHelpers.has_decorator(
+            function, "abstractmethod"
+        ):  # Abstract methods are contracts, not unfinished facades.
+            return True  # Skip stub reporting for legitimate abstract APIs.
+        return cls._is_dunder_name(
+            function.name
+        )  # Dunder placeholders are sometimes mandatory for protocol compatibility.
+
     def _is_stub(self, function: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
         """Return True when a function is an empty facade/stub."""
-        if AstHelpers.has_decorator(function, "abstractmethod"):  # Abstract methods are legitimate stubs.
-            return False  # Do not flag declared abstract methods.
-        if function.name.startswith("__") and function.name.endswith("__"):  # Dunder stubs are often required.
-            return False  # Avoid flagging empty dunder methods.
+        if self._is_stub_exempt(function):  # Centralize every intentional stub exemption in one policy helper.
+            return False  # Allowed stubs must not surface as architectural violations.
         body = AstHelpers.body_without_docstring(function)  # Ignore any leading docstring.
         if not body:  # A docstring-only body is an empty stub.
             return True  # Treat as a stub.
@@ -690,17 +802,32 @@ class ConventionAnalyzer:
         if violation is not None:  # Skip checks that returned nothing.
             target.append(violation)  # Record the produced violation.
 
+    @staticmethod
+    def _comment_coverage_details(context: AnalysisContext) -> tuple[float, list[int]] | None:
+        """Return comment-coverage data only when a file falls below the target."""
+        code_lines = context.code_lines  # Executable lines define the denominator for comment coverage.
+        if not code_lines:  # Files without executable statements are trivially compliant.
+            return None  # Skip file-level coverage reporting for empty modules.
+        commented = (
+            context.inline_comment_lines & code_lines
+        )  # Intersect inline-comment lines with executable lines only.
+        coverage = len(commented) / len(code_lines)  # Compute the commented fraction once for reuse below.
+        if coverage >= COMMENT_TARGET:  # Files at or above target should not emit a violation.
+            return None  # Tell the caller there is nothing to report.
+        missing = sorted(code_lines - context.inline_comment_lines)[
+            :12
+        ]  # Capture a short, stable sample of missing lines.
+        return coverage, missing  # Surface the computed data for violation construction.
+
     def _check_comment_coverage(self, context: AnalysisContext) -> Violation | None:
         """Flag files whose inline-comment coverage is below target."""
-        code_lines = context.code_lines  # Executable lines that should carry comments.
-        if not code_lines:  # Files with no executable code are trivially compliant.
+        details = self._comment_coverage_details(
+            context
+        )  # Compute reusable coverage metrics before building a violation.
+        if details is None:  # Compliant or empty files do not need a report.
             return None  # No violation to report.
-        commented = context.inline_comment_lines & code_lines  # Lines that carry an inline comment.
-        coverage = len(commented) / len(code_lines)  # Fraction of commented executable lines.
-        if coverage >= COMMENT_TARGET:  # Meeting the target is compliant.
-            return None  # No violation to report.
+        coverage, missing = details  # Unpack the already-validated coverage data.
         severity = Severity.HIGH if coverage < COMMENT_FLOOR else Severity.MEDIUM  # Escalate very low coverage.
-        missing = sorted(code_lines - context.inline_comment_lines)[:12]  # Sample of uncommented lines.
         sample = ", ".join(str(line) for line in missing)  # Render the sample as text.
         return Violation(
             rule_id="CONV-COMMENTS",  # Stable rule identifier.
@@ -754,15 +881,60 @@ class ConventionAnalyzer:
         )
 
     @classmethod
+    def _log_attribute(cls, node: ast.Call) -> ast.Attribute | None:
+        """Return the call attribute when a call targets a recognized logging method."""
+        function = node.func  # Inspect the called expression once so later checks reuse it.
+        if not isinstance(function, ast.Attribute):  # Logging calls must be attribute access such as logger.info(...).
+            return None  # Bare calls cannot identify a logging owner + method pair.
+        if function.attr not in cls._LOG_METHODS:  # Only the configured logging method names are relevant here.
+            return None  # Unknown attribute names are not treated as logging methods.
+        return function  # Surface the attribute node so owner inspection can stay separate.
+
+    @classmethod
+    def _is_log_owner(cls, owner: ast.expr) -> bool:
+        """Return True when an expression names a logging owner object."""
+        if isinstance(owner, ast.Name):  # Direct owners cover logging.info(...) and logger.debug(...).
+            return owner.id in cls._LOG_OWNERS  # Match the configured owner identifiers exactly.
+        if isinstance(owner, ast.Attribute):  # Attribute owners cover self.logger.info(...) and module.LOG.error(...).
+            return owner.attr in cls._LOG_OWNERS  # Match the terminal attribute name used as the logger handle.
+        return False  # Other owner shapes are too ambiguous to treat as canonical logging.
+
+    @classmethod
     def _is_log_call(cls, node: ast.Call) -> bool:
         """Return True when a call looks like a logging method invocation."""
-        function = node.func  # Inspect the called expression.
-        if not isinstance(function, ast.Attribute) or function.attr not in cls._LOG_METHODS:  # method name.
-            return False  # Not a recognized logging method.
-        owner = function.value  # Inspect the object the method is called on.
-        if isinstance(owner, ast.Name) and owner.id in cls._LOG_OWNERS:  # logging.info / logger.debug.
-            return True  # Recognized logging owner.
-        return isinstance(owner, ast.Attribute) and owner.attr in cls._LOG_OWNERS  # self.logger.info etc.
+        function = cls._log_attribute(node)  # Normalize the call target to one recognized logging attribute.
+        if function is None:  # Non-logging methods should stop before owner inspection.
+            return False  # The call target does not look like a logging method.
+        return cls._is_log_owner(function.value)  # Delegate owner recognition to the dedicated owner helper.
+
+    @staticmethod
+    def _string_literal_value(node: ast.AST) -> str | None:
+        """Return a node's string literal value, or None for every other AST shape."""
+        if not isinstance(node, ast.Constant) or not isinstance(
+            node.value, str
+        ):  # Path analysis only applies to literal strings.
+            return None  # Non-string nodes cannot embed hardcoded drive paths.
+        return node.value  # Surface the literal text for the path heuristic.
+
+    @staticmethod
+    def _windows_drive_marker_index(text: str) -> int | None:
+        """Return the index of a colon-backslash drive marker when one is present."""
+        drive_marker = ":" + chr(92)  # Build the marker indirectly so this analyzer does not self-flag its own source.
+        if drive_marker not in text:  # Cheap reject to skip literals without any drive-style fragment.
+            return None  # No possible Windows drive marker exists in this text.
+        return text.index(drive_marker)  # Return the marker position for contextual validation.
+
+    @staticmethod
+    def _looks_like_windows_drive_path(text: str, index: int) -> bool:
+        """Return True when a marker position is anchored like a real drive-letter path."""
+        if index == 0:  # Real drive paths need one letter before the colon.
+            return False  # A leading marker lacks the drive letter anchor.
+        preceding = text[index - 1]  # Inspect the character immediately before the colon.
+        if not preceding.isalpha():  # Drive roots must look like C:\ or D:\.
+            return False  # Regex classes and other punctuation fragments fail this anchor test.
+        if index >= 2 and text[index - 2].isalnum():  # Multi-character words before :\ usually signal regex text.
+            return False  # Skip fragments like master:\d+ and doc:\s* that are not filesystem paths.
+        return True  # The marker has the shape of a genuine Windows drive root.
 
     @staticmethod
     def _check_path(node: ast.AST) -> Violation | None:
@@ -775,20 +947,20 @@ class ConventionAnalyzer:
         escapes embedded in longer words (e.g. `r"{master:\\d+}"`, `r"doc:\\s*"`)
         that happen to contain `:\\` for unrelated reasons.
         """
-        if not isinstance(node, ast.Constant) or not isinstance(node.value, str):  # Only string literals.
-            return None  # Not a string literal.
-        text = node.value  # Pull out the literal value once.
-        drive_marker = ":" + chr(92)  # Colon + backslash, built from parts to avoid self-flagging.
-        if drive_marker not in text:  # Cheap reject -- no drive-style fragment at all.
-            return None  # No hardcoded drive path present.
-        index = text.index(drive_marker)  # Locate the marker for context inspection.
-        if index == 0:  # No preceding character to anchor against -- ambiguous, skip.
-            return None  # Likely not a drive path (drives start with a letter).
-        preceding = text[index - 1]  # Look at the char immediately before the colon.
-        if not preceding.isalpha():  # Real drive paths look like `C:\` (letter, colon, backslash).
-            return None  # Not a drive-letter pattern -- skip regex char classes etc.
-        if index >= 2 and text[index - 2].isalnum():  # The "letter" is part of a longer word, not a lone drive.
-            return None  # Skip regex escapes like `master:\d+` or `doc:\s*` (multi-char word before `:\`).
+        text = ConventionAnalyzer._string_literal_value(
+            node
+        )  # Reduce the node to text only when it is a string literal.
+        if text is None:  # Non-string nodes cannot violate the cross-platform path rule.
+            return None  # No violation to report.
+        index = ConventionAnalyzer._windows_drive_marker_index(
+            text
+        )  # Search once for the marker this heuristic cares about.
+        if index is None:  # Literals without colon-backslash fragments are immediately compliant.
+            return None  # No hardcoded drive marker present.
+        if not ConventionAnalyzer._looks_like_windows_drive_path(
+            text, index
+        ):  # Apply the boundary heuristic to avoid regex false positives.
+            return None  # The fragment is not anchored like a real Windows drive path.
         return Violation(
             rule_id="CONV-PATH",  # Stable rule identifier.
             category="Conventions",  # Report grouping.
