@@ -88,7 +88,12 @@ class AnalysisContext:
         index = line_text.find(marker)  # Locate the marker; -1 means no marker present.
         if index < 0:  # No noqa annotation on this line.
             return frozenset()  # Return empty set so callers see "nothing suppressed".
-        tail = line_text[index + len(marker) :]  # Slice the rules portion after `# noqa:`.
+        return self._parse_noqa_tail(line_text[index + len(marker) :])  # Delegate rule-list parsing.
+
+    @staticmethod
+    def _parse_noqa_tail(tail: str) -> frozenset[str]:
+        """Split the text after ``# noqa:`` into a frozenset of rule IDs."""
+        # WHY: extracting the tail parser drops noqa_rules from CC=7 to CC=4.
         rules: set[str] = set()  # Accumulate parsed rule IDs.
         for piece in tail.split(","):  # Comma-separated rule IDs follow the marker.
             cleaned = piece.strip().split()[0] if piece.strip() else ""  # Stop at first whitespace per rule.
