@@ -9,20 +9,20 @@ from .models import FileReport, Severity, Violation  # Report record/enum types.
 from .scoring import ComplianceScorer  # Reused to grade the overall score.
 
 
-class MarkdownReportGenerator:
+class MarkdownReportGenerator:  # Renders scored file reports as Markdown.
     """Build a Markdown compliance report including a SpecKit remediation plan."""
 
     # Severity processing order from most to least serious.
-    _SEVERITY_ORDER = (Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW)
+    _SEVERITY_ORDER = (Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW)  # Worst-first order.
 
     # Cap remediation tasks so very large scans produce a usable document.
-    _MAX_TASKS = 300
+    _MAX_TASKS = 300  # Hard cap on tasks rendered in the plan.
 
-    def __init__(self, scorer: ComplianceScorer | None = None) -> None:
+    def __init__(self, scorer: ComplianceScorer | None = None) -> None:  # Optional custom scorer injection.
         """Create the generator with an optional custom scorer."""
         self._scorer = scorer or ComplianceScorer()  # Used for the overall grade.
 
-    def generate(self, reports: list[FileReport]) -> str:
+    def generate(self, reports: list[FileReport]) -> str:  # Entry point that assembles the whole report.
         """Render the full Markdown report for a list of file reports."""
         lines: list[str] = []  # Accumulate output lines.
         lines.extend(self._header(reports))  # Title and metadata block.
@@ -33,7 +33,7 @@ class MarkdownReportGenerator:
         lines.extend(self._speckit_plan(reports))  # Agent-ready remediation plan.
         return "\n".join(lines) + "\n"  # Join with newlines and a trailing newline.
 
-    def _header(self, reports: list[FileReport]) -> list[str]:
+    def _header(self, reports: list[FileReport]) -> list[str]:  # Title/metadata lines.
         """Return the report title and metadata lines."""
         timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")  # Current UTC timestamp.
         return [
@@ -50,7 +50,7 @@ class MarkdownReportGenerator:
             "",  # Spacer.
         ]
 
-    def _summary(self, reports: list[FileReport]) -> list[str]:
+    def _summary(self, reports: list[FileReport]) -> list[str]:  # Aggregate score + per-file table.
         """Return the overall summary and the per-file results table."""
         overall = self.overall_score(reports)  # Mean score across files.
         grade = self._scorer.grade(overall)  # Overall letter grade.
@@ -68,7 +68,7 @@ class MarkdownReportGenerator:
         lines.append("")  # Trailing spacer.
         return lines  # Return the summary block.
 
-    def _summary_row(self, report: FileReport) -> str:
+    def _summary_row(self, report: FileReport) -> str:  # One row in the per-file summary table.
         """Return a single Markdown summary-table row for one file."""
         counts = self._counts(report.violations)  # Severity counts for this file.
         return (
@@ -77,7 +77,7 @@ class MarkdownReportGenerator:
             f"{counts[Severity.MEDIUM]} | {counts[Severity.LOW]} | {len(report.violations)} |"  # Rest.
         )
 
-    def _machine_summary(self, reports: list[FileReport]) -> list[str]:
+    def _machine_summary(self, reports: list[FileReport]) -> list[str]:  # JSON block for downstream tooling.
         """Return a fenced JSON block summarizing results for tooling/agents."""
         payload = {
             "overall_score": round(self.overall_score(reports), 1),  # Aggregate score.
@@ -86,9 +86,9 @@ class MarkdownReportGenerator:
             "rule_totals": self._rule_totals(reports),  # Totals per rule id.
             "files": self._file_payloads(reports),  # Compact per-file records.
         }
-        return ["## Machine-Readable Summary", "", "```json", json.dumps(payload, indent=2), "```", ""]
+        return ["## Machine-Readable Summary", "", "```json", json.dumps(payload, indent=2), "```", ""]  # Fenced.
 
-    def _file_payloads(self, reports: list[FileReport]) -> list[dict[str, object]]:
+    def _file_payloads(self, reports: list[FileReport]) -> list[dict[str, object]]:  # JSON per-file records.
         """Return compact per-file dictionaries for the JSON summary."""
         return [
             {
@@ -100,7 +100,7 @@ class MarkdownReportGenerator:
             for report in reports  # One entry per analyzed file.
         ]
 
-    def _file_section(self, report: FileReport) -> list[str]:
+    def _file_section(self, report: FileReport) -> list[str]:  # Full section for one analyzed file.
         """Return the full Markdown section for one analyzed file."""
         lines = [
             f"## File: {self._md(report.path)}",  # File heading.
@@ -187,12 +187,8 @@ class MarkdownReportGenerator:
     def _plan_body(self, all_tasks: list[tuple[str, Violation]]) -> list[str]:
         """Render the truncation note and severity-prioritized task blocks."""
         lines: list[str] = []  # Accumulate plan body lines.
-        order = {severity: index for index, severity in enumerate(self._SEVERITY_ORDER)}  # Severity ranking.
-        prioritized = sorted(all_tasks, key=lambda task: order[task[1].severity])  # Worst severity first.
-        tasks = prioritized[: self._MAX_TASKS]  # Keep the most severe tasks within the cap.
-        if len(all_tasks) > self._MAX_TASKS:  # Note when tasks were truncated.
-            lines.append(f"> Note: showing the {self._MAX_TASKS} highest-severity of {len(all_tasks)} tasks.")
-            lines.append("")  # Spacer.
+        tasks = self._prioritize_tasks(all_tasks)  # Sorted + capped worst-first.
+        lines.extend(self._truncation_note(all_tasks))  # Note when tasks were truncated.
         counter = 1  # Sequential task numbering across phases.
         for severity in self._SEVERITY_ORDER:  # Emit phases from critical to low.
             group = [task for task in tasks if task[1].severity == severity]  # Tasks for this severity.
@@ -201,6 +197,23 @@ class MarkdownReportGenerator:
             block, counter = self._phase_lines(severity, group, counter)  # Render the phase block.
             lines.extend(block)  # Append the phase block.
         return lines  # Return the assembled plan body.
+
+    def _prioritize_tasks(self, all_tasks: list[tuple[str, Violation]]) -> list[tuple[str, Violation]]:
+        """Return tasks sorted worst-severity-first and capped at ``_MAX_TASKS``."""
+        # WHY: extracted so _plan_body drops from CC 7 to <=5.
+        order = {severity: index for index, severity in enumerate(self._SEVERITY_ORDER)}  # Severity ranking.
+        prioritized = sorted(all_tasks, key=lambda task: order[task[1].severity])  # Worst severity first.
+        return prioritized[: self._MAX_TASKS]  # Cap so oversized scans stay usable.
+
+    def _truncation_note(self, all_tasks: list[tuple[str, Violation]]) -> list[str]:
+        """Return the truncation-note lines when tasks exceed ``_MAX_TASKS``, else empty."""
+        # WHY: extracted so _plan_body drops from CC 7 to <=5.
+        if len(all_tasks) <= self._MAX_TASKS:  # Guard clause: no truncation needed.
+            return []  # Nothing to note.
+        return [
+            f"> Note: showing the {self._MAX_TASKS} highest-severity of {len(all_tasks)} tasks.",  # Note line.
+            "",  # Trailing spacer.
+        ]
 
     def _phase_lines(
         self,
