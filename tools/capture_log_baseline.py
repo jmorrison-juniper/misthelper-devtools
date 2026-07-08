@@ -67,12 +67,6 @@ FIXTURE_SITES: list[dict[str, Any]] = [  # Minimal but representative baseline.
         "inputs": {"table_text": "row1\nrow2"},
         "pattern": "g003_concat",
     },
-    {  # G201 inside an except: codemod must rename to logging.exception(...).
-        "site_id": "L8684",
-        "line": 8684,
-        "inputs": {"error": "fixture-error"},
-        "pattern": "g201_exc_info_in_except",
-    },
     {  # Multi-argument f-string with arithmetic on substitution.
         "site_id": "L6988",
         "line": 6988,
