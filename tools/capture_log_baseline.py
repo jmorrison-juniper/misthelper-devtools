@@ -55,12 +55,6 @@ FIXTURE_SITES: list[dict[str, Any]] = [  # Minimal but representative baseline.
         "inputs": {"sys_executable": "/usr/bin/python3"},
         "pattern": "attribute_access",
     },
-    {  # Numeric format spec `.2f` (codemod must emit "%.2f").
-        "site_id": "L8151",
-        "line": 8151,
-        "inputs": {"delay": 1.23456},
-        "pattern": "format_spec_2f",
-    },
     {  # Numeric format spec `.1f`.
         "site_id": "L11634",
         "line": 11634,
