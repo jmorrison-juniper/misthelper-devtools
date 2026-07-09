@@ -29,7 +29,20 @@ from tools.capture_log_baseline import (  # Reuse the rendering primitives.
 
 REPO_ROOT = Path(__file__).resolve().parent.parent  # tests/ -> repo root.
 BASELINE_PATH = REPO_ROOT / "tests" / "fixtures" / "issue_429_log_baseline.json"  # Frozen baseline JSON.
-SOURCE_PATH = REPO_ROOT / "MistHelper.py"  # File the sweep is rewriting.
+SOURCE_PATH = REPO_ROOT / "MistHelper.py"  # Default source; fixture may override via `source` field.
+_MODULE_CACHE: dict[Path, cst.Module] = {}  # WHY: parse each source file at most once per test run.
+
+
+def _load_module(source_path: Path) -> cst.Module:
+    """Parse and cache a python source path as a libcst.Module."""
+    cached = _MODULE_CACHE.get(source_path)  # Reuse prior parse when available.
+    if cached is not None:
+        return cached
+    if not source_path.exists():
+        pytest.skip(f"source not found at {source_path}")  # Skip cleanly if missing.
+    module = cst.parse_module(source_path.read_text(encoding="utf-8"))  # Parse via libcst.
+    _MODULE_CACHE[source_path] = module  # Cache for future lookups.
+    return module
 
 
 def _build_inputs_for_pattern(pattern: str, raw_inputs: dict[str, Any]) -> dict[str, Any]:
@@ -58,30 +71,22 @@ def baseline() -> dict[str, dict[str, Any]]:
     return json.loads(BASELINE_PATH.read_text(encoding="utf-8"))  # Parse the JSON into a dict.
 
 
-@pytest.fixture(scope="module")
-def module() -> cst.Module:
-    """Parse `MistHelper.py` exactly once for the whole test module."""
-    if not SOURCE_PATH.exists():  # Defensive: the only thing this test cares about.
-        pytest.skip(f"source not found at {SOURCE_PATH}")  # Skip cleanly if missing.
-    source = SOURCE_PATH.read_text(encoding="utf-8")  # Read once; libcst parse is the slow step.
-    return cst.parse_module(source)  # Parse with libcst.
-
-
 @pytest.mark.parametrize("site_id", [s["site_id"] for s in FIXTURE_SITES])  # One test per fixture site.
 def test_log_render_matches_baseline(
     site_id: str,
     baseline: dict[str, dict[str, Any]],
-    module: cst.Module,
 ) -> None:
     """Find a logging call that renders to the baseline string and confirm."""
     if site_id not in baseline:  # The baseline may legitimately miss sites that failed capture.
         pytest.skip(f"site {site_id} missing from baseline fixture")  # Skip rather than fail.
     expected = baseline[site_id]["rendered"]  # The frozen ground truth.
     site_def = next(s for s in FIXTURE_SITES if s["site_id"] == site_id)  # Operator-curated entry.
+    source_rel = site_def.get("source", "MistHelper.py")  # Per-site override; defaults to MistHelper.py.
+    module = _load_module(REPO_ROOT / source_rel)  # Parse (cached) the file this site lives in.
     inputs = _build_inputs_for_pattern(site_def["pattern"], site_def["inputs"])  # Same enrichment as capture.
     actual = _find_matching_render(module, site_def["line"], inputs, expected)  # Robust lookup.
     assert actual is not None, (  # No call in the file renders to the expected string.
-        f"site {site_id}: no logging call (near line {site_def['line']}) "
+        f"site {site_id}: no logging call (near line {site_def['line']}) in {source_rel} "
         f"renders to {expected!r} with inputs {sorted(inputs)}"
     )
     assert (

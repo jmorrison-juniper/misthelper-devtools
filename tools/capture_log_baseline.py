@@ -63,7 +63,8 @@ FIXTURE_SITES: list[dict[str, Any]] = [  # Minimal but representative baseline.
     },
     {  # Multi-argument f-string with arithmetic on substitution.
         "site_id": "L6988",
-        "line": 6988,
+        "line": 183,  # Extracted to src/api/api_fetch_utils.py (1014 P8); logging.debug at line 183.
+        "source": "src/api/api_fetch_utils.py",  # Per-site override; defaults to MistHelper.py.
         "inputs": {
             "failed_device_id": "dev-abc",
             "delay": 2.5,
