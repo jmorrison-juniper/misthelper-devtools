@@ -57,7 +57,8 @@ FIXTURE_SITES: list[dict[str, Any]] = [  # Minimal but representative baseline.
     },
     {  # G003 string concatenation (the codemod merges into a lazy template).
         "site_id": "L6120",
-        "line": 6120,
+        "line": 56,  # Extracted to src/ui/display_utils.py (1013 Cat B pos 11); logging.debug at line 56.
+        "source": "src/ui/display_utils.py",  # Per-site override; defaults to MistHelper.py.
         "inputs": {"table_text": "row1\nrow2"},
         "pattern": "g003_concat",
     },
