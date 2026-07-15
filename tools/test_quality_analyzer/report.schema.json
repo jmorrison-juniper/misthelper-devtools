@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://misthelper.local/schemas/test_quality_analyzer/report.schema.json",
+  "title": "TestQualityAnalyzerReport",
+  "description": "Schema for the JSON report emitted by tools.test_quality_analyzer per FR-011.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "engine_version",
+    "generated_at",
+    "scanned_roots",
+    "config_snapshot",
+    "findings",
+    "skipped_files",
+    "parse_errors",
+    "stale_baseline_entries"
+  ],
+  "properties": {
+    "engine_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Value of tools.test_quality_analyzer.__version__ at run time."
+    },
+    "generated_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\+00:00$",
+      "description": "ISO-8601 UTC timestamp with seconds precision."
+    },
+    "scanned_roots": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "minItems": 1
+    },
+    "config_snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rules_enabled", "severity_overrides", "exclusion_globs", "mist_api_predicate"],
+      "properties": {
+        "rules_enabled": {
+          "type": "object",
+          "additionalProperties": {"type": "boolean"}
+        },
+        "severity_overrides": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/severity"}
+        },
+        "exclusion_globs": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "mist_api_predicate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["banned_imports", "excluded_src_prefixes"],
+          "properties": {
+            "banned_imports": {"type": "array", "items": {"type": "string"}},
+            "excluded_src_prefixes": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/finding"}
+    },
+    "skipped_files": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/skipped_file"}
+    },
+    "parse_errors": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/parse_error"}
+    },
+    "stale_baseline_entries": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    }
+  },
+  "$defs": {
+    "severity": {
+      "type": "string",
+      "enum": ["critical", "high", "medium", "low"]
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "untested",
+        "weak_assertion",
+        "missing_failure_mode",
+        "missing_edge_case",
+        "tautological",
+        "parse_error",
+        "stale_baseline"
+      ]
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "category",
+        "rule_id",
+        "severity",
+        "file_path",
+        "line_number",
+        "explanation",
+        "remediation",
+        "heuristic"
+      ],
+      "properties": {
+        "category": {"$ref": "#/$defs/category"},
+        "rule_id": {"type": "string", "minLength": 1},
+        "severity": {"$ref": "#/$defs/severity"},
+        "file_path": {"type": "string", "minLength": 1},
+        "line_number": {"type": "integer", "minimum": 1},
+        "explanation": {"type": "string", "minLength": 1},
+        "remediation": {"type": "string", "minLength": 1},
+        "heuristic": {"type": "boolean"},
+        "related_source": {
+          "anyOf": [
+            {"type": "string", "minLength": 1},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "skipped_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file_path", "reason", "matched_rule"],
+      "properties": {
+        "file_path": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "matched_rule": {"type": "string", "minLength": 1}
+      }
+    },
+    "parse_error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file_path", "line_number", "message"],
+      "properties": {
+        "file_path": {"type": "string", "minLength": 1},
+        "line_number": {
+          "anyOf": [
+            {"type": "integer", "minimum": 1},
+            {"type": "null"}
+          ]
+        },
+        "message": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

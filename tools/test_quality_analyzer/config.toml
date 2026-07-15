@@ -1,0 +1,61 @@
+# Test Quality Analyzer default configuration (committed).
+#
+# Three tables per contracts/config.schema.md:
+#   [rules]      per-rule enable/disable booleans
+#   [severity]   per-rule severity overrides (critical/high/medium/low)
+#   [exclusions] Mist-API predicate + additional path globs
+#
+# Every rule id below matches the RuleId enumeration in data-model.md.
+
+[rules]
+# Untested public function detector (US1, Detector 1).
+untested_public_function = true
+# Weak-assertion sub-rules (US1, Detector 2 -- six sub-rules, one per FR-004 pattern).
+weak_bare_truthy = true
+weak_assert_not_none = true
+weak_mock_called = true
+weak_broad_raises = true
+weak_no_assertions = true
+weak_self_mock = true
+# Missing failure-mode sub-rules (US1, Detector 4 -- six sub-rules from FR-005).
+missing_timeout = true
+missing_connection_error = true
+missing_http_4xx = true
+missing_http_5xx = true
+missing_malformed_json = true
+missing_empty_body = true
+# Missing edge-case sub-rules (US1, Detector 5 -- heuristic, FR-006).
+edge_empty_value = true
+edge_none_value = true
+edge_oversized_value = true
+edge_unicode_value = true
+# Tautological detector (US1, Detector 3 -- FR-007).
+tautological_return_echo = true
+
+[severity]
+# Defaults derived from FR-009 taxonomy mapping. Maintainer can override per rule.
+untested_public_function = "high"    # default: high
+weak_bare_truthy = "medium"          # default: medium
+weak_assert_not_none = "medium"      # default: medium
+weak_mock_called = "high"            # default: high
+weak_broad_raises = "medium"         # default: medium
+weak_no_assertions = "high"          # default: high
+weak_self_mock = "high"              # default: high
+missing_timeout = "high"             # default: high (HTTP path)
+missing_connection_error = "high"    # default: high
+missing_http_4xx = "medium"          # default: medium
+missing_http_5xx = "high"            # default: high
+missing_malformed_json = "medium"    # default: medium
+missing_empty_body = "low"           # default: low
+edge_empty_value = "low"             # default: low (heuristic)
+edge_none_value = "low"              # default: low (heuristic)
+edge_oversized_value = "low"         # default: low (heuristic)
+edge_unicode_value = "low"           # default: low (heuristic)
+tautological_return_echo = "high"    # default: high
+
+[exclusions]
+# Additional POSIX-style path globs; matched files are skipped with reason "user_excluded".
+path_globs = []
+# Mist-API two-part predicate parameters (FR-002 / research Decision 6).
+banned_imports = ["mistapi"]              # Module-scope imports that mark a test as Mist-API.
+excluded_src_prefixes = ["src/api/"]      # src/* modules under these prefixes mark callers as Mist-API.
