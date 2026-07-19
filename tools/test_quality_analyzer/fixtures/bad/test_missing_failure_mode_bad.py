@@ -24,7 +24,7 @@ import requests  # Imported so the detector recognizes this as an HTTP-testing m
 
 def call_api() -> dict:  # Trivial SUT that would issue a real HTTP call.
     """Return the JSON body of a GET request to a URL."""
-    response = requests.get("https://example.com/api")  # Real HTTP call in production.
+    response = requests.get("https://example.com/api")  # nosec B113 -- fixture SUT; no real HTTP call in tests
     return response.json()  # Return the parsed JSON body.
 
 

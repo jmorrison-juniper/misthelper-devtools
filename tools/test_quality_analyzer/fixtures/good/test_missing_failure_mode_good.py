@@ -27,7 +27,7 @@ import requests  # Imported so the detector recognizes this as an HTTP module.
 
 def call_api() -> dict:  # SUT wrapper around requests.
     """Return the JSON body of a GET request to a URL."""
-    response = requests.get("https://example.com/api")  # SUT under test.
+    response = requests.get("https://example.com/api")  # nosec B113 -- fixture SUT; no real HTTP call in tests
     return response.json()  # Return parsed JSON body.
 
 
