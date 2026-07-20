@@ -1,11 +1,14 @@
 """Build per-spec metadata + prompt files for the next plan-agent wave."""
 
 import json
+import logging
 import os
 import re
 import sqlite3
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 DB = Path(os.path.expandvars(r"%USERPROFILE%\.copilot\session-state\270b3bdf-8f07-470a-9757-690a1d246ec2\session.db"))
 REPO = Path(__file__).resolve().parents[1]
@@ -157,9 +160,9 @@ def main() -> int:
         json.dumps(manifest, indent=2),
         encoding="utf-8",
     )
-    print(f"Wrote {len(manifest)} prompt files + wave_manifest.json")
+    logger.info("Wrote %s prompt files + wave_manifest.json", len(manifest))
     for entry in manifest:
-        print(f"  {entry['spec_num']} {entry['operation_id']} -> {entry['agent_id']}")
+        logger.info("  %s %s -> %s", entry["spec_num"], entry["operation_id"], entry["agent_id"])
     return 0
 
 
