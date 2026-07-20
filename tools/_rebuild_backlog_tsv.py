@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 REPORT = Path("data/full_repo_compliance_current.md")
 OUT = Path("data/compliance_backlog.tsv")
@@ -27,7 +30,7 @@ def main() -> None:
         fh.write("rank\ttotal\tcritical\thigh\tmedium\tlow\tscore\tgrade\tpath\n")
         for idx, (total, score, crit, high, med, low, grade, path) in enumerate(rows, 1):
             fh.write(f"{idx}\t{total}\t{crit}\t{high}\t{med}\t{low}\t{score}\t{grade}\t{path}\n")
-    print(f"wrote {len(rows)} sub-A rows -> {OUT}")
+    logger.info("wrote %s sub-A rows -> %s", len(rows), OUT)
 
 
 if __name__ == "__main__":
