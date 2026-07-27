@@ -35,12 +35,17 @@ class LinterConfig:
     section_weights: dict[str, float] = field(default_factory=dict)  # Per-section weight overrides.
     selected: set[str] = field(default_factory=set)  # Only run these rules when not empty.
     ignored: set[str] = field(default_factory=set)  # Never run these rules.
+    allowlist: set[str] = field(default_factory=set)  # Technical words the dictionary rules must not flag.
 
     def limit_for(self, mode: str) -> int:
         """Return the word limit for a sentence mode."""
         if mode == "procedural":  # A procedural sentence is a step.
             return self.procedural_limit  # Use the tighter step limit.
         return self.descriptive_limit  # Otherwise use the description limit.
+
+    def is_allowlisted(self, word: str) -> bool:
+        """Return True when a word is an approved technical term the linter must skip."""
+        return word.lower() in self.allowlist  # Compare in lower case so the match ignores letter case.
 
     def weight_for(self, rule_id: str, default: float) -> float:
         """Return the weight for a rule, or the default from its severity."""
@@ -99,3 +104,4 @@ class LinterConfig:
         config.section_weights = {
             str(key): float(value) for key, value in table.get("section_weights", {}).items()
         }  # Section weights.
+        config.allowlist = {str(word).lower() for word in table.get("allowlist", [])}  # Approved technical terms.

@@ -50,6 +50,8 @@ class UnapprovedWordRule(Rule):
             for token in context.tokens(sentence.text):  # Each analyzed token.
                 if token.pos in _SKIP_TAGS or not token.text.isalpha():  # Skip non-words.
                     continue  # Move to the next token.
+                if context.config.is_allowlisted(token.text):  # Skip an approved technical term.
+                    continue  # The allowlist marks this word as correct for the project.
                 entries = context.dictionary.lookup(token.text.lower())  # Look up the word.
                 if entries and all(not entry.approved for entry in entries):  # The word is unapproved.
                     yield self._violation(
@@ -83,6 +85,8 @@ class WrongPartOfSpeechRule(Rule):
             for token in context.tokens(sentence.text):  # Each analyzed token.
                 if token.pos not in (NOUN, VERB, ADJ, ADV):  # Only check content words.
                     continue  # Move to the next token.
+                if context.config.is_allowlisted(token.text):  # Skip an approved technical term.
+                    continue  # The allowlist marks this word as correct for the project.
                 if self._is_wrong(context, token):  # The word is used as the wrong part of speech.
                     yield self._violation(
                         document.path,  # The file path.

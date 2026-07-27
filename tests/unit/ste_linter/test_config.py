@@ -40,6 +40,23 @@ def test_zero_weight_disables_rule() -> None:
     assert not config.is_enabled("STE-S3-PASSIVE")  # The rule is disabled.
 
 
+def test_is_allowlisted_ignores_case() -> None:
+    """The allowlist match ignores letter case."""
+    config = LinterConfig(allowlist={"api", "log"})  # Two approved technical terms.
+    assert config.is_allowlisted("API")  # The upper-case form matches.
+    assert config.is_allowlisted("log")  # The lower-case form matches.
+    assert not config.is_allowlisted("via")  # A word not in the list does not match.
+
+
+def test_load_allowlist_from_toml(tmp_path: pathlib.Path) -> None:
+    """The loader reads the allowlist from a TOML file."""
+    content = '[tool.ste_linter]\nallowlist = ["API", "Log"]\n'  # An allowlist with mixed case.
+    path = tmp_path / "pyproject.toml"  # The temporary file path.
+    path.write_text(content, encoding="utf-8")  # Write the config file.
+    config = LinterConfig.load(str(path))  # Load the config.
+    assert config.is_allowlisted("api") and config.is_allowlisted("log")  # Both load in lower case.
+
+
 def test_load_from_toml(tmp_path: pathlib.Path) -> None:
     """The loader reads settings from a TOML file."""
     content = "[tool.ste_linter]\nmin_score = 85\nprocedural_limit = 15\n"  # A small config.
