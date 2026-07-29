@@ -5,7 +5,8 @@ from __future__ import annotations  # Enable modern annotation syntax.
 import ast  # Parsing source into an AST for the analyzers.
 import io  # Wrap source text in a stream for the tokenizer.
 import logging  # Structured action logging before and after each step.
-import subprocess  # Query git so the scan can skip version-control-ignored files.
+import shutil  # PATH lookup that turns the partial name "git" into an absolute path.
+import subprocess  # nosec B404 - The module queries git, and the call below uses shell=False.
 import tokenize  # Token stream powers inline-comment coverage measurement.
 from collections.abc import Iterable  # Type hint for the target collection.
 from pathlib import Path  # Portable filesystem path handling.
@@ -208,6 +209,14 @@ class ComplianceAnalyzer:
         return self._filter_git_ignored(collected)  # Drop git-ignored files so scans match a clean checkout.
 
     @staticmethod
+    def _resolve_git_executable() -> str | None:
+        """Return the absolute path of the git executable, or None when PATH holds no match."""
+        logger.debug("Resolving the git executable on PATH")  # Log before the PATH lookup runs.
+        git_path = shutil.which("git")  # An absolute path stops an earlier PATH entry supplying another program.
+        logger.debug("Resolved the git executable to %s", git_path)  # Log the result of the PATH lookup.
+        return git_path  # Hand the resolved path, or None, back to the caller.
+
+    @staticmethod
     def _filter_git_ignored(files: list[Path]) -> list[Path]:
         """Drop files that git ignores so scans match a clean checkout / CI.
 
@@ -224,10 +233,13 @@ class ComplianceAnalyzer:
         """
         if not files:  # No collected files means nothing to filter.
             return files  # Preserve the identity result for empty inputs.
+        git_path = ComplianceAnalyzer._resolve_git_executable()  # Absolute path, or None when git is absent.
+        if git_path is None:  # PATH holds no git binary on this host.
+            return files  # Fail open: never hide files when git cannot be consulted.
         payload = b"\0".join(path.as_posix().encode("utf-8") for path in files)  # NUL-delimited path list.
         try:
-            completed = subprocess.run(  # Ask git which of these paths are ignored.
-                ["git", "check-ignore", "-z", "--stdin"],  # -z: NUL-delimited in and out, no quoting.
+            completed = subprocess.run(  # nosec B603 - shutil.which resolved the path and the rest are literals.
+                [git_path, "check-ignore", "-z", "--stdin"],  # -z: NUL-delimited in and out, no quoting.
                 input=payload,  # Feed the collected file list as raw bytes.
                 capture_output=True,  # Capture the ignored-path bytes from stdout.
                 check=False,  # Exit 1 (none ignored) is normal, not an error.

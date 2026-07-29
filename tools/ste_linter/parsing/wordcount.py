@@ -12,7 +12,7 @@ import re  # Drives the span protection and token tests.
 
 # A placeholder that stands for one protected span. It holds no whitespace, so it
 # survives the whitespace split as a single token.
-_PROTECTED_TOKEN = "\x00P\x00"
+_PROTECTED_TOKEN = "\x00P\x00"  # nosec B105 - The value is a null-byte delimiter that survives a split.
 
 # Matches a double-quoted, single-quoted, or backtick-quoted span. Each match
 # becomes one word under the STE counting rules.
