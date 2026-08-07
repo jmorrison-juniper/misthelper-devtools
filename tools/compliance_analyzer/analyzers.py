@@ -133,13 +133,76 @@ class StructuralComplexityAnalyzer:
     # Compound statements that increase nesting depth.
     _NEST_NODES = (ast.If, ast.For, ast.AsyncFor, ast.While, ast.With, ast.AsyncWith, ast.Try)
 
+    # Packages this repository owns. A base class imported from anywhere else is
+    # third-party, and its method signatures are not ours to reshape.
+    _FIRST_PARTY_ROOTS = frozenset({"src", "tools", "scripts", "tests", "web_portal"})
+
     def analyze(self, context: AnalysisContext) -> list[Violation]:
         """Return all structural/complexity violations found in the file."""
         violations: list[Violation] = []  # Collect findings across every function.
+        exempt = self._third_party_override_methods(context.tree)  # Methods bound by a foreign base.
         for node in ast.walk(context.tree):  # Visit every node in the module.
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):  # Only functions are checked.
-                violations.extend(self._check_function(node, context))  # Append this function's findings.
+                violations.extend(self._check_function(node, context, exempt))  # Append this function's findings.
         return violations  # Return the combined list.
+
+    @classmethod
+    def _third_party_import_names(cls, tree: ast.Module) -> set[str]:
+        """Return every name this module binds from a package the repository does not own.
+
+        Why:
+            A class inheriting from a third-party base cannot choose its own
+            method signatures. Knowing which names came from outside lets the
+            parameter rule skip those overrides.
+        """
+        foreign: set[str] = set()  # Names bound from outside the repository.
+        for node in ast.walk(tree):  # Imports sit at module level or inside a function.
+            if isinstance(node, ast.ImportFrom):
+                if node.level:  # A relative import is always first-party.
+                    continue
+                if (node.module or "").split(".")[0] in cls._FIRST_PARTY_ROOTS:
+                    continue
+                foreign.update(alias.asname or alias.name for alias in node.names)
+            elif isinstance(node, ast.Import):
+                for alias in node.names:  # "import x.y as z" binds z, otherwise x.
+                    root = alias.name.split(".")[0]
+                    if root not in cls._FIRST_PARTY_ROOTS:
+                        foreign.add(alias.asname or root)
+        return foreign
+
+    @classmethod
+    def _third_party_override_methods(cls, tree: ast.Module) -> set[int]:
+        """Return the line numbers of methods defined on a class with a third-party base.
+
+        Why:
+            ``requests.adapters.HTTPAdapter.send`` takes six parameters, so an
+            override must take six too. Reporting that as a parameter-budget
+            violation asks for a change that would break the library contract.
+            See issue #1800.
+        """
+        foreign = cls._third_party_import_names(tree)  # Names that came from outside.
+        if not foreign:  # No foreign imports means no foreign bases are reachable.
+            return set()
+        exempt: set[int] = set()  # Line numbers of methods inheriting a fixed signature.
+        for node in ast.walk(tree):  # Nested classes count, so walk the whole tree.
+            if not isinstance(node, ast.ClassDef):
+                continue
+            if not any(cls._base_name(base) in foreign for base in node.bases):
+                continue
+            for item in node.body:  # Only direct members inherit this class's contract.
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    exempt.add(item.lineno)
+        return exempt
+
+    @staticmethod
+    def _base_name(base: ast.expr) -> str:
+        """Return the bound name of a base-class expression, or an empty string."""
+        if isinstance(base, ast.Name):  # "class C(Base)" refers to Base directly.
+            return base.id
+        node: ast.expr = base  # Descend to the leftmost name, so "a.b.C" resolves to "a".
+        while isinstance(node, ast.Attribute):
+            node = node.value
+        return node.id if isinstance(node, ast.Name) else ""  # Call or subscript forms carry no name.
 
     def _enabled_structural_checks(
         self, function: ast.FunctionDef | ast.AsyncFunctionDef, noqa: set[str]
@@ -155,11 +218,16 @@ class StructuralComplexityAnalyzer:
         return [checker(function) for rule_id, checker in checks if rule_id not in noqa]  # Keep only enabled checks.
 
     def _check_function(  # Signature gained `context` so noqa suppressions can be honored per-line.
-        self, function: ast.FunctionDef | ast.AsyncFunctionDef, context: AnalysisContext
+        self,
+        function: ast.FunctionDef | ast.AsyncFunctionDef,
+        context: AnalysisContext,
+        exempt_params: set[int] | None = None,
     ) -> list[Violation]:
         """Run every structural check against a single function."""
         found: list[Violation] = []  # Collect violations for this function.
-        noqa = context.noqa_rules(function.lineno)  # Look up any noqa suppressions on the def line.
+        noqa = set(context.noqa_rules(function.lineno))  # Any noqa suppressions on the def line.
+        if exempt_params and function.lineno in exempt_params:  # A third-party base fixes this signature.
+            noqa.add("STRUCT-PARAMS")  # Reuse the suppression path rather than add a second filter.
         for violation in self._enabled_structural_checks(
             function, noqa
         ):  # Run the unsuppressed structural checks only.
