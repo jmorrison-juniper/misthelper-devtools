@@ -17,6 +17,10 @@ from .scoring import ComplianceScorer
 
 logger = logging.getLogger(__name__)  # Module-scoped logger for action logging.
 
+# A held git index lock or a credential prompt blocks a git call with no bound.
+# This cap turns that stall into a clear message instead of a six-hour CI job.
+_GIT_TIMEOUT_SECONDS = 30
+
 
 class _LogicalLineTracker:
     """Map a Python token stream to per-logical-line inline-comment coverage.
@@ -243,7 +247,12 @@ class ComplianceAnalyzer:
                 input=payload,  # Feed the collected file list as raw bytes.
                 capture_output=True,  # Capture the ignored-path bytes from stdout.
                 check=False,  # Exit 1 (none ignored) is normal, not an error.
+                timeout=_GIT_TIMEOUT_SECONDS,  # A held index lock must not stall the gate forever.
             )
+        except subprocess.TimeoutExpired:  # git held the pipe past the bound.
+            # Name the bound, so the operator can tell a stall from a crash.
+            print(f"compliance_analyzer: git check-ignore passed {_GIT_TIMEOUT_SECONDS}s and was stopped")
+            return files  # Fail open: never hide files when git cannot be consulted.
         except (OSError, ValueError):  # git binary missing or stdin write failure.
             return files  # Fail open: never hide files when git cannot be consulted.
         if completed.returncode not in (0, 1):  # 128 => not a git repo; other codes => unknown failure.

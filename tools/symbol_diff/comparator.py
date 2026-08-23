@@ -25,6 +25,10 @@ _DEFINITION_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 # step can then run the tool from any working directory and read the same files.
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
+# A held git index lock or a credential prompt blocks a git call with no bound.
+# This cap turns that stall into a clear message instead of a six-hour CI job.
+_GIT_TIMEOUT_SECONDS = 30
+
 
 @dataclass(frozen=True)
 class SymbolDelta:
@@ -61,13 +65,20 @@ class SymbolTableComparator:
             print("symbol_diff: PATH holds no git executable")  # Tell the operator what is missing.
             return None  # The caller skips this file.
         logging.info("Reading %s from git", target)  # Log before the read.
-        completed = subprocess.run(  # nosec B603 - shutil.which resolved the path and the rest are literals.
-            [git_path, "show", target],  # A fixed argument list, so no shell parses the target.
-            capture_output=True,  # Capture the file text from stdout.
-            text=True,  # Decode to str, because ast.parse reads text.
-            check=False,  # An unknown path returns 128, which this method reports itself.
-            cwd=_REPOSITORY_ROOT,  # Read the repository, not the caller working directory.
-        )
+        try:
+            completed = subprocess.run(  # nosec B603 - shutil.which resolved the path and the rest are literals.
+                [git_path, "show", target],  # A fixed argument list, so no shell parses the target.
+                capture_output=True,  # Capture the file text from stdout.
+                text=True,  # Decode to str, because ast.parse reads text.
+                check=False,  # An unknown path returns 128, which this method reports itself.
+                cwd=_REPOSITORY_ROOT,  # Read the repository, not the caller working directory.
+                timeout=_GIT_TIMEOUT_SECONDS,  # A credential prompt must not stall the gate forever.
+            )
+        except subprocess.TimeoutExpired:  # git held the pipe past the bound.
+            # Name the bound, so the operator can tell a stall from a crash.
+            print(f"symbol_diff: git show passed {_GIT_TIMEOUT_SECONDS}s and was stopped")
+            logging.warning("The git show command passed the %ds bound", _GIT_TIMEOUT_SECONDS)
+            return None  # The caller skips this file.
         if completed.returncode != 0:  # git could not resolve the revision or the path.
             print(f"symbol_diff: cannot read {target}")  # Name the unreadable target.
             logging.warning("The git show command failed for %s", target)  # Log after the failure.
