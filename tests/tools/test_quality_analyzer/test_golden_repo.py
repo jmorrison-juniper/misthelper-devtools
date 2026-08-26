@@ -160,4 +160,4 @@ def test_golden_weak_assertion_anchors_present(
                 "Using file+category fallback (per T043 spec)." % (anchor_path, preferred_line, observed_lines)
             )
             # Print via pytest capture -- surfaces in `-v` output but does not fail.
-            print(pytest_warn)  # noqa: T201 -- diagnostic surfaced via pytest capture.
+            print(pytest_warn)  # diagnostic surfaced via pytest capture.
