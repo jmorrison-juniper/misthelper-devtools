@@ -10,6 +10,8 @@ invalidate the baseline.
 Stale-baseline advisory (FR-019) is computed by cross-referencing baseline
 `file_path` values against the working-tree files that were actually
 scanned; entries that name absent files are returned separately.
+``prune`` drops those entries, so a stale entry cannot stay in the file
+forever (issue #1769).
 """
 
 from __future__ import annotations  # Postponed annotations for cleaner typing.
@@ -126,7 +128,9 @@ class BaselineDiffer:
         # Ensure the parent directory exists so write_text does not raise.
         path.parent.mkdir(parents=True, exist_ok=True)
         # Trailing newline so POSIX tools see the file as line-terminated.
-        path.write_text(text + "\n", encoding="utf-8")
+        # newline="\n" holds the LF ending on Windows, so the tracked file stays
+        # byte-identical on both platforms and the diff shows the findings only.
+        path.write_text(text + "\n", encoding="utf-8", newline="\n")
         _LOGGER.debug("Wrote %s findings to baseline %s", len(findings_tuple), path)
 
     def stale_entries(
@@ -141,6 +145,26 @@ class BaselineDiffer:
         stale = {f.file_path for f in baseline.findings if f.file_path not in scanned_set}
         # Sort for deterministic output ordering.
         return tuple(sorted(stale))
+
+    def prune(
+        self,
+        baseline: Baseline,  # Baseline to filter.
+        stale_paths: Iterable[str],  # Paths the scan can no longer reach.
+    ) -> tuple[Finding, ...]:
+        """Return the baseline findings that name no stale path (issue #1769)."""
+        # Snapshot the stale paths for O(1) membership tests.
+        stale_set = set(stale_paths)
+        # info-before names the work, per Principle VII.
+        _LOGGER.info("Pruning %s stale path(s) from the baseline", len(stale_set))
+        # Keep each finding whose file the scan still reaches.
+        retained = tuple(f for f in baseline.findings if f.file_path not in stale_set)
+        # debug-after states how many findings survived the prune.
+        _LOGGER.debug(
+            "Prune kept %s of %s baseline finding(s)",
+            len(retained),
+            len(baseline.findings),
+        )
+        return retained
 
     # --- Internal helpers ---------------------------------------------------
 

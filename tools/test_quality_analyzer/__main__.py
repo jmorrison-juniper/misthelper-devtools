@@ -154,6 +154,12 @@ class TestQualityCLI:
             action="store_true",  # Overwrite baseline path per contracts/cli.md.
             help="Overwrite baseline with current findings and exit 0.",
         )
+        # --prune-baseline: issue #1769 -- drop entries the scan can no longer reach.
+        parser.add_argument(
+            "--prune-baseline",
+            action="store_true",  # Rewrites the baseline without the stale entries.
+            help="Drop stale baseline entries, keep every other entry, and exit 0.",
+        )
         # --disable-rule: repeatable rule id filter.
         parser.add_argument(
             "--disable-rule",
@@ -212,11 +218,10 @@ class TestQualityCLI:
 
     def _run_pipeline(self, args: argparse.Namespace) -> int:
         """Full US1+US2 pipeline; returns exit code (0/1/2 per contracts/cli.md)."""
-        # Validate mutually exclusive flag pair up-front; both-set is invalid CLI usage.
-        if args.gate and args.write_baseline:
-            sys.stderr.write(
-                "test_quality_analyzer: --gate and --write-baseline are mutually exclusive\n",
-            )
+        # Validate the mode flags up-front; more than one mode is invalid CLI usage.
+        conflict = self._mode_conflict(args)  # None when at most one mode flag is set.
+        if conflict is not None:
+            sys.stderr.write(conflict)  # The contract puts the reason on stderr.
             return 2  # Invalid CLI usage per contract exit code 2.
         # 1. Load the config; ConfigError bubbles up to run() and maps to exit 2.
         _LOGGER.info("Loading config from %s", args.config)
@@ -284,6 +289,16 @@ class TestQualityCLI:
             # Include skipped files too -- they were scanned even though excluded from detection.
             scanned_posix.update(s.file_path for s in skipped)
             stale_entries = BaselineDiffer().stale_entries(baseline, scanned_posix)
+            # 9b. --prune-baseline rewrites the file without the stale entries (issue #1769).
+            if args.prune_baseline:
+                self._prune_baseline(baseline, stale_entries, baseline_path)
+                stale_entries = ()  # The rewritten file holds no stale entry.
+        elif args.prune_baseline:
+            # A prune needs a file to rewrite, so an empty --baseline is invalid usage.
+            sys.stderr.write(
+                'test_quality_analyzer: --prune-baseline requires --baseline (got "")\n',
+            )
+            return 2  # Invalid usage per contract exit code 2.
         # 10. Build the Report envelope with stale-baseline entries populated.
         report = self._build_report(
             findings=findings,
@@ -323,6 +338,46 @@ class TestQualityCLI:
         # 14. Non-gate success exit.
         _LOGGER.debug("Analyzer run completed successfully")
         return 0  # Non-gate runs always exit 0 on a clean pipeline.
+
+    # -----------------------------------------------------------------------
+    # Mode helpers
+    # -----------------------------------------------------------------------
+
+    def _mode_conflict(self, args: argparse.Namespace) -> str | None:
+        """Return an error line when the run asks for more than one mode."""
+        # Each pair names the flag and states whether the caller set it.
+        modes = (
+            ("--gate", args.gate),  # Compare against the baseline.
+            ("--write-baseline", args.write_baseline),  # Replace the baseline.
+            ("--prune-baseline", args.prune_baseline),  # Clean the baseline.
+        )
+        # Keep the flags the caller set, because only those can conflict.
+        selected = [name for name, enabled in modes if enabled]
+        # One mode or no mode is valid, so the run continues.
+        if len(selected) < 2:
+            return None
+        # More than one mode is invalid usage, so the message names each one.
+        return "test_quality_analyzer: %s are mutually exclusive\n" % " and ".join(selected)
+
+    def _prune_baseline(
+        self,
+        baseline,  # Baseline loaded from the baseline path.
+        stale_entries: tuple[str, ...],  # Paths the scan can no longer reach.
+        baseline_path: Path,  # File that the prune rewrites in place.
+    ) -> None:
+        """Rewrite the baseline without the stale entries (issue #1769)."""
+        # info-before names the file, so an operator can trace the write.
+        _LOGGER.info("Pruning %s stale entry path(s) from %s", len(stale_entries), baseline_path)
+        # One differ serves both calls, because the class holds no state.
+        differ = BaselineDiffer()
+        # Keep every finding whose file the scan still reaches.
+        retained = differ.prune(baseline, stale_entries)
+        # Write the canonical JSON array back to the same path.
+        differ.write(baseline_path, retained)
+        # The stdout line reports the result, because the summary line omits it.
+        sys.stdout.write("prune: dropped %d stale baseline path(s)\n" % len(stale_entries))
+        # debug-after states the retained count for a quick log check.
+        _LOGGER.debug("Baseline holds %s finding(s) after the prune", len(retained))
 
     def _build_report(
         self,

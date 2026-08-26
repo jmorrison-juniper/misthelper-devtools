@@ -13,7 +13,26 @@ test-quality-analyzer --gate
 
 # Overwrite the baseline after intentionally accepting new findings
 test-quality-analyzer --write-baseline
+
+# Drop baseline entries whose file left the scan set, and keep every other entry
+test-quality-analyzer --prune-baseline
 ```
+
+## Stale baseline entries
+
+The analyzer scans a file only when the name starts with `test_` or ends with
+`_test.py`. A `conftest.py` file and a helper module fail both rules, so the
+analyzer skips them. A baseline entry for such a file can never match a finding
+again. The run reports the count under `stale_baseline_entries`.
+
+Run `test-quality-analyzer --prune-baseline` to drop those entries. The command
+keeps every entry that the scan can still reach, writes the baseline in the same
+canonical form, and exits 0. Issue #1769 recorded 6 stale entries that this
+command removed. Run the command again after a test file moves or leaves the
+scan set, so the count stays at 0.
+
+`--prune-baseline`, `--gate`, and `--write-baseline` select a mode. Pass one
+mode only. Two modes together exit 2.
 
 The console script is registered in `pyproject.toml` under `[project.scripts]` and resolves to `tools.test_quality_analyzer.__main__:main`. The module also runs directly via `python -m tools.test_quality_analyzer`.
 
@@ -49,6 +68,7 @@ Five module-level detectors register themselves with `DetectorRegistry` on impor
 - `--include-mist-api` — bypass the `src/api/` + `mistapi` exclusion predicate.
 - `--roots PATH …` — one or more test root directories (default: `tests`).
 - `--baseline ""` — disable baseline comparison for one run.
+- `--prune-baseline` — drop stale baseline entries and exit 0 (issue #1769).
 
 ## Outputs
 
