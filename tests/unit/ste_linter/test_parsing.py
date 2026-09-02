@@ -35,6 +35,33 @@ def test_segmenter_keeps_abbreviation() -> None:
     assert len(pairs) == 1  # The abbreviation did not end the sentence.
 
 
+def test_segmenter_splits_a_docstring_field_block() -> None:
+    """Issue #1993: a field block joined into one long sentence that nobody could repair.
+
+    Why:
+        The ordinary boundary needs a capital letter after the end mark. A
+        Google-style entry starts with a lower-case name, so the segmenter
+        joined every entry of one block. The length rule then reported a
+        violation against a block of short entries.
+    """
+    block = "session: The cloud session. The caller owns it.\nsite_id: The site to read.\ndevices: The rows."
+    pairs = Segmenter().split_sentences(block)  # Four short sentences, not one long one.
+    assert len(pairs) == 4  # Each entry and each trailing sentence stands alone.
+    assert pairs[2][0] == "site_id: The site to read."  # The second entry keeps its own text.
+
+
+def test_segmenter_keeps_a_wrapped_prose_line_whole() -> None:
+    """The field rule must not split ordinary prose that wraps onto a new line."""
+    prose = "The portal reads the site.\nIt then writes the record."  # A capital starts the second line.
+    assert len(Segmenter().split_sentences(prose)) == 2  # The ordinary rule already split these two.
+
+
+def test_segmenter_splits_before_a_code_span() -> None:
+    """A technical sentence often starts with an inline code span, not a capital."""
+    text = "The browser sends a MAC address. ``to_device_targets`` reads the type."  # Two sentences.
+    assert len(Segmenter().split_sentences(text)) == 2  # The code span starts its own sentence.
+
+
 def test_markdown_skips_code_fence() -> None:
     """The Markdown parser skips fenced code."""
     spans = MarkdownParser().parse("Prose here.\n\n```\ncode line\n```\nMore prose.")  # Mixed content.
