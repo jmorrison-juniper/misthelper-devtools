@@ -56,10 +56,12 @@ class MarkdownReportGenerator:
             f"- Module graph size: {result.module_graph_size} first-party files",  # Reach of the analysis.
             f"- Definitions analyzed: {len(result.definitions)}",  # Total defs considered.
             f"- LOC saveable (unused + single-use): {result.loc_saveable}",  # Movable-line total.
-            f"- Category counts: unused={counts[CATEGORY_UNUSED]}, "  # Split for readability.
-            f"single-use={counts[CATEGORY_SINGLE_USE]}, "
-            f"low-use={counts[CATEGORY_LOW_USE]}, hot={counts[CATEGORY_HOT]}, "
-            f"skipped={counts[CATEGORY_SKIPPED]}",
+            (
+                f"- Category counts: unused={counts[CATEGORY_UNUSED]}, "  # Split for readability.
+                f"single-use={counts[CATEGORY_SINGLE_USE]}, "
+                f"low-use={counts[CATEGORY_LOW_USE]}, hot={counts[CATEGORY_HOT]}, "
+                f"skipped={counts[CATEGORY_SKIPPED]}"
+            ),
         ]
         return "\n".join(lines)  # Return the joined header string.
 
@@ -91,19 +93,29 @@ class MarkdownReportGenerator:
             [
                 "## SpecKit non-negotiables",  # Section header.
                 "",  # Blank line for readability.
-                "1. **No wrapper shims**: do NOT create `def old(...): return NewClass().new(...)` "
-                "or thin re-export modules. Move the code into a semantic class body and delete the old symbol.",
-                "2. **Rewrite every callsite**: for each candidate below, produce one PR per reference-holding "
-                "file cluster. Every listed `file:lineno` must be updated in the same PR as the move.",
-                "3. **Decompose while moving**: if a candidate lists `guideline_flags`, do NOT lift-and-shift. "
-                "Split into <=25-line methods with <=5 params, add inline comments on every executable line, "
-                "and add `logging.info/debug` before/after every operation.",
-                "4. **Landing target is a class body**: `Suggested class` names the destination. Prefer an "
-                "existing class (`WebSocketManager`, `FirmwareManager`, `SFPTransceiverDataProcessor`, "
-                "`EnhancedSSHRunner`, etc.) when one already lives in the target module; otherwise create the "
-                "proposed new class rather than adding a bare module-level function.",
-                "5. **ASCII-only logs, `safe_input()`, `pathlib.Path`**: any candidate flagged for non-ASCII "
-                "literals, raw `input()`, or hardcoded separators must be cleaned up during the move.",
+                (
+                    "1. **No wrapper shims**: do NOT create `def old(...): return NewClass().new(...)` "
+                    "or thin re-export modules. Move the code into a semantic class body and delete the old symbol."
+                ),
+                (
+                    "2. **Rewrite every callsite**: for each candidate below, produce one PR per reference-holding "
+                    "file cluster. Every listed `file:lineno` must be updated in the same PR as the move."
+                ),
+                (
+                    "3. **Decompose while moving**: if a candidate lists `guideline_flags`, do NOT lift-and-shift. "
+                    "Split into <=25-line methods with <=5 params, add inline comments on every executable line, "
+                    "and add `logging.info/debug` before/after every operation."
+                ),
+                (
+                    "4. **Landing target is a class body**: `Suggested class` names the destination. Prefer an "
+                    "existing class (`WebSocketManager`, `FirmwareManager`, `SFPTransceiverDataProcessor`, "
+                    "`EnhancedSSHRunner`, etc.) when one already lives in the target module; otherwise create the "
+                    "proposed new class rather than adding a bare module-level function."
+                ),
+                (
+                    "5. **ASCII-only logs, `safe_input()`, `pathlib.Path`**: any candidate flagged for non-ASCII "
+                    "literals, raw `input()`, or hardcoded separators must be cleaned up during the move."
+                ),
             ]
         )
 
@@ -201,12 +213,16 @@ class MarkdownReportGenerator:
                 "## Limitations",  # Section header.
                 "",  # Blank line before content.
                 '- `getattr(module, "name")` string-form lookups are not detected.',  # Dynamic lookups miss.
-                '- Class-registration decorators (`@registry.register("foo")`) with literal-string wiring '
-                "are invisible to static analysis.",
+                (
+                    '- Class-registration decorators (`@registry.register("foo")`) with literal-string wiring '
+                    "are invisible to static analysis."
+                ),
                 "- Runtime `importlib` / plugin discovery is not followed.",
-                "- Because `src/` files rarely `from MistHelper import ...`, external ref counts are near zero "
-                "by design; the tool primarily surfaces intra-entrypoint single-use symbols that can be moved "
-                "alongside their sole caller into `src/`.",
+                (
+                    "- Because `src/` files rarely `from MistHelper import ...`, external ref counts are near zero "
+                    "by design; the tool primarily surfaces intra-entrypoint single-use symbols that can be moved "
+                    "alongside their sole caller into `src/`."
+                ),
                 "- Constants inside `if TYPE_CHECKING:` or other conditional module-scope blocks are skipped.",
             ]
         )
