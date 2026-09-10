@@ -10,7 +10,10 @@ import pytest  # MonkeyPatch fixture for changing the working directory in a tes
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # Add repo root to sys.path.
 
+from tools.compliance_analyzer import engine  # Module under test for patched parallel constants.
+from tools.compliance_analyzer.__main__ import ComplianceCLI  # CLI under test for argument forwarding.
 from tools.compliance_analyzer.engine import ComplianceAnalyzer  # System under test: engine.
+from tools.compliance_analyzer.models import FileReport  # Report type for test helper annotations.
 from tools.compliance_analyzer.reporting import MarkdownReportGenerator  # Report renderer under test.
 from tools.compliance_analyzer.scoring import ComplianceScorer  # Scorer under test.
 
@@ -148,6 +151,123 @@ def test_report_contains_speckit_plan(tmp_path: Path) -> None:
     assert "SpecKit Remediation Plan" in markdown  # The agent-ready plan must be present.
     assert "CMP-001" in markdown  # At least one numbered remediation task must appear.
     assert "Machine-Readable Summary" in markdown  # The JSON summary block must be present.
+
+
+def _write_parallel_fixture(root: Path) -> list[Path]:
+    """Create a deterministic multi-file tree for parallel analyzer tests."""
+    sources = {  # Each file gives the analyzer a different but stable report.
+        "a_clean.py": CLEAN_SOURCE,  # Clean file proves high-score parity.
+        "b_wrapper.py": WRAPPER_SOURCE,  # Non-compliant file proves violation parity.
+        "nested/c_dunder.py": DUNDER_FORWARDER_SOURCE,  # Nested path proves ordering parity.
+    }
+    written: list[Path] = []  # Keep the exact paths for order assertions.
+    for relative_path, source in sources.items():  # Materialize each sample file.
+        path = root / relative_path  # Resolve the fixture path inside the temp tree.
+        path.parent.mkdir(parents=True, exist_ok=True)  # Create nested directories before writing.
+        path.write_text(source, encoding="utf-8")  # Write deterministic Python source.
+        written.append(path)  # Record the path for expected-order checks.
+    return sorted(written)  # Match the analyzer's sorted collection order.
+
+
+def test_parallel_jobs_match_sequential_reports(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Parallel jobs must preserve every report field and the report order."""
+    expected_files = _write_parallel_fixture(tmp_path)  # Build the shared fixture tree.
+    monkeypatch.setattr(engine, "_PARALLEL_FILE_FLOOR", 1)  # Force the small fixture through the pool.
+    sequential = ComplianceAnalyzer().analyze_targets([str(tmp_path)], recursive=True, jobs=1)  # Baseline path.
+    parallel = ComplianceAnalyzer().analyze_targets([str(tmp_path)], recursive=True, jobs=2)  # Worker path.
+    assert parallel == sequential  # Report values must match exactly.
+    assert [Path(report.path) for report in parallel] == expected_files  # Output order must match collection order.
+
+
+def test_parallel_jobs_keep_parse_error_reports(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Parallel jobs must convert syntax errors into the same report as sequential jobs."""
+    target = tmp_path / "broken.py"  # Single parse-error fixture path.
+    clean = tmp_path / "clean.py"  # Second file keeps the worker count above one.
+    target.write_text("def broken(:\n", encoding="utf-8")  # Write invalid Python to exercise parse handling.
+    clean.write_text(CLEAN_SOURCE, encoding="utf-8")  # Write valid Python beside the syntax error.
+    monkeypatch.setattr(engine, "_PARALLEL_FILE_FLOOR", 1)  # Force the worker path for one file.
+    sequential = ComplianceAnalyzer().analyze_targets([str(tmp_path)], recursive=True, jobs=1)  # Baseline reports.
+    parallel = ComplianceAnalyzer().analyze_targets([str(tmp_path)], recursive=True, jobs=2)  # Worker reports.
+    assert parallel == sequential  # Syntax errors must not change the report contract.
+    assert parallel[0].violations[0].rule_id == "PARSE-ERROR"  # The stable parse rule must remain visible.
+
+
+def test_small_inputs_stay_sequential(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Small scans must avoid worker startup because measurement showed spawn overhead."""
+    target = tmp_path / "small.py"  # Single-file scan that stays below the floor.
+    target.write_text(CLEAN_SOURCE, encoding="utf-8")  # Write a valid file for the scan.
+
+    def fail_parallel(files: list[Path], worker_count: int) -> list[FileReport]:
+        raise AssertionError("parallel path should not run for a small input")  # Guard the fallback decision.
+
+    monkeypatch.setattr(engine, "_PARALLEL_FILE_FLOOR", 200)  # Keep the fixture below the measured floor.
+    monkeypatch.setattr(ComplianceAnalyzer, "_analyze_files_parallel", staticmethod(fail_parallel))
+    reports = ComplianceAnalyzer().analyze_targets([str(target)], jobs=8)  # Request workers on a small input.
+    assert len(reports) == 1  # The sequential fallback still returns the file report.
+
+
+def test_missing_collected_file_raises_same_error_type(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A missing collected file must raise the same error type in both execution modes."""
+    missing = tmp_path / "missing.py"  # This path is collected by patch but never created.
+    missing_again = tmp_path / "missing_again.py"  # Second missing file forces a two-worker pool.
+    monkeypatch.setattr(engine, "_PARALLEL_FILE_FLOOR", 1)  # Force pool use for the parallel run.
+    monkeypatch.setattr(
+        ComplianceAnalyzer,
+        "_collect_files",
+        lambda self, targets, recursive, excludes: [missing, missing_again],
+    )
+    with pytest.raises(FileNotFoundError):  # Sequential path raises from Path.read_text.
+        ComplianceAnalyzer().analyze_targets([str(tmp_path)], jobs=1)  # Run the baseline path.
+    with pytest.raises(FileNotFoundError):  # Parallel path must preserve the exception type.
+        ComplianceAnalyzer().analyze_targets([str(tmp_path)], jobs=2)  # Run the worker path.
+
+
+def test_negative_jobs_are_rejected(tmp_path: Path) -> None:
+    """Negative worker counts must fail before any analysis starts."""
+    target = tmp_path / "clean.py"  # Valid file path for the rejected request.
+    target.write_text(CLEAN_SOURCE, encoding="utf-8")  # Write valid source so only jobs validation fails.
+    with pytest.raises(ValueError, match="jobs must be zero or a positive integer"):  # Assert explicit error.
+        ComplianceAnalyzer().analyze_targets([str(target)], jobs=-1)  # Negative jobs are invalid input.
+
+
+def test_explicit_jobs_are_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Explicit worker requests must respect the measured cap."""
+    monkeypatch.setattr(engine, "_PARALLEL_FILE_FLOOR", 1)  # Put worker resolution on the parallel path.
+    monkeypatch.setattr(engine, "_PARALLEL_AUTO_WORKER_LIMIT", 8)  # Use the measured automatic cap.
+    monkeypatch.setattr(engine.os, "process_cpu_count", lambda: 32)  # Simulate the measured host capacity.
+    assert ComplianceAnalyzer._resolve_worker_count(5000, 1391) == 8  # A large request must not over-spawn.
+
+
+def test_cli_passes_jobs_to_analyzer(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The CLI must forward `--jobs` to the analyzer."""
+    output = tmp_path / "report.md"  # Report path keeps the test output isolated.
+    captured: dict[str, int] = {}  # Capture the worker count passed by the CLI.
+
+    def fake_analyze(
+        self: object,
+        targets: object,
+        recursive: bool = False,
+        excludes: object = None,
+        jobs: int = 1,
+    ) -> list[FileReport]:
+        captured["jobs"] = jobs  # Record the forwarded CLI value.
+        return [ComplianceAnalyzer().analyze_file(tmp_path / "clean.py")]  # Return a real report for rendering.
+
+    (tmp_path / "clean.py").write_text(CLEAN_SOURCE, encoding="utf-8")  # Provide the fake analyzer report input.
+    monkeypatch.setattr(ComplianceAnalyzer, "analyze_targets", fake_analyze)  # Isolate the CLI argument path.
+    exit_code = ComplianceCLI().run([str(tmp_path / "clean.py"), "--jobs", "3", "-o", str(output), "-q"])
+    assert exit_code == 0  # The CLI should complete normally with the fake report.
+    assert captured["jobs"] == 3  # The parsed worker count must reach the engine.
+
+
+def test_cli_reports_negative_jobs_without_traceback(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """The CLI must report a negative worker count as a usage error."""
+    target = tmp_path / "clean.py"  # Valid file keeps the failure focused on argument validation.
+    target.write_text(CLEAN_SOURCE, encoding="utf-8")  # Write valid source for the rejected scan.
+    exit_code = ComplianceCLI().run([str(target), "--jobs", "-1", "-q"])  # Run the bad argument path.
+    captured = capsys.readouterr()  # Capture console output to verify no traceback appears.
+    assert exit_code == 2  # Negative jobs must use the CLI usage-error code.
+    assert "Traceback" not in captured.err  # The CLI must not expose a Python traceback.
 
 
 def test_scorer_grades_and_minimums() -> None:

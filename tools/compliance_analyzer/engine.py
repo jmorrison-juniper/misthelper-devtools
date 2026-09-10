@@ -5,11 +5,15 @@ from __future__ import annotations  # Enable modern annotation syntax.
 import ast  # Parsing source into an AST for the analyzers.
 import io  # Wrap source text in a stream for the tokenizer.
 import logging  # Structured action logging before and after each step.
+import multiprocessing as mp  # Provide an explicit process start method for worker pools.
+import os  # Read the usable processor count for bounded automatic worker selection.
 import shutil  # PATH lookup that turns the partial name "git" into an absolute path.
 import subprocess  # nosec B404 - The module queries git, and the call below uses shell=False.
 import tokenize  # Token stream powers inline-comment coverage measurement.
 from collections.abc import Iterable  # Type hint for the target collection.
+from concurrent.futures import ProcessPoolExecutor  # Run pure per-file analysis across worker processes.
 from pathlib import Path  # Portable filesystem path handling.
+from typing import Protocol  # Describe analyzer objects without binding to one concrete class.
 
 from .analyzers import ArchitecturalAnalyzer, ConventionAnalyzer, StructuralComplexityAnalyzer
 from .models import AnalysisContext, FileReport, Severity, Violation
@@ -20,6 +24,46 @@ logger = logging.getLogger(__name__)  # Module-scoped logger for action logging.
 # A held git index lock or a credential prompt blocks a git call with no bound.
 # This cap turns that stall into a clear message instead of a six-hour CI job.
 _GIT_TIMEOUT_SECONDS = 30
+
+# Spawn cost dominates small scans, so keep scans below the measured floor sequential.
+_PARALLEL_FILE_FLOOR = 200
+
+# Sixteen files per worker task gave the best measured balance between dispatch cost and load balance.
+_PARALLEL_BATCH_SIZE = 16
+
+# Eight workers delivered most of the speedup with acceptable memory on the measured 32-core host.
+_PARALLEL_AUTO_WORKER_LIMIT = 8
+
+_WORKER_ANALYZER: ComplianceAnalyzer | None = None  # Reuse one analyzer per spawned worker interpreter.
+
+
+class _Analyzer(Protocol):
+    """Protocol for analyzer objects that emit compliance violations."""
+
+    def analyze(self, context: AnalysisContext) -> list[Violation]:
+        """Return the violations found in one analysis context."""
+        ...
+
+
+def _analyze_file_batch(paths: list[str]) -> list[FileReport]:
+    """Analyze one batch of files inside a spawned worker process."""
+    global _WORKER_ANALYZER  # Keep one analyzer in the worker to avoid rebuilding it for every file.
+    if _WORKER_ANALYZER is None:  # The first task in each worker must build its local analyzer.
+        logger.info("Creating compliance analyzer in worker process")  # Log before worker-local setup.
+        _WORKER_ANALYZER = ComplianceAnalyzer()  # Build worker-local analyzer state for repeated use.
+        logger.debug("Created compliance analyzer in worker process")  # Log after worker-local setup.
+    logger.info("Analyzing %d file(s) in a worker batch", len(paths))  # Log before batch analysis.
+    reports = [_WORKER_ANALYZER.analyze_file(Path(path)) for path in paths]  # Preserve batch file order.
+    logger.debug("Analyzed %d file(s) in a worker batch", len(reports))  # Log after batch analysis.
+    return reports  # Return picklable report records to the parent process.
+
+
+def _batched_paths(files: list[Path], size: int) -> list[list[str]]:
+    """Return path strings grouped into measured-size batches."""
+    return [  # Build concrete batches so executor.map receives bounded work units.
+        [str(path) for path in files[index : index + size]]  # Convert Path to str for cheap pickling.
+        for index in range(0, len(files), size)  # Step through the collected list by chunk size.
+    ]
 
 
 class _LogicalLineTracker:
@@ -110,12 +154,12 @@ class ComplianceAnalyzer:
 
     def __init__(
         self,
-        analyzers: list[object] | None = None,
+        analyzers: list[_Analyzer] | None = None,
         scorer: ComplianceScorer | None = None,
     ) -> None:
         """Build the engine with default analyzers and scorer when none are given."""
         self._structural = StructuralComplexityAnalyzer()  # Reused for metrics and hotspots.
-        default = [self._structural, ArchitecturalAnalyzer(), ConventionAnalyzer()]  # Standard analyzer set.
+        default: list[_Analyzer] = [self._structural, ArchitecturalAnalyzer(), ConventionAnalyzer()]  # Analyzer set.
         self._analyzers = list(analyzers) if analyzers else default  # Allow custom analyzer injection.
         self._scorer = scorer or ComplianceScorer()  # Allow custom scorer injection.
 
@@ -124,15 +168,58 @@ class ComplianceAnalyzer:
         targets: Iterable[str],
         recursive: bool = False,
         excludes: list[str] | None = None,
+        jobs: int = 1,
     ) -> list[FileReport]:
         """Analyze every Python file under the given file/directory targets."""
         target_list = list(targets)  # Materialize the targets for logging and reuse.
         logger.info("Collecting Python files from %d target(s)", len(target_list))  # Log before collection.
         files = self._collect_files(target_list, recursive, excludes or [])  # Resolve target paths to files.
         logger.debug("Collected %d Python file(s) for analysis", len(files))  # Log the collection result.
-        reports = [self.analyze_file(path) for path in files]  # Analyze each file in turn.
+        worker_count = self._resolve_worker_count(jobs, len(files))  # Decide whether this scan can use workers.
+        reports = self._analyze_files(files, worker_count)  # Analyze files sequentially or with workers.
         logger.debug("Generated %d file report(s)", len(reports))  # Log the number of reports produced.
         return reports  # Return all per-file reports.
+
+    def _analyze_files(self, files: list[Path], worker_count: int) -> list[FileReport]:
+        """Analyze collected files using the selected execution model."""
+        if worker_count <= 1:  # One worker means the default sequential path.
+            logger.info("Analyzing %d file(s) sequentially", len(files))  # Log before sequential analysis.
+            reports = [self.analyze_file(path) for path in files]  # Keep default behavior and ordering.
+            logger.debug("Analyzed %d file(s) sequentially", len(reports))  # Log after sequential analysis.
+            return reports  # Return reports in collected-file order.
+        return self._analyze_files_parallel(files, worker_count)  # Use the opt-in worker pool.
+
+    @staticmethod
+    def _resolve_worker_count(jobs: int, file_count: int) -> int:
+        """Return the bounded worker count for this scan."""
+        if jobs < 0:  # Negative worker counts are invalid operator input.
+            raise ValueError("jobs must be zero or a positive integer")  # Surface the misuse before work starts.
+        if jobs == 1 or file_count < _PARALLEL_FILE_FLOOR:  # Small scans lose time to spawn startup.
+            return 1  # Preserve the sequential path for the default and small inputs.
+        usable = os.process_cpu_count() or os.cpu_count() or 1  # Respect affinity before host CPU count.
+        if jobs == 0:  # Zero asks the analyzer to select the measured automatic bound.
+            return max(1, min(_PARALLEL_AUTO_WORKER_LIMIT, usable, file_count))  # Bound memory and contention.
+        return max(1, min(jobs, _PARALLEL_AUTO_WORKER_LIMIT, usable, file_count))  # Bound explicit requests too.
+
+    @staticmethod
+    def _analyze_files_parallel(files: list[Path], worker_count: int) -> list[FileReport]:
+        """Analyze files with a bounded spawned process pool."""
+        logger.info("Analyzing %d file(s) with %d worker(s)", len(files), worker_count)  # Log before pool start.
+        batches = _batched_paths(files, _PARALLEL_BATCH_SIZE)  # Batch files to amortize spawn dispatch cost.
+        context = mp.get_context("spawn")  # Set the start method explicitly for version-stable behavior.
+        executor = ProcessPoolExecutor(max_workers=worker_count, mp_context=context)  # Bound the worker pool.
+        try:
+            reports: list[FileReport] = []  # Accumulate results in submission order.
+            for batch_reports in executor.map(_analyze_file_batch, batches):  # map preserves batch order.
+                reports.extend(batch_reports)  # Preserve file order inside each batch.
+            logger.debug("Analyzed %d file(s) with worker processes", len(reports))  # Log successful completion.
+            return reports  # Return the ordered report list.
+        except Exception:
+            logger.exception("Worker process analysis failed")  # Log the worker failure with context.
+            executor.shutdown(wait=True, cancel_futures=True)  # Cancel pending batches before propagating.
+            raise  # Preserve the original exception type for caller parity.
+        finally:
+            executor.shutdown(wait=True, cancel_futures=True)  # Release worker processes on every path.
 
     def analyze_file(self, path: str | Path) -> FileReport:
         """Analyze a single Python file and return its scored report."""

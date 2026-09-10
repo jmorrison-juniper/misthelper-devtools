@@ -12,6 +12,7 @@ import logging  # Configure action logging for the CLI run.
 from pathlib import Path  # Portable filesystem path handling.
 
 from .engine import ComplianceAnalyzer  # Core analysis engine.
+from .models import FileReport  # Type for analyzer results passed through the CLI.
 from .reporting import MarkdownReportGenerator  # Markdown report renderer.
 from .scoring import ComplianceScorer  # Grade the overall score for gating.
 
@@ -31,7 +32,16 @@ class ComplianceCLI:
         self._configure_logging(args.quiet)  # Configure logging verbosity.
         logger.info("Starting compliance analysis of %d target(s)", len(args.targets))  # Log start.
         analyzer = ComplianceAnalyzer()  # Build the analysis engine.
-        reports = analyzer.analyze_targets(args.targets, args.recursive, args.exclude)  # Analyze targets.
+        try:
+            reports = analyzer.analyze_targets(  # Analyze targets with the requested worker count.
+                args.targets,  # Pass all user-supplied file and directory targets.
+                args.recursive,  # Preserve the existing recursive scan behavior.
+                args.exclude,  # Preserve all path exclusion filters.
+                args.jobs,  # Apply the explicit parallel opt-in setting.
+            )
+        except ValueError as error:  # Invalid worker settings are CLI usage errors.
+            logger.error("%s", error)  # Report the bad setting without a traceback.
+            return 2  # Match the CLI's established usage-error exit code.
         if not reports:  # Nothing was analyzed (bad targets).
             logger.error("No Python files were analyzed; check the supplied targets")  # Log the problem.
             return 2  # Usage-error exit code.
@@ -70,6 +80,14 @@ class ComplianceCLI:
             metavar="GRADE",
             help="Exit non-zero when the overall grade is below GRADE (e.g. C).",  # Grade gate.
         )
+        parser.add_argument(
+            "-j",
+            "--jobs",
+            type=int,
+            default=1,
+            metavar="N",
+            help="Use N worker processes; use 0 for the measured automatic bound.",  # Parallel opt-in.
+        )
         parser.add_argument("-q", "--quiet", action="store_true", help="Log only warnings and errors.")
         return parser.parse_args(argv)  # Parse and return the namespace.
 
@@ -89,7 +107,7 @@ class ComplianceCLI:
         path.write_text(text, encoding="utf-8")  # Persist the report as UTF-8.
         logger.debug("Wrote %d characters to %s", len(text), path)  # Log the bytes written.
 
-    def _print_summary(self, reports: list, output: str) -> None:
+    def _print_summary(self, reports: list[FileReport], output: str) -> None:
         """Print a concise per-file and overall summary to the console."""
         overall = MarkdownReportGenerator().overall_score(reports)  # Aggregate score.
         grade = self._scorer.grade(overall)  # Aggregate grade.
@@ -98,7 +116,7 @@ class ComplianceCLI:
         for report in reports:  # List each file's grade and score.
             print(f"  {report.grade:>2}  {report.score:5.1f}  {report.path}")  # Aligned per-file line.
 
-    def _exit_code(self, reports: list, args: argparse.Namespace) -> int:
+    def _exit_code(self, reports: list[FileReport], args: argparse.Namespace) -> int:
         """Return 0, or 1 when a configured score/grade gate is not met."""
         overall = MarkdownReportGenerator().overall_score(reports)  # Aggregate score.
         grade = self._scorer.grade(overall)  # Aggregate grade.
