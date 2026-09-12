@@ -387,7 +387,12 @@ def _format_functional_requirements(ep: GetEndpoint) -> str:
             "after, ASCII-only, per Action Logging principle."
         ),  # Logging
         ("**FR-007**: Add inline comments on every new executable line per " "Inline Comments principle."),  # Comments
-        ("**FR-008**: Update README.md menu table and CHANGELOG.md with " "the new operation number."),  # Documentation
+        (
+            "**FR-008**: Update the README.md menu table with the new operation number. "
+            "Add the release note as a new fragment under `changelog.d/`, named "
+            "`pr-<number>.md`, `issue-<number>-<slug>.md`, or `<YYYY-MM-DD>-<slug>.md`. "
+            "Never edit CHANGELOG.md on a feature branch."
+        ),  # Documentation
     ]  # End requirement list
     return "\n".join(reqs)  # Caller embeds
 
@@ -471,7 +476,7 @@ item upserts cleanly into SQLite (no duplicate primary keys).
 - Multi-backend output via `DataExporter`.
 - `safe_input()` wraps all `input()` calls.
 - Primary key strategy registered in `ENDPOINT_PRIMARY_KEY_STRATEGIES`.
-- README menu table + CHANGELOG entry updated in the same PR.
+- README menu table updated in the same PR, plus one new `changelog.d/` fragment.
 
 ## Non-Functional Requirements
 
@@ -492,7 +497,8 @@ item upserts cleanly into SQLite (no duplicate primary keys).
 - [ ] Inline comments + action logging on every new line.
 - [ ] `DataExporter.write_with_format_selection` used for output.
 - [ ] `safe_input()` used for prompts.
-- [ ] README.md and CHANGELOG.md updated.
+- [ ] README.md updated, and one new fragment added under `changelog.d/`.
+- [ ] CHANGELOG.md unchanged by this branch.
 - [ ] `python -m py_compile MistHelper.py`, `python -m ruff check`, `python -m black --check` all green.
 - [ ] Test invocation via `python MistHelper.py --menu <num>` returns 0 on a known org.
 """
