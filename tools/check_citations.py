@@ -131,13 +131,30 @@ def build_index(roots: tuple[str, ...]) -> dict[str, list[str]]:
     Returns:
         The real paths that share each file name.
     """
+    index, _paths = build_catalog(roots)  # Reuse the shared walk logic for the index-only API.
+    return index
+
+
+def build_catalog(roots: tuple[str, ...]) -> tuple[dict[str, list[str]], list[str]]:
+    """Return repository files and readable citation sources.
+
+    Args:
+        roots: The folders to walk.
+
+    Returns:
+        The file index and the files that may hold a citation.
+    """
     index: dict[str, list[str]] = {}  # One entry for each file name.
+    paths: list[str] = []  # Every file the checker reads for citations.
     for root in roots:  # One walk for each root.
         for folder, subfolders, names in os.walk(root):
-            subfolders[:] = [name for name in subfolders if name not in SKIP_FOLDERS]  # Prune in place.
-            for name in names:  # Every file, whatever its suffix.
-                index.setdefault(name, []).append(os.path.join(folder, name).replace("\\", "/"))
-    return index
+            subfolders[:] = [name for name in subfolders if name not in SKIP_FOLDERS]  # Prune generated folders.
+            for name in names:  # Every file can resolve a citation tail.
+                path = os.path.join(folder, name).replace("\\", "/")  # Keep reports stable across platforms.
+                index.setdefault(name, []).append(path)  # Resolve citations by their final path part.
+                if name.endswith(READ_SUFFIXES):  # Read only files that can hold citations.
+                    paths.append(path)
+    return index, paths
 
 
 def resolve(source: str, target: str, index: dict[str, list[str]]) -> list[str]:
@@ -189,7 +206,10 @@ def check_file(path: str, counts: dict[str, int], index: dict[str, list[str]]) -
             lines = handle.readlines()
     except OSError:
         return 0, findings  # A file the checker cannot read holds no citation it can check.
+    counts.setdefault(path, len(lines))  # A source file also can be a target file.
     for number, text in enumerate(lines, start=1):  # One pass over the file.
+        if ":" not in text or "/" not in text:  # Skip regex work on lines that cannot match.
+            continue
         for match in _CITATION.finditer(text):  # A line may hold several citations.
             found += 1
             target = match.group("path")  # The path that the citation names.
@@ -218,13 +238,7 @@ def walk(roots: tuple[str, ...]) -> list[str]:
     Returns:
         The path of each file that may hold a citation.
     """
-    paths: list[str] = []  # Every file the checker reads.
-    for root in roots:  # One walk for each root.
-        for folder, subfolders, names in os.walk(root):
-            subfolders[:] = [name for name in subfolders if name not in SKIP_FOLDERS]  # Prune in place.
-            paths.extend(
-                os.path.join(folder, name).replace("\\", "/") for name in names if name.endswith(READ_SUFFIXES)
-            )
+    _index, paths = build_catalog(roots)  # Reuse the shared walk logic for the path-only API.
     return paths
 
 
@@ -241,11 +255,15 @@ def main(argv: list[str]) -> int:
     # The index always covers every default root. A narrowed run still cites a
     # contract that lives under `specs/`, and an index of the narrowed roots
     # alone would report every such citation as a missing file.
-    index = build_index(DEFAULT_ROOTS)  # One index serves every citation of the run.
+    if roots == DEFAULT_ROOTS:  # The CI path can use one walk for the index and source list.
+        index, paths = build_catalog(DEFAULT_ROOTS)
+    else:
+        index = build_index(DEFAULT_ROOTS)  # Custom roots still resolve against the full repository.
+        paths = walk(roots)  # Custom roots can live outside the default tree.
     counts: dict[str, int] = {}  # One line count for each target.
     findings: list[Finding] = []  # Every citation that fails.
     total = 0  # Every citation the checker read.
-    for path in walk(roots):  # One check for each file.
+    for path in paths:  # One check for each file.
         found, failed = check_file(path, counts, index)
         total += found
         findings.extend(failed)

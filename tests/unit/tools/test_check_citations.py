@@ -16,6 +16,8 @@ Why:
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
+from typing import Any
 
 from tools import check_citations
 
@@ -91,3 +93,61 @@ def test_a_citation_inside_a_file_is_accepted(tmp_path: object) -> None:
     found, findings = check_citations.check_file(source.replace("\\", "/"), {}, index)
     assert found == 1  # The checker read the citation.
     assert findings == []  # The line sits inside the file.
+
+
+def test_a_plain_line_skips_the_citation_pattern(tmp_path: object, monkeypatch: Any) -> None:
+    """A line with no citation markers must not run the regex pattern.
+
+    Args:
+        tmp_path: The temporary folder of this test.
+        monkeypatch: The pytest helper that replaces module attributes.
+    """
+
+    class RaisingPattern:
+        """A test pattern that fails if the checker asks for matches."""
+
+        def finditer(self, text: str) -> list[object]:
+            """Fail if a line cannot hold a citation.
+
+            Args:
+                text: The line that the checker reads.
+
+            Raises:
+                AssertionError: Always, because this branch must not run.
+            """
+            raise AssertionError(text)
+
+    source = os.path.join(str(tmp_path), "plain.py")  # The file holds no citation markers.
+    with open(source, "w", encoding="utf-8") as handle:
+        handle.write("plain text with no reference\n")  # The line cannot match the citation pattern.
+    monkeypatch.setattr(check_citations, "_CITATION", RaisingPattern())  # Prove the fast skip path runs.
+    found, findings = check_citations.check_file(source.replace("\\", "/"), {}, {})
+    assert found == 0  # The checker found no citation.
+    assert findings == []  # The checker reported no failure.
+
+
+def test_the_default_cli_uses_one_repository_walk(tmp_path: object, monkeypatch: Any, capsys: Any) -> None:
+    """The default run must build the index and source list together.
+
+    Args:
+        tmp_path: The temporary folder of this test.
+        monkeypatch: The pytest helper that replaces module attributes.
+        capsys: The pytest helper that captures stdout.
+    """
+    root = os.path.join(str(tmp_path), "docs")  # The default root for this isolated run.
+    os.makedirs(root, exist_ok=True)
+    source = os.path.join(root, f"note{_MD}")  # The source file exercises the readable-file path.
+    with open(source, "w", encoding="utf-8") as handle:
+        handle.write("no citations here\n")  # A citation-free file keeps the test focused on walking.
+    real_walk = check_citations.os.walk  # The wrapper delegates to the real walker.
+    calls = {"count": 0}  # The test records how many root walks start.
+
+    def counted_walk(*args: Any, **kwargs: Any) -> Iterator[tuple[str, list[str], list[str]]]:
+        calls["count"] += 1  # Count each os.walk call from the default CLI path.
+        yield from real_walk(*args, **kwargs)
+
+    monkeypatch.setattr(check_citations, "DEFAULT_ROOTS", (root,))  # Isolate the default path to the fixture.
+    monkeypatch.setattr(check_citations.os, "walk", counted_walk)  # Count repository walks in the fixture.
+    assert check_citations.main([]) == 0  # A clean citation-free tree exits successfully.
+    assert calls["count"] == 1  # The default path must not walk once for the index and again for sources.
+    assert capsys.readouterr().out == "0 citation(s) checked, 0 unresolved\n"  # Preserve the output text.
