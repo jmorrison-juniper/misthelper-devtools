@@ -24,7 +24,9 @@ import pytest  # Test framework used across the project.
 from tools.capture_log_baseline import (  # Reuse the rendering primitives.
     FIXTURE_SITES,
     _extract_msg_and_args,
+    _index_calls_by_line,
     _LineCallCollector,
+    _render_call_at_line,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent  # tests/ -> repo root.
@@ -192,6 +194,28 @@ def _render_log(msg: str, args: tuple[Any, ...]) -> str:
         exc_info=None,
     )
     return record.getMessage()  # The string the real logger would emit.
+
+
+def test_indexed_render_chooses_first_call_when_several_start_on_same_line() -> None:
+    """Confirm the indexed lookup keeps the old first-call rule."""
+    module = cst.parse_module(  # Build a same-line call case.
+        'import logging\nlogging.info("outer %s", str("value"))\n'
+    )
+    call_index = _index_calls_by_line(module)  # Build the candidate line index.
+    rendered = _render_call_at_line(module, 2, {"str": str}, call_index)  # Render from the indexed path.
+    assert rendered == "outer value"  # The logging call must win over the nested str call.
+
+
+def test_indexed_render_matches_direct_line_collector() -> None:
+    """Confirm the indexed path returns the same call as the old collector."""
+    module = cst.parse_module('import logging\nlogging.info("stable %s", "text")\n')  # Small stable fixture.
+    direct_collector = _LineCallCollector(2)  # Use the old line collector as the oracle.
+    cst.MetadataWrapper(module).visit(direct_collector)  # Collect the direct call for comparison.
+    call_index = _index_calls_by_line(module)  # Build the new reusable line index.
+    assert direct_collector.found is not None  # The fixture must contain a call on the target line.
+    direct_msg, direct_args = _extract_msg_and_args(direct_collector.found, {})  # Render the old path.
+    index_msg, index_args = _extract_msg_and_args(call_index[2][0], {})  # Render the indexed path.
+    assert (index_msg, index_args) == (direct_msg, direct_args)  # The indexed call must match the old lookup.
 
 
 _LEVEL_METHODS = frozenset(  # Mirrors LEVEL_METHODS in the codemod module.

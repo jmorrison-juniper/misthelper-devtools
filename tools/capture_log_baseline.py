@@ -77,20 +77,44 @@ FIXTURE_SITES: list[dict[str, Any]] = [  # Minimal but representative baseline.
 ]
 
 
-def _render_call_at_line(module: cst.Module, target_line: int, inputs: dict[str, Any]) -> str:
+_CallIndex = dict[int, list[cst.Call]]  # Line number to Call nodes in libcst visit order.
+
+
+def _index_calls_by_line(module: cst.Module) -> _CallIndex:
+    """Build one line-to-call index for a parsed module."""
+    logging.debug("indexing calls by line")  # Action log before the whole tree walk.
+    wrapper = cst.MetadataWrapper(module)  # MetadataWrapper enables PositionProvider once.
+    collector = _LineCallIndexCollector()  # Collector groups calls by start line.
+    wrapper.visit(collector)  # Walk the module one time for all fixture sites.
+    logging.debug(  # Confirm index size without logging source content.
+        "indexed %d calls on %d lines",
+        collector.call_count,
+        len(collector.calls_by_line),
+    )
+    return collector.calls_by_line  # Caller reuses the index for each fixture lookup.
+
+
+def _render_call_at_line(
+    module: cst.Module,
+    target_line: int,
+    inputs: dict[str, Any],
+    call_index: _CallIndex | None = None,
+) -> str:
     """Locate the logging call at target_line and render its message text.
 
     Returns the string that ``LogRecord.getMessage()`` would produce when
     the logging framework formats the call with the supplied inputs.
     """
-    logging.debug("rendering call at line %d", target_line)  # Action log before search.
-    wrapper = cst.MetadataWrapper(module)  # MetadataWrapper enables PositionProvider.
-    collector = _LineCallCollector(target_line)  # Per-call-line collector instance.
-    wrapper.visit(collector)  # Walk the module; collector records the matching Call.
-    if collector.found is None:  # Defensive: line may have moved between captures.
+    logging.debug("rendering call at line %d", target_line)  # Action log before lookup.
+    lookup_index = call_index  # Use the caller index when the caller can reuse it.
+    if lookup_index is None:  # Keep the helper safe for direct unit tests and reuse.
+        lookup_index = _index_calls_by_line(module)  # Build one index for this direct call.
+    matching_calls = lookup_index.get(target_line, [])  # Preserve the old miss behavior.
+    if not matching_calls:  # Defensive: line may have moved between captures.
         msg = f"no logging call found at line {target_line}"  # Diagnostic for operator.
         raise LookupError(msg)  # Caller will surface this via the CLI exit code.
-    msg_text, args_tuple = _extract_msg_and_args(collector.found, inputs)  # Pull (msg, args).
+    call = matching_calls[0]  # Preserve the first call found in libcst visit order.
+    msg_text, args_tuple = _extract_msg_and_args(call, inputs)  # Pull (msg, args).
     record = logging.LogRecord(  # Synthesize a record exactly like the framework would.
         name="issue429_capture",
         level=logging.INFO,
@@ -242,6 +266,25 @@ class _LineCallCollector(cst.CSTVisitor):
         return True  # Otherwise keep descending.
 
 
+class _LineCallIndexCollector(cst.CSTVisitor):
+    """Collect all cst.Call nodes by their 1-based start line."""
+
+    METADATA_DEPENDENCIES = (PositionProvider,)  # Required for line-number lookup.
+
+    def __init__(self) -> None:
+        """Prepare the line index and the count used for diagnostics."""
+        super().__init__()  # Required to initialize libcst visitor state.
+        self.calls_by_line: _CallIndex = {}  # Preserve insertion order within each line.
+        self.call_count = 0  # Count every call for the debug summary.
+
+    def visit_Call(self, node: cst.Call) -> bool | None:  # Visit hook for every Call.
+        pos = self.get_metadata(PositionProvider, node)  # Resolve the call's line range.
+        calls_on_line = self.calls_by_line.setdefault(pos.start.line, [])  # Create bucket on first use.
+        calls_on_line.append(node)  # Append preserves libcst traversal order.
+        self.call_count += 1  # Count helps profile and debug the index.
+        return True  # Keep children so nested calls keep their prior search order.
+
+
 def build_argument_parser() -> argparse.ArgumentParser:
     """Build the CLI argparse instance for the capture script."""
     parser = argparse.ArgumentParser(  # One parser per invocation.
@@ -282,6 +325,7 @@ def main(argv: list[str] | None = None) -> int:
     except cst.ParserSyntaxError as exc:  # libcst parse failure type.
         logging.error("libcst parse failed: %s", exc)  # Surface the failure.
         return 1  # Documented "parse error" exit code.
+    call_index = _index_calls_by_line(module)  # Build one reusable call lookup for all fixture sites.
     captured: dict[str, dict[str, Any]] = {}  # Site-id -> baseline record map.
     site_inputs_extra: dict[str, Any] = {  # Extra fixtures need a fake `sys` object for L1343.
         "sys": type("FakeSys", (), {"executable": "/usr/bin/python3"})()
@@ -301,7 +345,7 @@ def main(argv: list[str] | None = None) -> int:
 
             merged_inputs["table"] = _FakeTable(merged_inputs.pop("table_text"))  # Wrap once.
         try:
-            rendered = _render_call_at_line(module, site["line"], merged_inputs)  # Real render.
+            rendered = _render_call_at_line(module, site["line"], merged_inputs, call_index)  # Real render.
         except (LookupError, ValueError, KeyError, AttributeError) as exc:  # Tolerate per-site failures.
             logging.warning(  # Skip without aborting so the baseline still has the others.
                 "skipping site %s: %s", site["site_id"], exc
