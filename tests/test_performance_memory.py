@@ -9,7 +9,7 @@ from __future__ import annotations  # Keep annotations lazy during test collecti
 import logging  # Report test actions before and after they run.
 
 from src.utils.performance import privacy  # Check the safe value cache bound.
-from src.utils.performance.sink import BoundedSink  # Check the queue capacity bound.
+from src.utils.performance.sink import DEFAULT_MAX_BYTES, BoundedSink  # Check the queue capacity bound.
 from tools.performance_memory import EventFactory, PerformanceMemoryHarness  # Reuse the measured scenarios.
 
 _LOGGER = logging.getLogger(__name__)  # Share one logger for this test module.
@@ -31,6 +31,56 @@ def test_the_queue_never_exceeds_capacity() -> None:
     assert sink.dropped == capacity * 2  # Prove the sink counted each evicted event.
 
 
+def test_large_events_hit_the_byte_bound_before_capacity() -> None:
+    """A large event queue evicts by bytes before it reaches capacity."""
+    _LOGGER.info("Creating a byte limited sink")  # Log the setup action.
+    sink = BoundedSink(capacity=32, max_bytes=12_000)  # Use a byte cap that holds one large event.
+    factory = EventFactory()  # Create worst case events with the harness contract.
+    _LOGGER.debug("Created sink max_bytes=%s", sink.max_bytes)  # Log the configured byte cap.
+    _LOGGER.info("Emitting large events past the byte cap")  # Log the fill action.
+    for index in range(3):  # Emit more large events than the byte budget keeps.
+        sink.emit(factory.worst(index))  # Add one legal worst case event.
+    retained = sink.drain()  # Drain the queue to count retained events.
+    _LOGGER.debug("Retained %s large events", len(retained))  # Log the retained count.
+    assert len(retained) == 1  # Prove the byte limit won before the entry limit.
+    assert sink.dropped == 2  # Prove byte evictions incremented the drop counter.
+
+
+def test_small_events_still_hit_the_entry_bound() -> None:
+    """A small event queue still evicts by the entry count."""
+    _LOGGER.info("Creating an entry limited sink")  # Log the setup action.
+    sink = BoundedSink(capacity=2, max_bytes=DEFAULT_MAX_BYTES)  # Make bytes too large to win.
+    factory = EventFactory()  # Create minimal events with the harness contract.
+    _LOGGER.debug("Created sink capacity=%s", 2)  # Log the configured entry cap.
+    _LOGGER.info("Emitting small events past the entry cap")  # Log the fill action.
+    for index in range(5):  # Emit more small events than the entry budget keeps.
+        sink.emit(factory.minimal(index))  # Add one legal minimal event.
+    retained = sink.drain()  # Drain the queue to count retained events.
+    _LOGGER.debug("Retained %s small events", len(retained))  # Log the retained count.
+    assert len(retained) == 2  # Prove the entry limit still bounds small events.
+    assert sink.dropped == 3  # Prove entry evictions incremented the drop counter.
+
+
+def test_the_drop_counter_counts_byte_and_entry_evictions() -> None:
+    """The drop counter includes each eviction path."""
+    _LOGGER.info("Creating a sink with both limits")  # Log the setup action.
+    sink = BoundedSink(capacity=2, max_bytes=12_000)  # Set limits so each path runs once.
+    factory = EventFactory()  # Create small and large events with one contract.
+    _LOGGER.debug("Created sink with byte and entry limits")  # Log the setup result.
+    _LOGGER.info("Emitting a large event that fills most byte space")  # Log the first event.
+    sink.emit(factory.worst(0))  # Keep one large event near the byte cap.
+    _LOGGER.debug("Queue estimate after first event=%s", sink.queued_bytes)  # Log the charge.
+    _LOGGER.info("Emitting a second large event that causes byte eviction")  # Log the byte path.
+    sink.emit(factory.worst(1))  # Force the byte bound to evict the first large event.
+    _LOGGER.debug("Drop count after byte eviction=%s", sink.dropped)  # Log the first drop.
+    _LOGGER.info("Emitting two small events that cause entry eviction")  # Log the entry path.
+    sink.emit(factory.minimal(2))  # Fill the second queue entry without byte pressure.
+    sink.emit(factory.minimal(3))  # Force the entry bound to evict the oldest event.
+    _LOGGER.debug("Drop count after both evictions=%s", sink.dropped)  # Log the final drops.
+    assert len(sink.drain()) == 2  # Prove the queue kept the newest two events.
+    assert sink.dropped == 2  # Prove the counter includes byte and entry evictions.
+
+
 def test_memory_plateaus_under_sustained_load() -> None:
     """A sustained run keeps memory near the full queue value."""
     _LOGGER.info("Measuring a small full queue")  # Log the first measurement.
@@ -45,6 +95,16 @@ def test_memory_plateaus_under_sustained_load() -> None:
     assert sustained_row["queued_events"] == 16  # Prove the queue still holds only capacity events.
     assert sustained_row["actual_dropped"] == 496  # Prove overflow events were evicted.
     assert sustained_row["traced_current_bytes"] <= limit  # Prove the retained memory plateaued.
+
+
+def test_worst_case_memory_stays_under_the_configured_byte_bound() -> None:
+    """A worst case queue stays below the configured byte bound."""
+    _LOGGER.info("Measuring a byte bounded worst case queue")  # Log the measurement action.
+    report = PerformanceMemoryHarness(capacity=64, max_bytes=96_000, sustained_events=512).run()  # Measure small.
+    row = _row(report, "byte_bounded_worst_case_events")  # Read the bounded worst case row.
+    _LOGGER.debug("Worst case traced current bytes=%s", row["traced_current_bytes"])  # Log the result.
+    assert row["estimated_queued_bytes"] <= row["configured_max_bytes"]  # Prove the estimator bound held.
+    assert row["traced_current_bytes"] <= 300_000  # Prove the true retained memory stayed small.
 
 
 def test_safe_value_cache_clears_at_the_limit() -> None:

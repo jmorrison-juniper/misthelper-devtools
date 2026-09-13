@@ -27,7 +27,7 @@ from src.utils.performance.event import (  # Import event helpers for event and 
     _measurement_key_ok,  # Measure the bounded measurement-key validator cache.
 )
 from src.utils.performance.recorder import Recorder, RecorderSettings  # Measure the enabled and disabled span paths.
-from src.utils.performance.sink import BoundedSink  # Measure the retained event queue.
+from src.utils.performance.sink import DEFAULT_MAX_BYTES, BoundedSink  # Measure the retained event queue.
 
 _LOGGER = logging.getLogger(__name__)  # Share one logger for this measurement command.
 _SOURCE: Final = EventSource("tools/performance_memory.py", "run", "PerformanceMemoryHarness")  # Reuse one source.
@@ -177,9 +177,12 @@ class PerformanceMemoryHarness:
         One class keeps the actions, measurements, and output together.
     """
 
-    def __init__(self, capacity: int = 2048, sustained_events: int = 50_000) -> None:
+    def __init__(
+        self, capacity: int = 2048, max_bytes: int = DEFAULT_MAX_BYTES, sustained_events: int = 50_000
+    ) -> None:
         """Store the scenario sizes and the process memory reader."""
         self.capacity = capacity  # Store the queue size under test.
+        self.max_bytes = max_bytes  # Store the approximate byte budget under test.
         self.sustained_events = sustained_events  # Store the sustained event count.
         self.factory = EventFactory()  # Share one factory for all event scenarios.
         self.process_reader = ProcessMemoryReader()  # Use standard-library process memory.
@@ -200,6 +203,7 @@ class PerformanceMemoryHarness:
             ("one_worst_case_event", self._one_worst_event),  # Measure one full contract event.
             ("full_queue_minimal_events", self._full_minimal_queue),  # Measure a full minimal queue.
             ("full_queue_worst_case_events", self._full_worst_queue),  # Measure a full worst case queue.
+            ("byte_bounded_worst_case_events", self._byte_bounded_worst_queue),  # Measure byte retention.
             ("sustained_minimal_events", self._sustained_minimal_events),  # Measure the plateau.
             ("bounded_caches", self._bounded_caches),  # Measure the validator and safe value caches.
         ]
@@ -265,29 +269,49 @@ class PerformanceMemoryHarness:
 
     def _full_minimal_queue(self) -> dict[str, Any]:
         """Return retained objects for a full minimal queue."""
-        sink = BoundedSink(capacity=self.capacity)  # Use the configured queue capacity.
+        sink = BoundedSink(capacity=self.capacity, max_bytes=self.max_bytes)  # Use both configured bounds.
         for index in range(self.capacity):  # Fill each slot exactly once.
             sink.emit(self.factory.minimal(index))  # Add a distinct minimal event.
-        return {"queued_events": self.capacity, "dropped_events": sink.dropped, "retained": sink}  # Keep queue live.
+        return self._sink_metadata(sink)  # Report the retained queue and keep it live.
 
     def _full_worst_queue(self) -> dict[str, Any]:
         """Return retained objects for a full worst case queue."""
-        sink = BoundedSink(capacity=self.capacity)  # Use the configured queue capacity.
+        sink = BoundedSink(capacity=self.capacity, max_bytes=self.max_bytes)  # Use both configured bounds.
         for index in range(self.capacity):  # Fill each slot exactly once.
             sink.emit(self.factory.worst(index))  # Add a distinct worst case event.
-        return {"queued_events": self.capacity, "dropped_events": sink.dropped, "retained": sink}  # Keep queue live.
+        return self._sink_metadata(sink)  # Report the retained queue and keep it live.
+
+    def _byte_bounded_worst_queue(self) -> dict[str, Any]:
+        """Return retained worst case events after byte pressure."""
+        sink = BoundedSink(capacity=self.capacity, max_bytes=self.max_bytes)  # Use the byte budget under test.
+        for index in range(self.capacity * 3):  # Emit enough large events to force byte evictions.
+            sink.emit(self.factory.worst(index))  # Add the largest legal event shape.
+        metadata = self._sink_metadata(sink)  # Report the retained count and byte charge.
+        metadata["emitted_events"] = self.capacity * 3  # State the input count for the report.
+        return metadata  # Keep the bounded sink live for the traced snapshot.
 
     def _sustained_minimal_events(self) -> dict[str, Any]:
         """Return retained objects after many more events than capacity."""
-        sink = BoundedSink(capacity=self.capacity)  # Use the configured queue capacity.
+        sink = BoundedSink(capacity=self.capacity, max_bytes=self.max_bytes)  # Use both configured bounds.
         for index in range(self.sustained_events):  # Emit far more events than the queue can hold.
             sink.emit(self.factory.minimal(index))  # Add distinct events so eviction must hold the bound.
-        dropped = max(0, self.sustained_events - self.capacity)  # Calculate the expected eviction count.
+        expected_dropped = max(0, self.sustained_events - self.capacity)  # Calculate the entry-only drop count.
         return {  # Report the sustained queue state and keep the sink alive.
-            "queued_events": self.capacity,  # Report the retained event count.
-            "expected_dropped": dropped,  # Report the expected number of evicted events.
+            "queued_events": sink.queued_count,  # Report the retained event count without clearing it.
+            "expected_dropped": expected_dropped,  # Report the expected number of evicted events.
             "actual_dropped": sink.dropped,  # Report the sink counter for evicted events.
             "retained": sink,  # Keep the queue live until tracemalloc takes the snapshot.
+        }
+
+    def _sink_metadata(self, sink: BoundedSink) -> dict[str, Any]:
+        """Return queue metadata and keep the sink live."""
+        queued_events = sink.queued_count  # Count the queue without clearing retained events.
+        return {  # Report the queue state with its approximate byte charge.
+            "queued_events": queued_events,  # Report the retained event count.
+            "dropped_events": sink.dropped,  # Report all evicted or refused events.
+            "estimated_queued_bytes": sink.queued_bytes,  # Report the cheap byte estimate.
+            "configured_max_bytes": sink.max_bytes,  # Report the configured byte budget.
+            "retained": sink,  # Keep the queue object live until tracemalloc takes the snapshot.
         }
 
     def _bounded_caches(self) -> dict[str, Any]:
@@ -323,6 +347,7 @@ class PerformanceMemoryHarness:
             "python": sys.version,  # State the measured Python build.
             "python_executable": sys.executable,  # State the interpreter path.
             "capacity": self.capacity,  # State the queue capacity under test.
+            "max_bytes": self.max_bytes,  # State the approximate byte budget under test.
             "sustained_events": self.sustained_events,  # State the sustained event count.
             "traced_method": "tracemalloc current and peak live allocation bytes",  # Label traced bytes.
             "process_method": self.process_reader.read().method,  # Label process memory method.
