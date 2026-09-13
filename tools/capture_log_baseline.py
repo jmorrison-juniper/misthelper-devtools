@@ -39,19 +39,19 @@ from libcst.metadata import PositionProvider  # Resolves 1-based line numbers.
 FIXTURE_SITES: list[dict[str, Any]] = [  # Minimal but representative baseline.
     {  # Plain f-string near the top of the file (Python version warning).
         "site_id": "L315",
-        "line": 315,
+        "line": 822,
         "inputs": {"version_str": "3.10.0", "required_str": "3.13"},
         "pattern": "plain_fstring",
     },
     {  # Negative control: already lazy on `main`; must remain unchanged after codemod.
         "site_id": "L801",
-        "line": 801,
+        "line": 1208,
         "inputs": {},
         "pattern": "already_lazy_negative_control",
     },
     {  # Attribute access in interpolation (sys.executable).
         "site_id": "L1343",
-        "line": 1343,
+        "line": 1355,
         "inputs": {"sys_executable": "/usr/bin/python3"},
         "pattern": "attribute_access",
     },
@@ -64,7 +64,7 @@ FIXTURE_SITES: list[dict[str, Any]] = [  # Minimal but representative baseline.
     },
     {  # Multi-argument f-string with arithmetic on substitution.
         "site_id": "L6988",
-        "line": 183,  # Extracted to src/api/api_fetch_utils.py (1014 P8); logging.debug at line 183.
+        "line": 193,  # Extracted to src/api/api_fetch_utils.py (1014 P8); logging.debug at line 193.
         "source": "src/api/api_fetch_utils.py",  # Per-site override; defaults to MistHelper.py.
         "inputs": {
             "failed_device_id": "dev-abc",
@@ -78,6 +78,38 @@ FIXTURE_SITES: list[dict[str, Any]] = [  # Minimal but representative baseline.
 
 
 _CallIndex = dict[int, list[cst.Call]]  # Line number to Call nodes in libcst visit order.
+_SourceLookup = dict[Path, tuple[cst.Module, _CallIndex]]  # Parsed module and line index per source file.
+
+
+def _resolve_fixture_source(site: dict[str, Any], default_source: Path) -> Path:
+    """Return the source file that owns one fixture site."""
+    source_name = site.get("source")  # Use a fixture override when the fixture names one.
+    if source_name is None:  # Fixture omits `source`, so it keeps the CLI source behavior.
+        return default_source  # Preserve the old default-source lookup path.
+    return Path(source_name)  # Treat fixture paths the same way argparse treats --source.
+
+
+def _load_source_lookup(source_paths: list[Path]) -> _SourceLookup | None:
+    """Parse each distinct source file and build its call index once."""
+    lookup: _SourceLookup = {}  # Keep each parsed source keyed by its resolved Path.
+    for source_path in source_paths:  # Process each distinct source once for performance.
+        logging.info("reading source file: %s", source_path)  # Log before file I/O.
+        try:
+            source = source_path.read_text(encoding="utf-8")  # Read the target source file.
+        except OSError as exc:  # Cover missing file and permission errors uniformly.
+            logging.error("failed to read %s: %s", source_path, exc)  # Surface a clear read failure.
+            return None  # Caller returns the documented read-error exit code.
+        logging.debug("read %d characters from %s", len(source), source_path)  # Log read size only.
+        logging.info("parsing source file: %s", source_path)  # Log before libcst parse.
+        try:
+            module = cst.parse_module(source)  # Build the libcst module once for this source.
+        except cst.ParserSyntaxError as exc:  # libcst parse failure type.
+            logging.error("libcst parse failed for %s: %s", source_path, exc)  # Name the bad source.
+            return None  # Caller returns the documented parse-error exit code.
+        logging.debug("parsed source file: %s", source_path)  # Confirm parse success without source text.
+        call_index = _index_calls_by_line(module)  # Build one reusable call lookup for this source.
+        lookup[source_path] = (module, call_index)  # Store the reusable parse and index.
+    return lookup  # Caller uses this map for fixture rendering.
 
 
 def _index_calls_by_line(module: cst.Module) -> _CallIndex:
@@ -315,22 +347,20 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = build_argument_parser().parse_args(argv)  # Parse CLI arguments.
     logging.info("capture start: source=%s output=%s", args.source, args.output)  # Action-log entry point parameters.
-    try:
-        source = args.source.read_text(encoding="utf-8")  # Read the target source file.
-    except OSError as exc:  # Cover missing file + permission errors uniformly.
-        logging.error("failed to read %s: %s", args.source, exc)  # Surface the failure.
-        return 1  # Documented "read error" exit code.
-    try:
-        module = cst.parse_module(source)  # Build the libcst module once for reuse.
-    except cst.ParserSyntaxError as exc:  # libcst parse failure type.
-        logging.error("libcst parse failed: %s", exc)  # Surface the failure.
-        return 1  # Documented "parse error" exit code.
-    call_index = _index_calls_by_line(module)  # Build one reusable call lookup for all fixture sites.
+    source_paths = list(  # Keep first-seen order while removing duplicate source files.
+        dict.fromkeys(_resolve_fixture_source(site, args.source) for site in FIXTURE_SITES)
+    )
+    logging.debug("resolved %d source file(s)", len(source_paths))  # Report the grouped source count.
+    source_lookup = _load_source_lookup(source_paths)  # Parse and index each distinct source once.
+    if source_lookup is None:  # A read or parse failure already logged a clear error.
+        return 1  # Documented failure exit code.
     captured: dict[str, dict[str, Any]] = {}  # Site-id -> baseline record map.
     site_inputs_extra: dict[str, Any] = {  # Extra fixtures need a fake `sys` object for L1343.
         "sys": type("FakeSys", (), {"executable": "/usr/bin/python3"})()
     }
     for site in FIXTURE_SITES:  # Iterate the operator-curated fixture catalog.
+        source_path = _resolve_fixture_source(site, args.source)  # Select this fixture's source file.
+        module, call_index = source_lookup[source_path]  # Reuse the parse and call index for this source.
         merged_inputs = {**site["inputs"]}  # Copy so we never mutate the source dict.
         if site["pattern"] == "attribute_access":  # L1343 references sys.executable.
             merged_inputs["sys"] = site_inputs_extra["sys"]  # Inject the fake sys object.
