@@ -51,6 +51,16 @@ class LinterCLI:
         parser.add_argument("--config", default="pyproject.toml", help="The configuration file path.")
         parser.add_argument("--select", action="append", default=[], help="Only run these rule ids.")
         parser.add_argument("--ignore", action="append", default=[], help="Do not run these rule ids.")
+        parser.add_argument(
+            "--grade-logging-strings",
+            action="store_true",
+            help="Grade configured logging message strings.",
+        )
+        parser.add_argument(
+            "--grade-user-facing-strings",
+            action="store_true",
+            help="Grade configured print and prompt strings.",
+        )
         parser.add_argument("--quiet", action="store_true", help="Print only the score line.")  # Short output.
         parser.add_argument("--version", action="version", version=f"ste-linter {__version__}")  # The version.
         return parser.parse_args(argv)  # Parse and return the arguments.
@@ -62,6 +72,10 @@ class LinterCLI:
             config.min_score = args.min_score  # Use the command-line threshold.
         if args.dictionary is not None:  # The user set a dictionary path.
             config.dictionary_path = args.dictionary  # Use the command-line path.
+        if args.grade_logging_strings:  # The user opted in to logging messages for this run.
+            config.grade_logging_strings = True  # Enable logging strings without editing TOML.
+        if args.grade_user_facing_strings:  # The user opted in to prompts and printed text for this run.
+            config.grade_user_facing_strings = True  # Enable user-facing strings without editing TOML.
         config.selected.update(self._split(args.select))  # Add any selected rule ids.
         config.ignored.update(self._split(args.ignore))  # Add any ignored rule ids.
         return config  # Return the merged configuration.
@@ -79,7 +93,7 @@ class LinterCLI:
         grammar = GrammarAnalyzer()  # The shared grammar helper.
         dictionary = Dictionary.load(config.dictionary_path)  # Load the dictionary, or None.
         rules = load_rules(config)  # Build the active rule list.
-        builder = DocumentBuilder()  # The document builder.
+        builder = DocumentBuilder(config)  # The document builder needs the string grading switches.
         scorer = ScoringModel()  # The scoring model.
         scores: list[Score] = []  # Holds the per-file scores.
         usage_error = False  # True when a path is missing or unreadable.

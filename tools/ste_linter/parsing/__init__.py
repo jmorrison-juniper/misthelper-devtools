@@ -11,6 +11,7 @@ from __future__ import annotations  # Postponed annotations keep the type hints 
 import logging  # Records the parse stage for observability.
 import os  # Reads the file extension to pick a parser.
 
+from ..config import LinterConfig  # The parser configuration type.
 from ..models import Document, ProseSpan, Sentence  # The document model types.
 from .markdown import MarkdownParser  # Extracts prose from Markdown.
 from .python_source import PythonSourceParser  # Extracts prose from Python.
@@ -83,10 +84,11 @@ _IMPERATIVE_VERBS = frozenset(
 class DocumentBuilder:
     """Builds a ``Document`` from a file path and its text."""
 
-    def __init__(self) -> None:
+    def __init__(self, config: LinterConfig | None = None) -> None:
         """Create the builder with its parser and helper instances."""
+        self._config = config or LinterConfig()  # Keep defaults for tests that build directly.
         self._markdown = MarkdownParser()  # The Markdown parser.
-        self._python = PythonSourceParser()  # The Python parser.
+        self._python = PythonSourceParser(self._config)  # The Python parser shares the active config.
         self._segmenter = Segmenter()  # The paragraph and sentence splitter.
         self._counter = WordCounter()  # The STE word counter.
 

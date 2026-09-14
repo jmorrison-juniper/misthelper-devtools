@@ -40,6 +40,17 @@ def test_json_format_output(capsys: pytest.CaptureFixture[str]) -> None:
     assert payload["results"][0]["score"] >= 0  # The result holds a score.
 
 
+def test_cli_enables_string_grading_flags(capsys: pytest.CaptureFixture[str], tmp_path: pathlib.Path) -> None:
+    """The command line can opt in to Python string grading."""
+    path = tmp_path / "sample.py"  # Create a small Python file for this CLI run.
+    path.write_text('import logging\nlogging.info("The file is read by the parser.")\n', encoding="utf-8")  # Write.
+    code = main(["--grade-logging-strings", "--format", "json", str(path)])  # Grade logging strings once.
+    payload = json.loads(capsys.readouterr().out)  # Parse the JSON report.
+    lines = [item["line"] for item in payload["results"][0]["violations"]]  # Read the reported lines.
+    assert code == 0  # No threshold means the run succeeds.
+    assert 2 in lines  # The logging string was graded at the call line.
+
+
 def test_unsupported_file_is_skipped(capsys: pytest.CaptureFixture[str], tmp_path: pathlib.Path) -> None:
     """An unsupported file type is skipped."""
     path = tmp_path / "notes.txt"  # A text file the linter does not grade.

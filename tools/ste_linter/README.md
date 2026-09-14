@@ -31,7 +31,27 @@ when a file scores below it. The exit code is two on a usage error.
 | `--dictionary PATH` | Set the dictionary file path. |
 | `--select ID` | Run only these rules. |
 | `--ignore ID` | Do not run these rules. |
+| `--grade-logging-strings` | Grade configured Python logging message strings. |
+| `--grade-user-facing-strings` | Grade configured Python print and prompt strings. |
 | `--quiet` | Print only the score line. |
+
+## Python string grading
+
+By default, Python parsing grades docstrings and comments only. Enable the new
+string surfaces when you are ready to repair operator-facing text:
+
+```powershell
+python -m tools.ste_linter --grade-logging-strings --grade-user-facing-strings src/example.py
+```
+
+Use `[tool.ste_linter]` to enable the surfaces for all runs:
+
+```toml
+grade_logging_strings = true
+grade_user_facing_strings = true
+logging_call_names = ["logging.info", "logging.warning"]
+user_facing_call_names = ["print", "safe_input"]
+```
 
 ## Backends
 

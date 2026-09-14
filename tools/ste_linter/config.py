@@ -19,6 +19,19 @@ _LOG = logging.getLogger("ste_linter.config")
 # The default path to the dictionary file, which git ignores.
 _DEFAULT_DICTIONARY = os.path.join("data", "ste_dictionary.json")
 
+# The default logging methods that carry operator-facing messages.
+_DEFAULT_LOGGING_CALLS = (
+    "logging.debug",
+    "logging.info",
+    "logging.warning",
+    "logging.error",
+    "logging.critical",
+    "logging.exception",
+)
+
+# The default call names that carry prompts or printed text.
+_DEFAULT_USER_FACING_CALLS = ("print", "safe_input")
+
 
 @dataclass
 class LinterConfig:
@@ -36,6 +49,10 @@ class LinterConfig:
     selected: set[str] = field(default_factory=set)  # Only run these rules when not empty.
     ignored: set[str] = field(default_factory=set)  # Never run these rules.
     allowlist: set[str] = field(default_factory=set)  # Technical words the dictionary rules must not flag.
+    grade_logging_strings: bool = False  # Logging strings are opt in to keep old scores stable.
+    grade_user_facing_strings: bool = False  # Prompt and print strings are opt in to avoid old noise.
+    logging_call_names: tuple[str, ...] = _DEFAULT_LOGGING_CALLS  # Calls that hold log message templates.
+    user_facing_call_names: tuple[str, ...] = _DEFAULT_USER_FACING_CALLS  # Calls that hold user text.
 
     def limit_for(self, mode: str) -> int:
         """Return the word limit for a sentence mode."""
@@ -105,3 +122,15 @@ class LinterConfig:
             str(key): float(value) for key, value in table.get("section_weights", {}).items()
         }  # Section weights.
         config.allowlist = {str(word).lower() for word in table.get("allowlist", [])}  # Approved technical terms.
+        config.grade_logging_strings = bool(
+            table.get("grade_logging_strings", config.grade_logging_strings)
+        )  # Enable log messages only when requested.
+        config.grade_user_facing_strings = bool(
+            table.get("grade_user_facing_strings", config.grade_user_facing_strings)
+        )  # Enable prompts and prints only when requested.
+        config.logging_call_names = tuple(
+            str(name) for name in table.get("logging_call_names", config.logging_call_names)
+        )  # Load custom logging call names.
+        config.user_facing_call_names = tuple(
+            str(name) for name in table.get("user_facing_call_names", config.user_facing_call_names)
+        )  # Load custom user-facing call names.

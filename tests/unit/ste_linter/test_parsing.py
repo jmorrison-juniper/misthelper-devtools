@@ -2,6 +2,7 @@
 
 from __future__ import annotations  # Postponed annotations keep the type hints light.
 
+from tools.ste_linter.config import LinterConfig  # The parser configuration under test.
 from tools.ste_linter.parsing.markdown import MarkdownParser  # The Markdown parser under test.
 from tools.ste_linter.parsing.python_source import PythonSourceParser  # The Python parser under test.
 from tools.ste_linter.parsing.segmentation import Segmenter  # The segmenter under test.
@@ -84,6 +85,71 @@ def test_python_extracts_docstring_and_comment() -> None:
     kinds = {span.kind for span in spans}  # The span kinds found.
     assert note == ""  # The source parsed cleanly.
     assert "docstring" in kinds and "comment" in kinds  # Both prose kinds were found.
+
+
+def test_python_extracts_logging_string_when_enabled() -> None:
+    """The Python parser reads logging strings when configured."""
+    config = LinterConfig(grade_logging_strings=True)  # Enable the opt-in logging surface.
+    source = 'import logging\nlogging.info("The devices have been fetched.")\n'  # A passive log message.
+    spans, note = PythonSourceParser(config).parse(source)  # Parse with logging strings enabled.
+    logging_spans = [span for span in spans if span.kind == "logging"]  # Keep only the new span kind.
+    assert note == ""  # The source parsed cleanly.
+    assert logging_spans[0].text == "The devices have been fetched."  # The message prose was kept.
+    assert logging_spans[0].start_line == 2  # The span points at the logging call line.
+
+
+def test_python_skips_logging_string_by_default() -> None:
+    """The Python parser keeps the old default surface."""
+    source = 'import logging\nlogging.info("The devices have been fetched.")\n'  # A passive log message.
+    spans, _ = PythonSourceParser().parse(source)  # Parse with default settings.
+    assert not any(span.kind == "logging" for span in spans)  # The default run adds no logging spans.
+
+
+def test_python_cleans_lazy_logging_placeholder() -> None:
+    """The Python parser removes a lazy logging placeholder."""
+    config = LinterConfig(grade_logging_strings=True)  # Enable the opt-in logging surface.
+    source = 'import logging\nlogging.info("Fetched %s devices", total)\n'  # A lazy logging template.
+    spans, _ = PythonSourceParser(config).parse(source)  # Parse the source with the new surface.
+    logging_spans = [span for span in spans if span.kind == "logging"]  # Keep the logging span.
+    assert logging_spans[0].text == "Fetched devices"  # The placeholder is not graded.
+
+
+def test_python_extracts_user_facing_strings_when_enabled() -> None:
+    """The Python parser reads print text and safe input prompts."""
+    config = LinterConfig(grade_user_facing_strings=True)  # Enable prompts and printed text.
+    source = 'print("The task has been completed.")\nsafe_input("Enter the site name: ")\n'  # User text.
+    spans, note = PythonSourceParser(config).parse(source)  # Parse with user-facing strings enabled.
+    user_spans = [span for span in spans if span.kind == "user-facing"]  # Keep the new span kind.
+    assert note == ""  # The source parsed cleanly.
+    assert [span.text for span in user_spans] == ["The task has been completed.", "Enter the site name:"]  # Text.
+    assert [span.start_line for span in user_spans] == [1, 2]  # Each span points at its call line.
+
+
+def test_python_extracts_prompt_keyword() -> None:
+    """The Python parser reads the named safe input prompt."""
+    config = LinterConfig(grade_user_facing_strings=True)  # Enable the user-facing surface.
+    source = 'safe_input(prompt="Enter the device name: ", context="menu")\n'  # A named prompt argument.
+    spans, _ = PythonSourceParser(config).parse(source)  # Parse the source with the new surface.
+    user_spans = [span for span in spans if span.kind == "user-facing"]  # Keep prompt spans only.
+    assert user_spans[0].text == "Enter the device name:"  # The prompt keyword was graded.
+
+
+def test_python_string_edge_cases() -> None:
+    """The Python parser handles string forms without grading code tokens."""
+    config = LinterConfig(grade_logging_strings=True, grade_user_facing_strings=True)  # Enable both surfaces.
+    source = "\n".join(
+        [
+            "import logging",  # Give the dotted call a real name.
+            "logging.info(f'Fetched {device_count} devices')",  # F-string expressions are not prose.
+            "logging.info('Use ' 'the site name.')",  # Implicit concatenation stays one literal.
+            "print('')",  # Empty strings are not prose.
+            "print('Café is ready.')",  # Non-ASCII prose remains gradable.
+            "print('device_id')",  # Identifier-only text is not prose.
+        ]
+    )  # Build a small source file with all requested edge cases.
+    spans, _ = PythonSourceParser(config).parse(source)  # Parse with both opt-in surfaces enabled.
+    texts = [span.text for span in spans if span.kind in {"logging", "user-facing"}]  # Keep string spans.
+    assert texts == ["Fetched devices", "Use the site name.", "Café is ready."]  # Only prose remains.
 
 
 def test_python_skips_directive_comment() -> None:

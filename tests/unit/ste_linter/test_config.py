@@ -67,6 +67,26 @@ def test_load_from_toml(tmp_path: pathlib.Path) -> None:
     assert config.procedural_limit == 15  # The limit was read.
 
 
+def test_loads_string_grading_settings(tmp_path: pathlib.Path) -> None:
+    """The config file can opt in to Python string grading."""
+    content = "\n".join(
+        [
+            "[tool.ste_linter]",  # Create the linter table.
+            "grade_logging_strings = true",  # Enable logging string spans.
+            "grade_user_facing_strings = true",  # Enable prompt and print spans.
+            'logging_call_names = ["logger.info"]',  # Use a custom logger name.
+            'user_facing_call_names = ["ask_user"]',  # Use a custom prompt helper.
+        ]
+    )  # Keep the fixture readable in the test.
+    path = tmp_path / "pyproject.toml"  # Use pytest storage for an isolated config file.
+    path.write_text(content, encoding="utf-8")  # Write the config file.
+    config = LinterConfig.load(str(path))  # Load the custom string grading settings.
+    assert config.grade_logging_strings  # Logging strings were enabled.
+    assert config.grade_user_facing_strings  # User-facing strings were enabled.
+    assert config.logging_call_names == ("logger.info",)  # The custom logging list loaded.
+    assert config.user_facing_call_names == ("ask_user",)  # The custom user-facing list loaded.
+
+
 def test_load_missing_file_uses_defaults() -> None:
     """The loader returns defaults when the file is missing."""
     config = LinterConfig.load("does-not-exist.toml")  # Load a missing file.

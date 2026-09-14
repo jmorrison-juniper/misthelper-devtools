@@ -34,7 +34,7 @@ class ProseSpan:
 
     text: str  # The prose text with code, links, and markup removed.
     start_line: int  # The 1-based source line where the span starts.
-    kind: str  # The source kind: "markdown", "docstring", or "comment".
+    kind: str  # The source kind, such as "markdown", "docstring", "comment", "logging", or "user-facing".
 
 
 @dataclass(frozen=True)
