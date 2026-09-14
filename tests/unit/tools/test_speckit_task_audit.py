@@ -68,6 +68,63 @@ class TestSpecTaskAudit:
         assert counts.unchecked == 1  # Only the real task outside the fence counts.
         assert counts.checked == 0  # No checked marker exists in the fixture.
 
+    def test_checked_task_without_a_citation_passes(self, tmp_path: Path) -> None:
+        self._write_spec(tmp_path, "106-no-citation", "Implemented")  # Mark the spec as complete.
+        self._write_tasks(tmp_path, "106-no-citation", "- [X] T001 Done\n")  # Add no proof path.
+        result = SpecTaskAudit(tmp_path, AllowList(set())).run()  # Run the audit against no-citation task.
+        assert result == 0  # A checked task with no citation does not trigger the path rule.
+
+    def test_checked_task_with_a_missing_citation_fails(self, tmp_path: Path, capsys) -> None:
+        self._write_spec(tmp_path, "107-missing-citation", "Implemented")  # Mark the spec as complete.
+        text = "- [X] T001 Done. Evidence: `missing.md`.\n"  # Cite a file that the fixture tree lacks.
+        self._write_tasks(tmp_path, "107-missing-citation", text)  # Write the checked task with bad proof.
+        result = SpecTaskAudit(tmp_path, AllowList(set())).run()  # Run the audit against the missing path.
+        output = capsys.readouterr().out  # Capture the report so the path is checked.
+        assert result == 1  # A complete spec with a missing proof path must fail.
+        assert "missing.md (missing)" in output  # The report must name the unresolved path.
+
+    def test_checked_task_with_a_real_root_citation_passes(self, tmp_path: Path) -> None:
+        self._write_spec(tmp_path, "108-real-root", "Implemented")  # Mark the spec as complete.
+        tmp_path.joinpath("proof.md").write_text("done\n", encoding="utf-8")  # Create root proof.
+        text = "- [X] T001 Done. Evidence: `proof.md`.\n"  # Cite the root-relative proof file.
+        self._write_tasks(tmp_path, "108-real-root", text)  # Write the checked task with real proof.
+        result = SpecTaskAudit(tmp_path, AllowList(set())).run()  # Run the audit against the real path.
+        assert result == 0  # A checked task with a real proof path must pass.
+
+    def test_checked_task_citation_inside_a_fence_is_ignored(self, tmp_path: Path) -> None:
+        self._write_spec(tmp_path, "109-fenced-citation", "Implemented")  # Mark the spec as complete.
+        text = "```\n- [X] T001 Done. Evidence: `missing.md`.\n```\n"  # Put the citation in an example.
+        self._write_tasks(tmp_path, "109-fenced-citation", text)  # Write the fenced citation fixture.
+        result = SpecTaskAudit(tmp_path, AllowList(set())).run()  # Run the audit against fenced text.
+        assert result == 0  # A proof path in a fenced code block must not count.
+
+    def test_checked_task_with_a_relative_citation_passes(self, tmp_path: Path) -> None:
+        self._write_spec(tmp_path, "110-relative", "Implemented")  # Mark the spec as complete.
+        spec_dir = tmp_path / "specs" / "110-relative"  # Build the spec directory path.
+        spec_dir.joinpath("proof.md").write_text("done\n", encoding="utf-8")  # Create spec-local proof.
+        text = "- [X] T001 Done. Evidence: `proof.md`.\n"  # Cite proof relative to the task file.
+        self._write_tasks(tmp_path, "110-relative", text)  # Write the checked task with local proof.
+        result = SpecTaskAudit(tmp_path, AllowList(set())).run()  # Run the audit against local proof.
+        assert result == 0  # A task-file-relative proof path must pass.
+
+    def test_checked_task_with_a_windows_separator_citation_passes(self, tmp_path: Path) -> None:
+        self._write_spec(tmp_path, "111-windows", "Implemented")  # Mark the spec as complete.
+        proof_dir = tmp_path / "docs"  # Build a root-relative proof directory.
+        proof_dir.mkdir()  # Create the proof directory for the Windows separator path.
+        proof_dir.joinpath("proof.md").write_text("done\n", encoding="utf-8")  # Create the proof file.
+        text = "- [X] T001 Done. Evidence: `docs\\proof.md`.\n"  # Cite proof with a Windows separator.
+        self._write_tasks(tmp_path, "111-windows", text)  # Write the checked task with Windows syntax.
+        result = SpecTaskAudit(tmp_path, AllowList(set())).run()  # Run the audit against Windows syntax.
+        assert result == 0  # A Windows separator citation must resolve on all platforms.
+
+    def test_checked_task_with_a_line_suffix_citation_passes(self, tmp_path: Path) -> None:
+        self._write_spec(tmp_path, "112-line-suffix", "Implemented")  # Mark the spec as complete.
+        tmp_path.joinpath("proof.py").write_text("pass\n", encoding="utf-8")  # Create proof with any content.
+        text = "- [X] T001 Done. Evidence: `proof.py:1`.\n"  # Cite the proof path with a source line.
+        self._write_tasks(tmp_path, "112-line-suffix", text)  # Write the checked task with a line suffix.
+        result = SpecTaskAudit(tmp_path, AllowList(set())).run()  # Run the audit against the cited file.
+        assert result == 0  # A real file with a line suffix must pass.
+
     def _write_spec(self, root: Path, name: str, status: str) -> None:
         spec_dir = root / "specs" / name  # Build the SpecKit directory path.
         spec_dir.mkdir(parents=True, exist_ok=True)  # Create parents so each fixture is independent.

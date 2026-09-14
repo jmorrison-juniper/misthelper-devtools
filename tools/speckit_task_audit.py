@@ -15,6 +15,10 @@ LOGGER = logging.getLogger(__name__)  # Use a module logger so callers can confi
 CHECKBOX_RE = re.compile(r"^\s*- \[([ xX])\]")  # Count task boxes and nested task boxes only.
 FENCE_RE = re.compile(r"^\s*(```|~~~)")  # Ignore examples inside fenced code blocks.
 STATUS_RE = re.compile(r"^\*\*Status\*\*:\s*(?P<status>.+)$", re.MULTILINE)  # Read the spec state.
+CITATION_RE = re.compile(  # Find proof paths only in evidence notes, not in task descriptions.
+    r"(?:delivered|evidence):\s*`?(?P<path>[^`)]+)`?",  # Capture the cited path after the proof label.
+    re.IGNORECASE,  # Accept existing task records that use title-case labels.
+)
 COMPLETE_WORDS = ("implemented", "complete", "delivered", "merged")  # Treat these states as shipped.
 INCOMPLETE_WORDS = ("partly", "partial", "specified", "specification", "draft")  # Treat these states as open.
 
@@ -32,6 +36,17 @@ class TaskCounts:
 
 
 @dataclass(frozen=True)
+class CitationFinding:
+    """Store one checked task citation that does not resolve.
+
+    Why: the report must name the bad proof path and the source line.
+    """
+
+    line_number: int  # Show the exact task line so an author can repair the record.
+    citation: str  # Keep the unresolved citation text from the task record.
+
+
+@dataclass(frozen=True)
 class SpecFinding:
     """Store the audit result for one specification directory.
 
@@ -43,6 +58,7 @@ class SpecFinding:
     counts: TaskCounts  # Keep all task counts together for later checks.
     missing_tasks: bool  # Report a missing task file as a record problem.
     allowed: bool  # Suppress the failure when the spec is truly in flight.
+    citation_errors: tuple[CitationFinding, ...] = ()  # Keep unresolved proof paths for the guard rule.
 
     @property
     def is_complete(self) -> bool:
@@ -62,7 +78,65 @@ class SpecFinding:
         Why: an unchecked task in a complete spec is the drift to prevent.
         """
         has_open_tasks = self.counts.unchecked > 0  # Only unchecked boxes prove this failure mode.
-        return self.is_complete and has_open_tasks and not self.allowed  # Allow real in-flight exceptions.
+        has_bad_citations = bool(self.citation_errors)  # Missing proof files are blocking record defects.
+        has_blocking_records = has_open_tasks or has_bad_citations  # Combine all record-integrity failures.
+        return self.is_complete and has_blocking_records and not self.allowed  # Allow real in-flight exceptions.
+
+
+class CitationValidator:
+    """Validate proof paths on checked task boxes.
+
+    Why: a checked task must not point to evidence that the tree does not hold.
+    """
+
+    def __init__(self, root: Path) -> None:
+        self._root = root  # Store the checkout root for repository-relative citations.
+
+    def find_errors(self, path: Path) -> tuple[CitationFinding, ...]:
+        logging.info("Validating checked task citations in %s", path)  # Log the file before path checks.
+        lines = path.read_text(encoding="utf-8").splitlines()  # Read lines so reports can name line numbers.
+        errors = tuple(self._errors_from_lines(path, lines))  # Collect missing paths outside fenced blocks.
+        logging.debug("Found %s missing checked-task citations in %s", len(errors), path)  # Log the count.
+        return errors  # Return immutable findings so callers do not mutate audit results.
+
+    def _errors_from_lines(self, path: Path, lines: list[str]) -> list[CitationFinding]:
+        errors: list[CitationFinding] = []  # Collect unresolved proof paths for this task file.
+        in_fence = False  # Track fenced code so example citations do not count.
+        for line_number, line in enumerate(lines, start=1):  # Keep one-based lines for reports.
+            in_fence = self._toggle_fence(line, in_fence)  # Update code-fence state before citation checks.
+            if in_fence or FENCE_RE.match(line):  # Skip example content and the fence markers.
+                continue  # Do not validate citations that appear inside code examples.
+            self._append_line_errors(errors, path, line, line_number)  # Validate one checked task line.
+        return errors  # Return all missing citations for this task file.
+
+    def _append_line_errors(self, errors: list[CitationFinding], path: Path, line: str, line_number: int) -> None:
+        match = CHECKBOX_RE.match(line)  # Check whether this line is a task box.
+        if not match or match.group(1) == " ":  # Only checked tasks need proof path validation.
+            return  # Leave unchecked tasks and non-task lines unchanged.
+        for citation in self._citations_from(line):  # Validate each proof path cited by the task.
+            if not self._resolves(path, citation):  # A missing file makes the checked task untrusted.
+                errors.append(CitationFinding(line_number, citation))  # Record the bad path for the report.
+
+    def _citations_from(self, line: str) -> tuple[str, ...]:
+        raw_values = (match.group("path").strip().rstrip(".") for match in CITATION_RE.finditer(line))  # Clean paths.
+        citations = tuple(citation for citation in raw_values if self._is_path_like(citation))  # Keep paths only.
+        return citations  # Return all explicit evidence paths from the checked task line.
+
+    def _is_path_like(self, citation: str) -> bool:
+        has_no_space = " " not in citation  # Plain evidence sentences are not file path citations.
+        has_path_mark = "\\" in citation or "/" in citation or "." in citation  # Paths contain a separator or suffix.
+        return has_no_space and has_path_mark  # Validate only strings that look like a path.
+
+    def _resolves(self, path: Path, citation: str) -> bool:
+        citation_path = re.sub(r":\d+$", "", citation)  # Ignore a line suffix while checking file existence.
+        normalized = Path(*re.split(r"[\\/]+", citation_path))  # Treat Windows and POSIX separators the same.
+        candidates = (self._root / normalized, path.parent / normalized)  # Accept root and spec-relative paths.
+        return any(candidate.exists() for candidate in candidates)  # Pass only when a cited file exists.
+
+    def _toggle_fence(self, line: str, in_fence: bool) -> bool:
+        if FENCE_RE.match(line):  # A fence marker changes whether text is executable task prose.
+            return not in_fence  # Enter or leave the fenced code block.
+        return in_fence  # Keep the current fenced-code state.
 
 
 class AllowList:
@@ -148,6 +222,7 @@ class SpecTaskAudit:
         self._root = root  # Store the checkout root for relative report paths.
         self._allow_list = allow_list  # Store approved exceptions for the run.
         self._scanner = TaskFileScanner()  # Reuse one scanner for all task files.
+        self._citation_validator = CitationValidator(root)  # Reuse one validator for proof path checks.
 
     def run(self) -> int:
         logging.info("Starting the SpecKit task audit under %s", self._root)  # Log the audit start.
@@ -170,7 +245,8 @@ class SpecTaskAudit:
         if not tasks_path.exists():  # Missing task records get a finding with zero counts.
             return SpecFinding(spec_dir.name, status, TaskCounts(0, 0, 0), True, allowed)  # Report missing file.
         counts = self._scanner.scan(tasks_path)  # Count valid boxes outside code fences.
-        return SpecFinding(spec_dir.name, status, counts, False, allowed)  # Return the completed finding.
+        citations = self._citation_validator.find_errors(tasks_path)  # Validate checked-task proof paths.
+        return SpecFinding(spec_dir.name, status, counts, False, allowed, citations)  # Return the finding.
 
     def _status_for(self, spec_dir: Path) -> str:
         spec_path = spec_dir / "spec.md"  # The status line lives in the feature specification.
@@ -183,9 +259,11 @@ class SpecTaskAudit:
     def _report(self, findings: list[SpecFinding]) -> None:
         open_findings = [finding for finding in findings if finding.counts.unchecked]  # Report open task specs.
         missing = [finding for finding in findings if finding.missing_tasks]  # Report folders with no tasks.
+        citations = [finding for finding in findings if finding.citation_errors]  # Report missing proof files.
         print("SpecKit task audit")  # Start with a stable heading for CI logs.
         self._print_open_findings(open_findings)  # Print each unchecked-task finding.
         self._print_missing_findings(missing)  # Print each missing task record.
+        self._print_citation_findings(citations)  # Print each unresolved checked-task proof path.
 
     def _print_open_findings(self, findings: list[SpecFinding]) -> None:
         if not findings:  # A clean tree needs a clear report line.
@@ -198,6 +276,13 @@ class SpecTaskAudit:
     def _print_missing_findings(self, findings: list[SpecFinding]) -> None:
         for finding in findings:  # Print each missing task file for repair visibility.
             print(f"specs/{finding.name}: missing tasks.md")  # Name the missing task record.
+
+    def _print_citation_findings(self, findings: list[SpecFinding]) -> None:
+        for finding in findings:  # Print each spec that has an unresolved checked-task citation.
+            marker = "allowed" if finding.allowed else "missing"  # Show whether the allow list covers it.
+            for error in finding.citation_errors:  # Print each missing proof path with its source line.
+                line = error.line_number  # Keep the print statement readable and below the line limit.
+                print(f"specs/{finding.name}: line {line}: {error.citation} ({marker})")  # Report path.
 
 
 class Command:
