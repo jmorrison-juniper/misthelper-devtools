@@ -316,11 +316,13 @@ class PerformanceMemoryHarness:
 
     def _bounded_caches(self) -> dict[str, Any]:
         """Return retained objects for the bounded caches."""
-        privacy._SAFE_VALUE_CACHE.clear()  # Reset the safe value cache before this scenario.
+        privacy.PerformancePrivacyPolicy.SAFE_VALUE_CACHE.clear()  # Reset the safe value cache before this scenario.
         _dimension_key_ok.cache_clear()  # Reset the label-key validator cache.
         _measurement_key_ok.cache_clear()  # Reset the measurement-key validator cache.
-        for index in range(privacy._SAFE_VALUE_CACHE_LIMIT + 1):  # Cross the clear-at-limit boundary.
-            privacy.scrub_value(f"safe_value_{index}")  # Add one safe value per step.
+        for index in range(
+            privacy.PerformancePrivacyPolicy.SAFE_VALUE_CACHE_LIMIT + 1
+        ):  # Cross the clear-at-limit boundary.
+            privacy.PerformancePrivacyPolicy.scrub_value(f"safe_value_{index}")  # Add one safe value per step.
         for index in range(300):  # Cross the 256-entry label-key cache limit.
             _dimension_key_ok(f"label{index}")  # Fill the label-key validator cache.
         for index in range(600):  # Cross the 512-entry measurement-key cache limit.
@@ -332,8 +334,10 @@ class PerformanceMemoryHarness:
         dimension_info = _dimension_key_ok.cache_info()  # Read the label-key cache state.
         measurement_info = _measurement_key_ok.cache_info()  # Read the measurement-key cache state.
         return {  # Report cache state and retain modules through active caches.
-            "safe_value_cache_entries": len(privacy._SAFE_VALUE_CACHE),  # Show the clear-at-limit result.
-            "safe_value_cache_limit": privacy._SAFE_VALUE_CACHE_LIMIT,  # Show the documented limit.
+            "safe_value_cache_entries": len(
+                privacy.PerformancePrivacyPolicy.SAFE_VALUE_CACHE
+            ),  # Show the clear-at-limit result.
+            "safe_value_cache_limit": privacy.PerformancePrivacyPolicy.SAFE_VALUE_CACHE_LIMIT,  # Show limit.
             "dimension_cache_entries": dimension_info.currsize,  # Show the bounded label-key cache size.
             "dimension_cache_limit": dimension_info.maxsize,  # Show the label-key cache limit.
             "measurement_cache_entries": measurement_info.currsize,  # Show the bounded measurement cache size.

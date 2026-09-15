@@ -110,15 +110,24 @@ def test_worst_case_memory_stays_under_the_configured_byte_bound() -> None:
 def test_safe_value_cache_clears_at_the_limit() -> None:
     """The safe value cache clears when the next value would exceed the limit."""
     _LOGGER.info("Clearing the safe value cache")  # Log the cache reset.
-    privacy._SAFE_VALUE_CACHE.clear()  # Reset the module cache for a deterministic test.
-    _LOGGER.debug("Safe value cache entries=%s", len(privacy._SAFE_VALUE_CACHE))  # Log the reset result.
+    privacy.PerformancePrivacyPolicy.SAFE_VALUE_CACHE.clear()  # Reset the module cache for a deterministic test.
+    _LOGGER.debug(
+        "Safe value cache entries=%s", len(privacy.PerformancePrivacyPolicy.SAFE_VALUE_CACHE)
+    )  # Log the reset result.
     _LOGGER.info("Filling the safe value cache past its limit")  # Log the fill action.
-    for index in range(privacy._SAFE_VALUE_CACHE_LIMIT + 1):  # Add one more value than the limit.
-        privacy.scrub_value(f"safe_value_{index}")  # Add a safe value that enters the cache.
-    _LOGGER.debug("Safe value cache entries=%s", len(privacy._SAFE_VALUE_CACHE))  # Log the final size.
-    assert len(privacy._SAFE_VALUE_CACHE) == 1  # Prove the clear-at-limit policy ran.
-    assert len(privacy._SAFE_VALUE_CACHE) <= privacy._SAFE_VALUE_CACHE_LIMIT  # Prove the bound holds.
-    privacy._SAFE_VALUE_CACHE.clear()  # Leave the module cache empty for the next test.
+    for index in range(
+        privacy.PerformancePrivacyPolicy.SAFE_VALUE_CACHE_LIMIT + 1
+    ):  # Add one more value than the limit.
+        privacy.PerformancePrivacyPolicy.scrub_value(f"safe_value_{index}")  # Add a safe value that enters the cache.
+    _LOGGER.debug(
+        "Safe value cache entries=%s", len(privacy.PerformancePrivacyPolicy.SAFE_VALUE_CACHE)
+    )  # Log the final size.
+    assert len(privacy.PerformancePrivacyPolicy.SAFE_VALUE_CACHE) == 1  # Prove the clear-at-limit policy ran.
+    assert (
+        len(privacy.PerformancePrivacyPolicy.SAFE_VALUE_CACHE)
+        <= privacy.PerformancePrivacyPolicy.SAFE_VALUE_CACHE_LIMIT
+    )  # Prove the bound holds.
+    privacy.PerformancePrivacyPolicy.SAFE_VALUE_CACHE.clear()  # Leave the module cache empty for the next test.
 
 
 def _row(report: dict[str, object], scenario: str) -> dict[str, int]:
