@@ -5,6 +5,7 @@ from __future__ import annotations  # Enable modern annotation syntax.
 import logging  # Module-scoped logger for action logging.
 from pathlib import Path  # Portable filesystem path handling.
 
+from tools.analyzer_coverage import AnalyzerCoverageRenderer  # Shared coverage renderer.
 from tools.refactor_analyzer.models import (  # Data models rendered here.
     CATEGORY_HOT,
     CATEGORY_LOW_USE,
@@ -26,6 +27,7 @@ class MarkdownReportGenerator:
         logger.info("Generating markdown report for %s", result.entrypoint)  # Log before rendering.
         sections = [  # Ordered list of section fragments for the final report.
             self._header(result),  # Top-level metadata and category counts.
+            self._coverage(result),  # Files read and skipped by the analyzer.
             self._how_to_read(),  # Explain the prioritization scheme up front.
             self._speckit_directives(),  # Non-negotiable SpecKit rules for downstream refactors.
             self._summary_table(result.candidates),  # One-row-per-candidate overview.
@@ -35,6 +37,14 @@ class MarkdownReportGenerator:
         logger.debug("Report assembled from %d sections", len(sections))  # Post-log the section count.
         body = "\n\n".join(section for section in sections if section)  # Join with blank-line spacing.
         return f"{body}\n"  # Ensure a single trailing newline per markdownlint MD047.
+
+    @staticmethod
+    def _coverage(result: AnalysisResult) -> str:
+        """Return the analyzer coverage section for this result."""
+        if result.coverage is None:  # Older callers can omit coverage.
+            return ""  # Do not render a partial section without data.
+        lines = AnalyzerCoverageRenderer().to_markdown(result.coverage)  # Render shared coverage details.
+        return "\n".join(lines)  # Return a Markdown section string.
 
     @staticmethod
     def _header(result: AnalysisResult) -> str:

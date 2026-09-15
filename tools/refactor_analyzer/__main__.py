@@ -11,6 +11,7 @@ import argparse  # Parse command-line arguments.
 import logging  # Configure action logging for the CLI run.
 from pathlib import Path  # Portable filesystem path handling.
 
+from tools.analyzer_coverage import AnalyzerCoverageRenderer  # Shared coverage output.
 from tools.refactor_analyzer.analysis import RefactorAnalyzer  # Core analysis orchestrator.
 from tools.refactor_analyzer.models import (  # Category constants for summary line.
     CATEGORY_HOT,
@@ -125,6 +126,8 @@ class RefactorCLI:
         print(f"Entrypoint: {result.entrypoint}")  # Echo the analyzed file.
         print(f"Module graph: {result.module_graph_size} first-party files")  # Reach of analysis.
         print(f"Definitions analyzed: {len(result.definitions)}")  # Total defs considered.
+        if result.coverage is not None:  # New analyzer runs include read and skip coverage.
+            print(AnalyzerCoverageRenderer().to_text(result.coverage))  # Make the coverage visible on stdout.
         print(  # Category breakdown line.
             f"  unused={counts[CATEGORY_UNUSED]}  "
             f"single-use={counts[CATEGORY_SINGLE_USE]}  "

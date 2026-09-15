@@ -5,6 +5,8 @@ from __future__ import annotations  # Enable modern annotation syntax.
 import json  # Emit a machine-readable summary block for downstream agents.
 from datetime import UTC, datetime  # Timestamp the report in UTC.
 
+from tools.analyzer_coverage import AnalyzerCoverageRenderer, AnalyzerCoverageSummary  # Shared coverage output.
+
 from .models import FileReport, Severity, Violation  # Report record/enum types.
 from .scoring import ComplianceScorer  # Reused to grade the overall score.
 
@@ -22,12 +24,18 @@ class MarkdownReportGenerator:  # Renders scored file reports as Markdown.
         """Create the generator with an optional custom scorer."""
         self._scorer = scorer or ComplianceScorer()  # Used for the overall grade.
 
-    def generate(self, reports: list[FileReport]) -> str:  # Entry point that assembles the whole report.
+    def generate(
+        self,
+        reports: list[FileReport],
+        coverage: AnalyzerCoverageSummary | None = None,
+    ) -> str:  # Entry point that assembles the whole report.
         """Render the full Markdown report for a list of file reports."""
         lines: list[str] = []  # Accumulate output lines.
         lines.extend(self._header(reports))  # Title and metadata block.
+        if coverage is not None:  # Coverage exists for new analyzer runs.
+            lines.extend(AnalyzerCoverageRenderer().to_markdown(coverage))  # Add read and skipped files.
         lines.extend(self._summary(reports))  # Overall score and per-file table.
-        lines.extend(self._machine_summary(reports))  # JSON summary for agents.
+        lines.extend(self._machine_summary(reports, coverage))  # JSON summary for agents.
         for report in reports:  # Render a section per analyzed file.
             lines.extend(self._file_section(report))  # File metrics and violations.
         lines.extend(self._speckit_plan(reports))  # Agent-ready remediation plan.
@@ -77,7 +85,11 @@ class MarkdownReportGenerator:  # Renders scored file reports as Markdown.
             f"{counts[Severity.MEDIUM]} | {counts[Severity.LOW]} | {len(report.violations)} |"  # Rest.
         )
 
-    def _machine_summary(self, reports: list[FileReport]) -> list[str]:  # JSON block for downstream tooling.
+    def _machine_summary(
+        self,
+        reports: list[FileReport],
+        coverage: AnalyzerCoverageSummary | None = None,
+    ) -> list[str]:  # JSON block for downstream tooling.
         """Return a fenced JSON block summarizing results for tooling/agents."""
         payload = {
             "overall_score": round(self.overall_score(reports), 1),  # Aggregate score.
@@ -86,6 +98,8 @@ class MarkdownReportGenerator:  # Renders scored file reports as Markdown.
             "rule_totals": self._rule_totals(reports),  # Totals per rule id.
             "files": self._file_payloads(reports),  # Compact per-file records.
         }
+        if coverage is not None:  # Add coverage for machines that read the report.
+            payload["coverage"] = AnalyzerCoverageRenderer().to_json(coverage)  # Include read and skip sets.
         return ["## Machine-Readable Summary", "", "```json", json.dumps(payload, indent=2), "```", ""]  # Fenced.
 
     def _file_payloads(self, reports: list[FileReport]) -> list[dict[str, object]]:  # JSON per-file records.

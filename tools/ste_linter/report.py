@@ -8,6 +8,8 @@ from __future__ import annotations  # Postponed annotations keep the type hints 
 
 import json  # Builds the JSON report.
 
+from tools.analyzer_coverage import AnalyzerCoverageRenderer, AnalyzerCoverageSummary  # Shared coverage output.
+
 from . import __version__  # The linter version for the JSON envelope.
 from .models import Score  # The score type the reporters render.
 
@@ -15,9 +17,17 @@ from .models import Score  # The score type the reporters render.
 class TextReporter:
     """Renders the scores as human-readable text."""
 
-    def render(self, scores: list[Score], min_score: int | None, quiet: bool = False) -> str:
+    def render(
+        self,
+        scores: list[Score],
+        min_score: int | None,
+        quiet: bool = False,
+        coverage: AnalyzerCoverageSummary | None = None,
+    ) -> str:
         """Return the text report for the scores."""
         blocks = [self._render_one(score, min_score, quiet) for score in scores]  # One block per file.
+        if coverage is not None:  # New CLI runs include coverage details.
+            blocks.append(AnalyzerCoverageRenderer().to_text(coverage))  # Add read and skipped file sets.
         return "\n".join(blocks)  # Join the file blocks with a blank line between.
 
     def _render_one(self, score: Score, min_score: int | None, quiet: bool) -> str:
@@ -63,7 +73,13 @@ class TextReporter:
 class JsonReporter:
     """Renders the scores as machine-readable JSON."""
 
-    def render(self, scores: list[Score], min_score: int | None, quiet: bool = False) -> str:
+    def render(
+        self,
+        scores: list[Score],
+        min_score: int | None,
+        quiet: bool = False,
+        coverage: AnalyzerCoverageSummary | None = None,
+    ) -> str:
         """Return the JSON report for the scores."""
         results = [self._result(score) for score in scores]  # One result per file.
         passed = all(min_score is None or score.score >= min_score for score in scores)  # Gate result.
@@ -76,6 +92,8 @@ class JsonReporter:
                 "passed": passed,  # Whether every file met the threshold.
             },
         }  # The full JSON envelope.
+        if coverage is not None:  # Add coverage for automation and operators.
+            envelope["coverage"] = AnalyzerCoverageRenderer().to_json(coverage)  # Include read and skip sets.
         return json.dumps(envelope, indent=2)  # Return the formatted JSON.
 
     def _result(self, score: Score) -> dict[str, object]:

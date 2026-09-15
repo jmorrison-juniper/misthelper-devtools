@@ -11,6 +11,8 @@ import logging  # Configures the log output.
 import os  # Tests paths and reads file extensions.
 from typing import TYPE_CHECKING  # Types the rule and backend parameters.
 
+from tools.analyzer_coverage import AnalyzerCoverageSummary, AnalyzerCoverageTracker  # Shared coverage records.
+
 from . import __version__  # The version shown by the --version flag.
 from .analysis import GrammarAnalyzer, get_backend  # The backend factory and grammar helper.
 from .config import LinterConfig  # The configuration loader.
@@ -37,8 +39,8 @@ class LinterCLI:
         args = self._parse_args(argv)  # Read the command-line arguments.
         logging.basicConfig(level=logging.WARNING, format="%(message)s")  # Keep the output clean.
         config = self._build_config(args)  # Load and adjust the configuration.
-        scores, usage_error = self._grade_paths(args.path, config)  # Grade every path.
-        self._print_report(scores, args, config)  # Print the report in the chosen format.
+        scores, usage_error, coverage = self._grade_paths(args.path, config)  # Grade every path.
+        self._print_report(scores, args, config, coverage)  # Print the report in the chosen format.
         return self._exit_code(scores, config, usage_error)  # Return the exit code.
 
     def _parse_args(self, argv: list[str] | None) -> argparse.Namespace:
@@ -87,23 +89,26 @@ class LinterCLI:
             result.extend(part.strip() for part in value.split(",") if part.strip())  # Split on commas.
         return result  # Return the rule ids.
 
-    def _grade_paths(self, paths: list[str], config: LinterConfig) -> tuple[list[Score], bool]:
+    def _grade_paths(self, paths: list[str], config: LinterConfig) -> tuple[list[Score], bool, AnalyzerCoverageSummary]:
         """Return the scores for every path and whether a usage error happened."""
+        coverage = AnalyzerCoverageTracker("ste_linter")  # Track files that the linter reads or skips.
         backend = get_backend(config.prefer_spacy)  # Pick the analysis backend.
         grammar = GrammarAnalyzer()  # The shared grammar helper.
         dictionary = Dictionary.load(config.dictionary_path)  # Load the dictionary, or None.
+        if dictionary is None:  # The dictionary can be absent in a minimal checkout.
+            coverage.record_skip(config.dictionary_path, "dictionary_unavailable")  # Report reduced measurement.
         rules = load_rules(config)  # Build the active rule list.
         builder = DocumentBuilder(config)  # The document builder needs the string grading switches.
         scorer = ScoringModel()  # The scoring model.
         scores: list[Score] = []  # Holds the per-file scores.
         usage_error = False  # True when a path is missing or unreadable.
         for path in paths:  # Walk each input path.
-            score = self._grade_one(path, builder, rules, scorer, backend, grammar, config, dictionary)
+            score = self._grade_one(path, builder, rules, scorer, backend, grammar, config, dictionary, coverage)
             if score is None:  # The path could not be graded.
                 usage_error = True  # Record the usage error.
             else:  # The path graded cleanly.
                 scores.append(score)  # Keep the score.
-        return scores, usage_error  # Return the scores and the error flag.
+        return scores, usage_error, coverage.summary()  # Return scores, error flag, and coverage.
 
     def _grade_one(
         self,
@@ -115,15 +120,19 @@ class LinterCLI:
         grammar: GrammarAnalyzer,
         config: LinterConfig,
         dictionary: Dictionary | None,
+        coverage: AnalyzerCoverageTracker,
     ) -> Score | None:
         """Return the score for one file, or None when it cannot be graded."""
         if not os.path.isfile(path):  # The path does not point to a file.
             print(f"{path}\n  Error: file not found.")  # Report the missing file.
+            coverage.record_skip(path, "missing_file", explicit=True)  # Explicit missing paths fail the run.
             return None  # Signal a usage error.
         if os.path.splitext(path)[1].lower() not in _SUPPORTED:  # The file type is not graded.
             print(f"{path}\n  Skipped: only .md and .py files are graded.")  # Report the skip.
+            coverage.record_skip(path, "unsupported_file_type", explicit=True)  # Explicit unsupported files fail.
             return None  # Signal that no score was produced.
         text = self._read(path)  # Read the file text.
+        coverage.record_read(path)  # Record the file as measured after a successful read.
         document = builder.build(path, text)  # Parse the file into a document.
         context = RuleContext(backend=backend, grammar=grammar, config=config, dictionary=dictionary)
         violations = [item for rule in rules for item in rule.check(document, context)]  # Run every rule.
@@ -134,14 +143,18 @@ class LinterCLI:
         with open(path, encoding="utf-8", errors="replace") as handle:  # Open the file for reading.
             return handle.read()  # Return the whole text.
 
-    def _print_report(self, scores: list[Score], args: argparse.Namespace, config: LinterConfig) -> None:
+    def _print_report(
+        self,
+        scores: list[Score],
+        args: argparse.Namespace,
+        config: LinterConfig,
+        coverage: AnalyzerCoverageSummary,
+    ) -> None:
         """Print the report in the chosen format."""
-        if not scores:  # No file produced a score.
-            return  # Print nothing more.
         if args.format == "json":  # The user asked for JSON.
-            print(JsonReporter().render(scores, config.min_score, args.quiet))  # Print the JSON report.
+            print(JsonReporter().render(scores, config.min_score, args.quiet, coverage))  # Print JSON.
         else:  # The default is the text report.
-            print(TextReporter().render(scores, config.min_score, args.quiet))  # Print the text report.
+            print(TextReporter().render(scores, config.min_score, args.quiet, coverage))  # Print text.
 
     def _exit_code(self, scores: list[Score], config: LinterConfig, usage_error: bool) -> int:
         """Return the process exit code from the scores and the threshold."""

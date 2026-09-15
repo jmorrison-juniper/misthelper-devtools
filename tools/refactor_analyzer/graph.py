@@ -7,6 +7,8 @@ import logging  # Module-scoped logger for action logging.
 from collections import deque  # Deque backs the BFS frontier.
 from pathlib import Path  # Portable filesystem path handling.
 
+from tools.analyzer_coverage import AnalyzerCoverageSummary, AnalyzerCoverageTracker  # Shared coverage records.
+
 logger = logging.getLogger(__name__)  # Module-scoped logger for action logging.
 
 
@@ -18,11 +20,13 @@ class ModuleGraphBuilder:
         self._src_root = src_root.resolve()  # Anchor resolution at the repo's src directory.
         self._repo_root = self._src_root.parent  # Repo root houses top-level packages.
         self._extra_packages = extra_packages  # Additional first-party top-level names.
+        self._coverage = AnalyzerCoverageTracker("refactor_analyzer")  # Track import graph reads and skips.
         logger.debug("ModuleGraphBuilder anchored at %s (extras=%s)", self._src_root, extra_packages)
 
     def build(self, entrypoint: Path) -> set[Path]:
         """Return every first-party .py file reachable via imports (BFS)."""
         logger.info("Building module graph starting at %s", entrypoint)  # Log before traversal.
+        self._coverage = AnalyzerCoverageTracker("refactor_analyzer")  # Reset coverage for this graph run.
         entrypoint = entrypoint.resolve()  # Normalise to an absolute path for the visited set.
         visited: set[Path] = {entrypoint}  # Track visited files to bound the traversal.
         frontier: deque[Path] = deque([entrypoint])  # BFS frontier begins at the entrypoint.
@@ -31,6 +35,10 @@ class ModuleGraphBuilder:
             self._expand_module(current, visited, frontier)  # Add its imports to the frontier.
         logger.debug("Module graph closure size: %d files", len(visited))  # Log final size.
         return visited  # Return the full first-party closure.
+
+    def coverage_summary(self) -> AnalyzerCoverageSummary:
+        """Return the read and skip coverage from the last graph build."""
+        return self._coverage.summary()  # Freeze the mutable tracker for reports.
 
     def _expand_module(self, path: Path, visited: set[Path], frontier: deque[Path]) -> None:
         """Parse one module and push any new first-party imports onto the frontier."""
@@ -44,19 +52,21 @@ class ModuleGraphBuilder:
             visited.add(resolved)  # Record before enqueue to prevent duplicate queueing.
             frontier.append(resolved)  # Queue the newly discovered file for expansion.
 
-    @staticmethod
-    def _safe_parse(path: Path) -> ast.Module | None:
+    def _safe_parse(self, path: Path) -> ast.Module | None:
         """Parse a Python file to AST, logging (and swallowing) any syntax error."""
         logger.debug("Parsing %s for imports", path)  # Log before reading the file.
         try:
             source = path.read_text(encoding="utf-8")  # Read source as UTF-8.
         except OSError as exc:  # Missing or unreadable file.
             logger.warning("Cannot read %s: %s", path, exc)  # Warn and continue.
+            self._coverage.record_skip(path, "unreadable_first_party_file")  # Report the skipped source file.
             return None  # Signal the caller to skip this file.
+        self._coverage.record_read(path)  # Record each source file that graph discovery reads.
         try:
             return ast.parse(source, filename=str(path))  # Parse into an AST module.
         except SyntaxError as exc:  # File is not valid Python; likely template/test fixture.
             logger.warning("Skipping %s: %s", path, exc)  # Warn and continue.
+            self._coverage.record_skip(path, "unparseable_first_party_file")  # Report the skipped parse.
             return None  # Signal the caller to skip this file.
 
     @staticmethod
@@ -82,6 +92,7 @@ class ModuleGraphBuilder:
         if candidate_pkg.is_file():  # Package hit.
             return candidate_pkg.resolve()  # Normalise before returning.
         logger.debug("Unresolvable first-party module: %s", module)  # Log gap without failing.
+        self._coverage.record_skip(module, "unresolved_first_party_import")  # Report missing first-party module.
         return None  # Nothing on disk maps to this dotted name.
 
     def _is_first_party(self, module: str) -> bool:

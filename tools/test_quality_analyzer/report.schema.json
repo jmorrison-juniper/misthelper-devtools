@@ -9,6 +9,7 @@
     "engine_version",
     "generated_at",
     "scanned_roots",
+    "analyzed_files",
     "config_snapshot",
     "findings",
     "skipped_files",
@@ -30,6 +31,10 @@
       "type": "array",
       "items": {"type": "string", "minLength": 1},
       "minItems": 1
+    },
+    "analyzed_files": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
     },
     "config_snapshot": {
       "type": "object",

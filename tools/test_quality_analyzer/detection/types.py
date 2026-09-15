@@ -107,6 +107,7 @@ class Report:
     engine_version: str  # __version__ at run time.
     generated_at: str  # ISO-8601 UTC seconds precision.
     scanned_roots: tuple[str, ...]  # CLI-supplied test roots.
+    analyzed_files: tuple[str, ...]  # Test files read and passed to detectors.
     config_snapshot: ConfigSnapshot  # Effective config after merge.
     findings: tuple[Finding, ...]  # Deterministically sorted findings.
     skipped_files: tuple[SkippedFile, ...]  # Files excluded per FR-002.

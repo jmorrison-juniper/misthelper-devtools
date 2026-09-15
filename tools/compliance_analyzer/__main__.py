@@ -11,6 +11,8 @@ import argparse  # Parse command-line arguments.
 import logging  # Configure action logging for the CLI run.
 from pathlib import Path  # Portable filesystem path handling.
 
+from tools.analyzer_coverage import AnalyzerCoverageRenderer  # Shared read and skip reporter.
+
 from .engine import ComplianceAnalyzer  # Core analysis engine.
 from .models import FileReport  # Type for analyzer results passed through the CLI.
 from .reporting import MarkdownReportGenerator  # Markdown report renderer.
@@ -44,10 +46,15 @@ class ComplianceCLI:
             return 2  # Match the CLI's established usage-error exit code.
         if not reports:  # Nothing was analyzed (bad targets).
             logger.error("No Python files were analyzed; check the supplied targets")  # Log the problem.
+            print(AnalyzerCoverageRenderer().to_text(analyzer.coverage_summary()))  # Show why no files ran.
             return 2  # Usage-error exit code.
-        report_text = MarkdownReportGenerator().generate(reports)  # Render the Markdown report.
+        coverage = analyzer.coverage_summary()  # Freeze the read and skip records for output.
+        report_text = MarkdownReportGenerator().generate(reports, coverage)  # Render the Markdown report.
         self._write_report(args.output, report_text)  # Persist the report to disk.
-        self._print_summary(reports, args.output)  # Print a concise console summary.
+        self._print_summary(reports, args.output, coverage)  # Print a concise console summary.
+        if coverage.has_unintended_skip:  # Explicit skipped targets make the green report incomplete.
+            logger.error("Unintended analyzer skip detected")  # Log the coverage failure.
+            return 2  # Usage-error exit code.
         return self._exit_code(reports, args)  # Gate the exit code on thresholds.
 
     @staticmethod
@@ -107,12 +114,13 @@ class ComplianceCLI:
         path.write_text(text, encoding="utf-8")  # Persist the report as UTF-8.
         logger.debug("Wrote %d characters to %s", len(text), path)  # Log the bytes written.
 
-    def _print_summary(self, reports: list[FileReport], output: str) -> None:
+    def _print_summary(self, reports: list[FileReport], output: str, coverage) -> None:
         """Print a concise per-file and overall summary to the console."""
         overall = MarkdownReportGenerator().overall_score(reports)  # Aggregate score.
         grade = self._scorer.grade(overall)  # Aggregate grade.
         print(f"Compliance report written to {output}")  # Tell the user where the report is.
         print(f"Overall score: {overall:.1f}/100  Grade: {grade}")  # Show the headline result.
+        print(AnalyzerCoverageRenderer().to_text(coverage))  # Show the read and skip set on stdout.
         for report in reports:  # List each file's grade and score.
             print(f"  {report.grade:>2}  {report.score:5.1f}  {report.path}")  # Aligned per-file line.
 

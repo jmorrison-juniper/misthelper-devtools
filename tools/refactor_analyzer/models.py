@@ -4,6 +4,8 @@ from __future__ import annotations  # Enable modern union/builtin generic annota
 
 from dataclasses import dataclass, field  # Dataclasses keep record types concise.
 
+from tools.analyzer_coverage import AnalyzerCoverageSummary  # Shared read and skip summary.
+
 # Category thresholds by reference count; single-source-of-truth for the analyzer.
 CATEGORY_UNUSED: str = "unused"  # Zero references outside the def site.
 CATEGORY_SINGLE_USE: str = "single-use"  # Exactly one caller anywhere in the graph.
@@ -68,3 +70,4 @@ class AnalysisResult:
     definitions: list[Definition]  # Every top-level symbol inventoried in the entrypoint.
     candidates: list[Candidate]  # One candidate per definition; sorted by LOC saved.
     loc_saveable: int  # Sum of line_count across unused + single-use candidates.
+    coverage: AnalyzerCoverageSummary | None = None  # Files read and skipped during graph discovery.

@@ -115,8 +115,8 @@ class TestQualityCLI:
         parser.add_argument(
             "--roots",
             nargs="+",  # One or more paths accepted.
-            default=["tests"],  # Contract default is tests/ (Path.resolve handled later).
-            help="Test roots to analyze (default: tests).",
+            default=None,  # None means discover every tests directory in the repository.
+            help="Test roots to analyze (default: every tests directory).",
         )
         # --config: path to the TOML config file.
         parser.add_argument(
@@ -227,7 +227,7 @@ class TestQualityCLI:
         _LOGGER.info("Loading config from %s", args.config)
         config_snapshot = ConfigLoader().load(Path(args.config))  # Immutable snapshot.
         # 2. Discover test files under the requested roots.
-        roots = [Path(r) for r in args.roots]  # Roots as Path objects for discovery.
+        roots = self._resolve_roots(args.roots)  # Roots as Path objects for discovery.
         _LOGGER.info("Discovering test files under %s", [str(r) for r in roots])
         test_files = TestFileDiscoverer().discover(roots)  # POSIX-normalized paths list.
         # 3. Parse every test file into an AST; segregate skipped vs analyzable.
@@ -236,6 +236,8 @@ class TestQualityCLI:
             include_mist_api=args.include_mist_api,
             config_snapshot=config_snapshot,
         )
+        skipped.extend(self._omitted_test_roots(roots))  # Make unmeasured test roots visible.
+        skipped.extend(self._missing_root_skips(roots))  # Make explicit missing roots fail visibly.
         _LOGGER.info(
             "Parsed %s file(s); %s skipped; %s parse error(s)",
             len(parsed_files),
@@ -274,6 +276,7 @@ class TestQualityCLI:
                 stale_baseline_entries=(),
                 config_snapshot=config_snapshot,
                 args=args,
+                analyzed_files=[path.as_posix() for path, _tree, _source in parsed_files],
             )
             self._write_outputs(report=report, report_path=Path(args.report), summary_path=Path(args.summary))
             self._emit_stdout_summary(findings=findings, skipped=skipped, parse_errors=parse_errors)
@@ -307,11 +310,15 @@ class TestQualityCLI:
             stale_baseline_entries=stale_entries,
             config_snapshot=config_snapshot,
             args=args,
+            analyzed_files=[path.as_posix() for path, _tree, _source in parsed_files],
         )
         # 11. Serialize + write both artifacts.
         self._write_outputs(report=report, report_path=Path(args.report), summary_path=Path(args.summary))
         # 12. Print the one-line stdout summary per contracts/cli.md.
         self._emit_stdout_summary(findings=findings, skipped=skipped, parse_errors=parse_errors)
+        if any(item.reason == "missing_root" for item in skipped):  # Missing explicit roots make coverage invalid.
+            sys.stderr.write("test_quality_analyzer: missing root skipped\n")  # State the skip failure.
+            return 2  # Usage-error exit code.
         # 13. Gate-mode exit logic (FR-018 + contracts/cli.md).
         if args.gate:
             # Parse errors are fatal in gate mode per FR-018.
@@ -387,6 +394,7 @@ class TestQualityCLI:
         stale_baseline_entries: tuple[str, ...],  # Absent-file paths from baseline.
         config_snapshot,  # ConfigSnapshot for envelope.
         args: argparse.Namespace,  # For timestamp + scanned roots.
+        analyzed_files: Sequence[str],  # Test files read by detectors.
     ):
         """Assemble the Report envelope; factored out for gate + write-baseline paths."""
         return ReportBuilder().build(
@@ -397,8 +405,55 @@ class TestQualityCLI:
             config_snapshot=config_snapshot,
             engine_version=_ENGINE_VERSION,
             generated_at=self._resolve_timestamp(args.fixed_timestamp),
-            scanned_roots=[Path(r).as_posix() for r in args.roots],
+            scanned_roots=[root.as_posix() for root in self._resolve_roots(args.roots)],
+            analyzed_files=analyzed_files,
         )
+
+    def _resolve_roots(self, root_args: Sequence[str] | None) -> list[Path]:
+        """Return explicit roots, or all repository test roots when absent."""
+        if root_args is not None:  # The caller selected the measurement roots.
+            return [Path(root) for root in root_args]  # Preserve existing explicit-root behavior.
+        logger = _LOGGER  # Local alias keeps the log statements compact.
+        logger.info("Discovering repository test roots")  # Log before repository root discovery.
+        roots = self._repository_test_roots(Path.cwd())  # Find all supported test roots.
+        logger.debug("Discovered %d repository test root(s)", len(roots))  # Log the root count.
+        return roots or [Path("tests")]  # Fall back to the historic root if none exists.
+
+    def _repository_test_roots(self, repo_root: Path) -> list[Path]:
+        """Return tracked test root directories under the repository."""
+        excluded = {".git", ".venv", "node_modules", "__pycache__"}  # Directories never measured.
+        roots: list[Path] = []  # Accumulate discovered test directories.
+        for path in repo_root.rglob("tests"):  # Find directories named tests anywhere under the repo.
+            if path.is_dir() and not any(part in excluded for part in path.parts):  # Skip tool caches.
+                roots.append(path)  # Keep this test root.
+        return sorted(roots, key=lambda path: path.as_posix())  # Stabilize the root order.
+
+    def _omitted_test_roots(self, roots: Sequence[Path]) -> list[SkippedFile]:
+        """Return skip records for repository test roots outside the requested roots."""
+        logger = _LOGGER  # Local alias keeps the log statements compact.
+        logger.info("Checking for omitted repository test roots")  # Log before omission check.
+        requested = {root.resolve() for root in roots if root.exists()}  # Compare absolute roots.
+        skipped: list[SkippedFile] = []  # Accumulate omission records.
+        for root in self._repository_test_roots(Path.cwd()):  # Check every repository test root.
+            if root.resolve() not in requested and self._is_repo_test_root(root):  # Root was not requested.
+                skipped.append(SkippedFile(root.as_posix(), "omitted_test_root", "test_root_discovery"))  # Record it.
+        logger.debug("Found %d omitted repository test root(s)", len(skipped))  # Log the omission count.
+        return skipped  # Return records for the report.
+
+    def _missing_root_skips(self, roots: Sequence[Path]) -> list[SkippedFile]:
+        """Return skip records for roots that do not exist."""
+        _LOGGER.info("Checking for missing analyzer roots")  # Log before root validation.
+        skipped = [  # Build one skip record per missing root.
+            SkippedFile(root.as_posix(), "missing_root", "root_exists") for root in roots if not root.exists()
+        ]
+        _LOGGER.debug("Found %d missing analyzer root(s)", len(skipped))  # Log the validation result.
+        return skipped  # Return missing-root records for the report.
+
+    @staticmethod
+    def _is_repo_test_root(root: Path) -> bool:
+        """Return True for repository test roots, not analyzer fixture directories."""
+        parts = set(root.parts)  # Use names, not separators, to stay portable.
+        return "fixtures" not in parts and "tools" not in parts  # Fixture roots are deliberate test data.
 
     # -----------------------------------------------------------------------
     # Parse + partition step

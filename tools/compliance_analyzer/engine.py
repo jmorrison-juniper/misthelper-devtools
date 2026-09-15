@@ -15,6 +15,8 @@ from concurrent.futures import ProcessPoolExecutor  # Run pure per-file analysis
 from pathlib import Path  # Portable filesystem path handling.
 from typing import Protocol  # Describe analyzer objects without binding to one concrete class.
 
+from tools.analyzer_coverage import AnalyzerCoverageSummary, AnalyzerCoverageTracker
+
 from .analyzers import ArchitecturalAnalyzer, ConventionAnalyzer, StructuralComplexityAnalyzer
 from .models import AnalysisContext, FileReport, Severity, Violation
 from .scoring import ComplianceScorer
@@ -162,6 +164,7 @@ class ComplianceAnalyzer:
         default: list[_Analyzer] = [self._structural, ArchitecturalAnalyzer(), ConventionAnalyzer()]  # Analyzer set.
         self._analyzers = list(analyzers) if analyzers else default  # Allow custom analyzer injection.
         self._scorer = scorer or ComplianceScorer()  # Allow custom scorer injection.
+        self.coverage = AnalyzerCoverageTracker("compliance_analyzer")  # Track read and skipped source paths.
 
     def analyze_targets(
         self,
@@ -173,12 +176,25 @@ class ComplianceAnalyzer:
         """Analyze every Python file under the given file/directory targets."""
         target_list = list(targets)  # Materialize the targets for logging and reuse.
         logger.info("Collecting Python files from %d target(s)", len(target_list))  # Log before collection.
+        self.coverage = AnalyzerCoverageTracker("compliance_analyzer")  # Reset coverage for this run.
         files = self._collect_files(target_list, recursive, excludes or [])  # Resolve target paths to files.
         logger.debug("Collected %d Python file(s) for analysis", len(files))  # Log the collection result.
+        self._record_collected_files(files)  # Mark every file the analyzer intends to read.
         worker_count = self._resolve_worker_count(jobs, len(files))  # Decide whether this scan can use workers.
         reports = self._analyze_files(files, worker_count)  # Analyze files sequentially or with workers.
         logger.debug("Generated %d file report(s)", len(reports))  # Log the number of reports produced.
         return reports  # Return all per-file reports.
+
+    def coverage_summary(self) -> AnalyzerCoverageSummary:
+        """Return the coverage summary for the last analyzer run."""
+        return self.coverage.summary()  # Freeze the mutable tracker for callers.
+
+    def _record_collected_files(self, files: list[Path]) -> None:
+        """Record collected files as the analyzer read set."""
+        logger.info("Recording %d collected file(s) as analyzer reads", len(files))  # Log before coverage writes.
+        for path in files:  # Record each collected file in deterministic order.
+            self.coverage.record_read(path)  # The analyzer will read these paths during analysis.
+        logger.debug("Recorded %d analyzer read path(s)", len(files))  # Log after coverage writes.
 
     def _analyze_files(self, files: list[Path], worker_count: int) -> list[FileReport]:
         """Analyze collected files using the selected execution model."""
@@ -297,7 +313,7 @@ class ComplianceAnalyzer:
         collected: list[Path] = []  # Accumulate matching Python files.
         for target in targets:  # Process each requested target.
             collected.extend(self._expand_target(Path(target), recursive, exclude_tokens))  # Expand it.
-        return self._filter_git_ignored(collected)  # Drop git-ignored files so scans match a clean checkout.
+        return self._filter_git_ignored(collected, self.coverage)  # Drop git-ignored files and record skips.
 
     @staticmethod
     def _resolve_git_executable() -> str | None:
@@ -308,7 +324,10 @@ class ComplianceAnalyzer:
         return git_path  # Hand the resolved path, or None, back to the caller.
 
     @staticmethod
-    def _filter_git_ignored(files: list[Path]) -> list[Path]:
+    def _filter_git_ignored(
+        files: list[Path],
+        coverage: AnalyzerCoverageTracker | None = None,
+    ) -> list[Path]:
         """Drop files that git ignores so scans match a clean checkout / CI.
 
         Compliance applies to version-controlled source. Untracked, ignored
@@ -349,24 +368,68 @@ class ComplianceAnalyzer:
         }
         if not ignored:  # Fast path when git reports nothing ignored.
             return files  # Return the original ordering unchanged.
-        return [path for path in files if path.as_posix() not in ignored]  # Keep only non-ignored files.
+        kept = [path for path in files if path.as_posix() not in ignored]  # Keep only non-ignored files.
+        ComplianceAnalyzer._record_git_ignored(files, ignored, coverage)  # Make git-ignore skips visible.
+        return kept  # Return the filtered file list.
+
+    @staticmethod
+    def _record_git_ignored(
+        files: list[Path],
+        ignored: set[str],
+        coverage: AnalyzerCoverageTracker | None,
+    ) -> None:
+        """Record git-ignored paths that left the collected file set."""
+        logger.info("Recording %d git-ignored analyzer skip(s)", len(ignored))  # Log before coverage writes.
+        if coverage is None:  # Legacy static callers do not collect coverage.
+            logger.debug("No coverage tracker supplied for git-ignored skips")  # Log the compatibility path.
+            return  # Preserve the historical static helper contract.
+        for path in files:  # Compare each collected path against the ignored set.
+            if path.as_posix() in ignored:  # Git named this file as ignored.
+                coverage.record_skip(path, "git_ignored")  # Report the skip reason.
+        logger.debug("Recorded git-ignored analyzer skip(s)")  # Log after coverage writes.
 
     def _expand_target(self, target: Path, recursive: bool, exclude_tokens: tuple[str, ...]) -> list[Path]:
         """Expand one target path into the Python files it contributes."""
         if target.is_dir():  # Directories expand to their contained Python files.
             pattern = "**/*.py" if recursive else "*.py"  # Recurse only when requested.
             matches = sorted(target.glob(pattern))  # Deterministically ordered matches.
-            return [match for match in matches if not self._is_excluded(match, exclude_tokens)]  # Filtered.
+            kept = [match for match in matches if not self._is_excluded(match, exclude_tokens)]  # Filtered.
+            self._record_excluded_matches(matches, exclude_tokens, False)  # Report excluded directory matches.
+            if not kept and not matches:  # A directory with no Python files produced no measurable work.
+                self.coverage.record_skip(target, "no_python_files", explicit=True)  # Explicit target skipped.
+            return kept  # Return the filtered matches.
         if target.is_file() and target.suffix == ".py":  # A direct Python file target.
-            return [] if self._is_excluded(target, exclude_tokens) else [target]  # Honor excludes.
+            if self._is_excluded(target, exclude_tokens):  # Direct file excluded by a rule.
+                self.coverage.record_skip(target, "excluded_target", explicit=True)  # Explicit skip fails.
+                return []  # Honor excludes.
+            return [target]  # Analyze the direct Python file.
         logger.warning("Skipping non-Python or missing target: %s", target)  # Note skipped targets.
+        self.coverage.record_skip(target, "missing_or_non_python_target", explicit=True)  # Explicit skip fails.
         return []  # Nothing to contribute from this target.
+
+    def _record_excluded_matches(self, matches: list[Path], exclude_tokens: tuple[str, ...], explicit: bool) -> None:
+        """Record matched files that an exclusion token removes."""
+        logger.info("Recording excluded analyzer matches")  # Log before scanning exclusions.
+        for match in matches:  # Check every matched Python file for a skip reason.
+            token = self._matched_exclude_token(match, exclude_tokens)  # Find the token that applies.
+            if token is not None:  # The file matched an exclude token.
+                self.coverage.record_skip(match, f"excluded:{token}", explicit)  # Report the skip reason.
+        logger.debug("Recorded excluded analyzer matches")  # Log after scanning exclusions.
 
     @staticmethod
     def _is_excluded(path: Path, exclude_tokens: tuple[str, ...]) -> bool:
         """Return True when a path matches any exclude token."""
         text = path.as_posix()  # Normalize separators for substring matching.
         return any(token in text for token in exclude_tokens)  # Exclude on any token match.
+
+    @staticmethod
+    def _matched_exclude_token(path: Path, exclude_tokens: tuple[str, ...]) -> str | None:
+        """Return the first exclude token that matches a path."""
+        text = path.as_posix()  # Normalize separators for substring matching.
+        for token in exclude_tokens:  # Keep first-match behavior deterministic.
+            if token in text:  # This token explains the exclusion.
+                return token  # Return the reason fragment.
+        return None  # The path is not excluded.
 
     @staticmethod
     def _parse_error_report(path: Path, error: SyntaxError) -> FileReport:

@@ -7,6 +7,7 @@ import logging  # Module-scoped logger for action logging.
 from collections import Counter  # Counter drives the sole-caller heuristic.
 from pathlib import Path  # Portable filesystem path handling.
 
+from tools.analyzer_coverage import AnalyzerCoverageTracker  # Shared coverage for read and skip reporting.
 from tools.refactor_analyzer.graph import ModuleGraphBuilder  # BFS import graph.
 from tools.refactor_analyzer.models import (  # Data models produced/consumed here.
     CATEGORY_HOT,
@@ -80,13 +81,17 @@ class RefactorAnalyzer:
     def analyze(self, entrypoint: Path) -> AnalysisResult:
         """Run the full pipeline: graph -> definitions -> references -> candidates."""
         logger.info("Analyzing %s", entrypoint)  # Log before starting.
+        coverage = AnalyzerCoverageTracker("refactor_analyzer")  # Track entrypoint reads before graph work.
         entrypoint = entrypoint.resolve()  # Normalise for consistent path comparisons.
         self._entrypoint_path = entrypoint  # Remember so home-suggestion can detect self-references.
         source_lines = entrypoint.read_text(encoding="utf-8").splitlines()  # Full source for LOC counting.
+        coverage.record_read(entrypoint)  # Record the entrypoint read for the coverage report.
         tree = ast.parse("\n".join(source_lines), filename=str(entrypoint))  # Parse the entrypoint.
         definitions = self._inventory_definitions(tree, source_lines)  # Column-0 defs/classes/assigns.
         logger.debug("Inventoried %d definitions", len(definitions))  # Post-log the count.
-        graph = ModuleGraphBuilder(self._src_root, self._extra_packages).build(entrypoint)  # Reachable files.
+        builder = ModuleGraphBuilder(self._src_root, self._extra_packages)  # Build graph with coverage records.
+        graph = builder.build(entrypoint)  # Reachable files.
+        coverage.merge(builder.coverage_summary())  # Add graph reads and import skips to the run coverage.
         targets = {defn.name for defn in definitions}  # Names to count references for.
         refs_by_name = ReferenceIndex(targets, entrypoint).index_all(graph)  # Aggregate refs.
         candidates = self._build_candidates(definitions, refs_by_name, source_lines, tree)  # Assemble output.
@@ -101,6 +106,7 @@ class RefactorAnalyzer:
             definitions=definitions,  # Full definition inventory.
             candidates=candidates,  # Ranked candidates.
             loc_saveable=loc_saveable,  # Line total removable via unused + single-use.
+            coverage=coverage.summary(),  # Files read and skipped by this analyzer run.
         )
 
     def _inventory_definitions(self, tree: ast.Module, source_lines: list[str]) -> list[Definition]:

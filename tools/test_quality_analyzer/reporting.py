@@ -45,6 +45,7 @@ class ReportBuilder:
         engine_version: str,  # Value of __version__ at run time.
         generated_at: str,  # ISO-8601 UTC timestamp with seconds precision.
         scanned_roots: Iterable[str],  # CLI-supplied test roots (POSIX strings).
+        analyzed_files: Iterable[str] = (),  # Test files read by detectors.
     ) -> Report:
         """Return an immutable Report with deterministically sorted collections."""
         # Log before build so operators can trace which run produced which report.
@@ -58,11 +59,13 @@ class ReportBuilder:
         sorted_stale = tuple(sorted(stale_baseline_entries))
         # Freeze scanned_roots into a tuple with insertion order preserved.
         roots_tuple = tuple(scanned_roots)
+        analyzed_tuple = tuple(sorted(analyzed_files))  # Sort analyzed files for deterministic output.
         # Build and return the frozen dataclass.
         report = Report(
             engine_version=engine_version,
             generated_at=generated_at,
             scanned_roots=roots_tuple,
+            analyzed_files=analyzed_tuple,
             config_snapshot=config_snapshot,
             findings=sorted_findings,
             skipped_files=sorted_skipped,
@@ -97,6 +100,7 @@ class ReportBuilder:
             "engine_version": report.engine_version,
             "generated_at": report.generated_at,
             "scanned_roots": list(report.scanned_roots),
+            "analyzed_files": list(report.analyzed_files),
             "config_snapshot": {
                 "rules_enabled": dict(cs.rules_enabled),
                 "severity_overrides": {key: value.value for key, value in cs.severity_overrides.items()},
@@ -319,6 +323,7 @@ class MarkdownRenderer:
             "- Engine version: %s" % report.engine_version,
             "- Generated at: %s" % report.generated_at,
             "- Scanned roots: %s" % ", ".join(report.scanned_roots),
+            "- Analyzed files: %s" % len(report.analyzed_files),
             "",
             "## Summary",
             "",
@@ -328,6 +333,12 @@ class MarkdownRenderer:
             "- Stale baseline entries: %s" % len(report.stale_baseline_entries),
             "",
         ]
+        if report.analyzed_files:
+            lines.append("## Analyzed Files")
+            lines.append("")
+            for file_path in report.analyzed_files:
+                lines.append("- %s" % file_path)
+            lines.append("")
         # Group findings by severity (descending) then by category, then file:line ascending.
         lines.append("## Findings")
         lines.append("")
