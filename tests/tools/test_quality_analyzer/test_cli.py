@@ -167,6 +167,43 @@ def test_empty_baseline_flag_disables_baseline_logic(
     assert report.get("stale_baseline_entries", []) == []
 
 
+def test_pytest_helper_root_does_not_emit_untested_public_function(
+    repo_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pytest helper functions must not be treated as source-under-test functions."""
+    monkeypatch.chdir(repo_root)  # Anchor config resolution at the repository root.
+    test_root = tmp_path / "tests"  # Build a real pytest root shape for regression coverage.
+    test_root.mkdir()  # Create the root so discovery can scan it.
+    test_file = test_root / "test_helpers.py"  # Use a pytest module name to mirror the issue findings.
+    test_file.write_text(  # Write a small test module that used to trigger a high finding.
+        "\n".join(  # Keep the fixture readable while avoiding platform newline drift.
+            [
+                "import pytest",
+                "",
+                "@pytest.fixture",
+                "def shared_payload():",
+                "    return {'status': 'ok'}",
+                "",
+                "def build_payload():",
+                "    return {'status': 'ok'}",
+                "",
+                "def test_payload(shared_payload):",
+                "    assert shared_payload['status'] == 'ok'",
+            ],
+        )
+        + "\n",  # End with a newline so parsers and formatters agree.
+        encoding="utf-8",  # Use UTF-8 so the report is stable across systems.
+    )
+    report_path = tmp_path / "report.json"  # Keep analyzer output outside tracked files.
+    rc = main(_base_argv(repo_root, test_root, tmp_path, "") + ["--report", str(report_path)])  # Run the CLI.
+    assert rc == 0, "Analyzer must accept a helper-only pytest root; got %d" % rc  # Prove the run succeeded.
+    report = json.loads(report_path.read_text(encoding="utf-8"))  # Inspect the emitted findings.
+    high_rules = [f["rule_id"] for f in report["findings"] if f["severity"] == "high"]  # Isolate high findings.
+    assert "untested_public_function" not in high_rules  # Pytest helper functions are not source-under-test code.
+
+
 def test_gate_and_write_baseline_are_mutually_exclusive(
     repo_root: Path,
     tmp_path: Path,

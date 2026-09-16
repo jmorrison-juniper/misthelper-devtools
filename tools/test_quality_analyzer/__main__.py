@@ -539,18 +539,36 @@ class TestQualityCLI:
         roots: Sequence[Path],
     ) -> list[Finding]:
         """Run UntestedDetector once against the full corpus (cross-file)."""
-        # Construct a fresh detector with the CLI's --roots as source scan paths.
+        # Resolve source paths before construction so test helper functions are not treated as source code.
+        source_paths = self._untested_source_paths(roots)
+        # Construct a fresh detector with the source paths selected for this CLI run.
         # The registry's default instance has an empty source_paths and thus emits nothing.
-        detector = UntestedDetector(source_paths=list(roots))  # Late-binding of source roots.
+        detector = UntestedDetector(source_paths=source_paths)  # Late-binding of source roots.
         _LOGGER.info(
             "Running UntestedDetector across %s source root(s) against %s test file(s)",
-            len(roots),
+            len(source_paths),
             len(parsed_files),
         )
         # analyze() records refs from every parsed test then emits deferred findings.
         findings = detector.analyze(test_files=list(parsed_files))  # Cross-file diff.
         _LOGGER.debug("Untested finding count: %s", len(findings))
         return findings
+
+    def _untested_source_paths(self, roots: Sequence[Path]) -> list[Path]:
+        """Return source paths for UntestedDetector without scanning pytest helper modules."""
+        _LOGGER.info("Resolving source paths for untested public function analysis")  # Log before triage logic.
+        fixture_roots = [root for root in roots if self._is_analyzer_fixture_root(root)]  # Preserve analyzer tests.
+        if fixture_roots:  # Synthetic fixture roots intentionally model source-under-test files.
+            _LOGGER.debug("Using %d analyzer fixture root(s) for untested analysis", len(fixture_roots))
+            return fixture_roots  # Keep detector meta-tests and fixture contracts unchanged.
+        _LOGGER.debug("Skipping untested analysis for %d pytest root(s)", len(roots))  # Explain the false-positive cut.
+        return []  # Real pytest roots hold fixtures and hooks, not source-under-test declarations.
+
+    @staticmethod
+    def _is_analyzer_fixture_root(root: Path) -> bool:
+        """Return True when a root is a synthetic analyzer fixture corpus."""
+        parts = {part.lower() for part in root.parts}  # Normalize names without depending on path separators.
+        return {"tools", "test_quality_analyzer", "fixtures"}.issubset(parts)  # Match only the fixture corpus.
 
     # -----------------------------------------------------------------------
     # Post-detection filters
