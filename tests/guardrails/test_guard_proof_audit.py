@@ -66,9 +66,9 @@ class TestRepositoryGuardProofAudit:
         messages = [f"{finding.path}: {finding.reason}" for finding in report.active_findings]  # Build failures.
         assert not messages, "\n".join(messages)  # A new all-skipped guard must fail this test.
 
-    def test_known_sdk_compatibility_gap_stays_visible(self) -> None:
-        """Issue #2689 stays visible until its dedicated repair replaces the dead guard."""
+    def test_sdk_compatibility_gap_no_longer_stays_visible(self) -> None:
+        """Issue #2689 removed the known no-measurement SDK guard baseline."""
         report = GuardProofAuditor(REPOSITORY_ROOT).audit()  # Scan the same file set as the enforcement.
         known_paths = {finding.path: finding.issue for finding in report.known_findings}  # Index known findings.
         compatibility_path = Path("tests/integration/test_mistapi_sdk_compatibility.py")  # Name issue #2689 file.
-        assert known_paths[compatibility_path] == "#2689"  # Prove the known no-measurement guard is reported.
+        assert compatibility_path not in known_paths  # Prove the repaired guard no longer appears as known debt.

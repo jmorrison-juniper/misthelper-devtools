@@ -11,9 +11,7 @@ from pathlib import Path  # Keep path handling portable across Windows and Linux
 
 LOGGER = logging.getLogger(__name__)  # Use a module logger so callers control the output format.
 GUARD_WORDS = frozenset({"guard", "compatibility"})  # Limit the audit to test files that claim a guard role.
-KNOWN_UNMEASURED_GUARDS = {  # Keep known debt visible while the gate blocks new debt.
-    Path("tests/integration/test_mistapi_sdk_compatibility.py"): "#2689",  # Issue #2689 owns this repair.
-}
+KNOWN_UNMEASURED_GUARDS: Mapping[Path, str] = {}  # Keep no baseline after issue #2689 removes the dead guard.
 
 
 @dataclass(frozen=True)
