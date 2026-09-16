@@ -323,8 +323,8 @@ class TestQualityCLI:
         if any(item.reason == "missing_root" for item in skipped):  # Missing explicit roots make coverage invalid.
             sys.stderr.write("test_quality_analyzer: missing root skipped\n")  # State the skip failure.
             return 2  # Usage-error exit code.
-        if self._missing_edge_scope_failed(roots, detector_metrics):  # Real runs must measure edge-case scope.
-            sys.stderr.write("test_quality_analyzer: missing_edge_case inspected zero real modules\n")
+        if failed_metric := self._zero_detector_scope_metric(roots, detector_metrics):  # Real runs must measure scope.
+            sys.stderr.write("test_quality_analyzer: %s inspected zero real modules\n" % failed_metric)
             return 2  # A guard that measures nothing is an engine failure.
         # 13. Gate-mode exit logic (FR-018 + contracts/cli.md).
         if args.gate:
@@ -701,12 +701,14 @@ class TestQualityCLI:
         for key, value in sorted(detector_metrics.items()):  # Stable order keeps command evidence repeatable.
             sys.stdout.write("detector_metric: %s=%d\n" % (key, value))  # Print one metric per line.
 
-    def _missing_edge_scope_failed(self, roots: Sequence[Path], metrics: Mapping[str, int]) -> bool:
-        """Return True when a real repository run inspected zero edge-case modules."""
-        key = "MissingEdgeCaseDetector.inspected_modules"  # Stable metric name used by the audit guard.
-        if metrics.get(key, 0) > 0:  # A positive count proves the rule measured real files.
-            return False  # The edge-case scope is healthy.
-        return any(self._is_real_repo_root(root) for root in roots)  # Enforce only real repository test roots.
+    def _zero_detector_scope_metric(self, roots: Sequence[Path], metrics: Mapping[str, int]) -> str | None:
+        """Return the first detector metric that measured zero real modules."""
+        if not any(self._is_real_repo_root(root) for root in roots):  # Fixture roots do not need real scope.
+            return None  # Keep synthetic detector tests free to build empty scenarios.
+        return next(  # Report the first metric so stderr names the failing detector.
+            (key for key, value in sorted(metrics.items()) if key.endswith(".inspected_modules") and value == 0),
+            None,
+        )
 
     def _is_real_repo_root(self, root: Path) -> bool:
         """Return True when the root is a real repository test root."""

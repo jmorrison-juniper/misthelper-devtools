@@ -36,6 +36,7 @@ _FIXTURE_BAD = _REPO_ROOT / "tools" / "test_quality_analyzer" / "fixtures" / "ba
 _FIXTURE_GOOD = _REPO_ROOT / "tools" / "test_quality_analyzer" / "fixtures" / "good"  # Good.
 _CONFIG_PATH = _REPO_ROOT / "tools" / "test_quality_analyzer" / "config.toml"  # CLI config.
 _FROZEN_TIMESTAMP = "2026-07-14T00:00:00+00:00"  # Deterministic envelope for meta runs.
+_PLATFORM_TESTS = _REPO_ROOT / "mist-ops-platform" / "tests" / "unit" / "mist"  # Nested project test root.
 
 
 def _parse(path: Path) -> tuple[ast.Module, str]:
@@ -211,6 +212,40 @@ def test_missing_failure_mode_detector() -> None:
     detector_good = MissingFailureModeDetector()  # Fresh detector.
     findings_good = detector_good.detect(good_path, good_tree, good_source)
     assert findings_good == [], "Expected zero findings on missing-failure-mode good fixture, got: %s" % findings_good
+
+
+def test_missing_failure_mode_detector_ignores_status_value_objects() -> None:
+    """MissingFailureModeDetector must not require network failures for a value object."""
+    from tools.test_quality_analyzer.detection.missing_failure_mode import (
+        MissingFailureModeDetector,
+    )  # Import the detector under the same path as the CLI.
+
+    path = _PLATFORM_TESTS / "test_api_result.py"  # This file tests ApiResult and performs no network operation.
+    tree, source = _parse(path)  # Parse the real test that only reads status_code behavior.
+    detector = MissingFailureModeDetector()  # Use a fresh detector so the inspection count is isolated.
+
+    findings = detector.detect(path, tree, source)  # Run the rule against the historical false positive.
+
+    assert findings == []  # A value object must not produce failure-mode debt.
+    assert detector.inspected_module_count() == 0  # The detector must not count an out-of-scope module.
+
+
+def test_missing_failure_mode_detector_counts_real_mist_endpoint_scope() -> None:
+    """MissingFailureModeDetector must measure tests whose source calls Mist."""
+    from tools.test_quality_analyzer.detection.missing_failure_mode import (
+        MissingFailureModeDetector,
+    )  # Import the detector under the same path as the CLI.
+
+    path = _PLATFORM_TESTS / "test_pagination.py"  # This file imports MistEndpointService.
+    tree, source = _parse(path)  # Parse a real test for a Mist SDK backed service.
+    detector = MissingFailureModeDetector()  # Use a fresh detector so no prior file affects this proof.
+
+    findings = detector.detect(path, tree, source)  # Run the rule against a real Mist network seam.
+    rule_ids = {finding.rule_id for finding in findings}  # Compare rule identifiers, not message text.
+
+    assert detector.inspected_module_count() == 1  # A positive count proves the detector measured the module.
+    assert "missing_fm_connection_error" in rule_ids  # A broken source-risk check would miss this finding.
+    assert "missing_fm_http_5xx" in rule_ids  # A broken network-risk check would miss this finding.
 
 
 def test_missing_edge_case_detector() -> None:
