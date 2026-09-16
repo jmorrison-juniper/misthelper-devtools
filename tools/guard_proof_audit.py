@@ -33,6 +33,7 @@ class GuardProofReport:
     known_findings: tuple[GuardProofFinding, ...]  # Known findings stay visible in reports.
     checked_files: int  # Prove that the audit read guard files.
     checked_analyzer_rules: int = 0  # Prove that the audit read analyzer rule scope metrics.
+    checked_dependencies: int = 0  # Prove that the audit read dependency decisions.
 
     @property
     def blocks_merge(self) -> bool:
@@ -67,7 +68,9 @@ class GuardProofAuditor:
         paths = tuple(self._candidate_paths())  # Materialize the list so the report can count it.
         logging.debug("Found %d guard test candidate(s)", len(paths))  # Show whether the gate measured files.
         sources = {path: (self._root / path).read_text(encoding="utf-8") for path in paths}  # Read each file once.
-        return self.audit_sources(sources)  # Reuse the same decision path that the unit tests exercise.
+        report = self.audit_sources(sources)  # Reuse the same decision path that the unit tests exercise.
+        dependency_report = self.audit_dependencies()  # Add dependency default checks to this guard.
+        return self._merge_reports(report, dependency_report)  # Return one report for all no-evidence guard checks.
 
     def audit_sources(self, sources: Mapping[Path, str]) -> GuardProofReport:
         """Audit a supplied source map for test-only proof cases."""
@@ -100,10 +103,45 @@ class GuardProofAuditor:
         try:
             text = report_path.read_text(encoding="utf-8")  # Read the report written by the analyzer command.
             payload = json.loads(text)  # Parse JSON without importing analyzer internals.
-        except (OSError, json.JSONDecodeError) as exc:
-            logging.debug("Analyzer report read failed: %s", exc)  # Record why the required input is unavailable.
+        except OSError as exc:
+            logging.debug("Analyzer report read failed: %s", exc)  # Record the missing report before generation.
+            return self._generate_and_load_analyzer_payload(report_path)  # Build the required scope input once.
+        except json.JSONDecodeError as exc:
+            logging.debug("Analyzer report parse failed: %s", exc)  # Invalid input must fail visibly.
             return None  # The caller turns this into a blocking finding.
         return payload if isinstance(payload, dict) else None  # The report envelope must be a JSON object.
+
+    def _generate_and_load_analyzer_payload(self, report_path: Path) -> Mapping[str, object] | None:
+        """Generate the analyzer report and return its parsed payload."""
+        logging.info("Generating analyzer scope report %s", report_path)  # Explain the extra guard input step.
+        self._run_analyzer(report_path)  # Generate the detector metrics in the repository output path.
+        try:
+            text = report_path.read_text(encoding="utf-8")  # Read the generated report after the analyzer exits.
+            payload = json.loads(text)  # Parse the generated JSON report.
+        except (OSError, json.JSONDecodeError) as exc:
+            logging.debug("Generated analyzer report read failed: %s", exc)  # Preserve the generation failure reason.
+            return None  # The guard must fail when it cannot prove analyzer scope.
+        return payload if isinstance(payload, dict) else None  # Reject unexpected report shapes.
+
+    def _run_analyzer(self, report_path: Path) -> None:
+        """Run the analyzer command that writes detector scope metrics."""
+        from tools.test_quality_analyzer.__main__ import TestQualityCLI  # Reuse the analyzer without a shell command.
+
+        summary_path = report_path.with_name("summary.md")  # Keep the analyzer summary beside the JSON report.
+        arguments = [  # Keep each argument separate so paths with spaces work on Windows.
+            "--roots",
+            str(self._root / "tests"),
+            "--config",
+            str(self._root / "tools" / "test_quality_analyzer" / "config.toml"),
+            "--baseline",
+            str(self._root / "tools" / "test_quality_analyzer" / "baseline.json"),
+            "--report",
+            str(report_path),
+            "--summary",
+            str(summary_path),
+        ]
+        return_code = TestQualityCLI().run(arguments)  # Run the analyzer in the current Python process.
+        logging.debug("Analyzer report generation exit code: %s", return_code)  # Keep the result visible.
 
     def _analyzer_scope_findings(self, payload: Mapping[str, object]) -> tuple[GuardProofFinding, ...]:
         """Return one finding for each analyzer metric that measured zero real files."""
@@ -132,7 +170,10 @@ class GuardProofAuditor:
         known = first.known_findings + second.known_findings  # Preserve known skip debt if any returns.
         checked_files = first.checked_files + second.checked_files  # Sum measured guard test files.
         checked_rules = first.checked_analyzer_rules + second.checked_analyzer_rules  # Sum analyzer metrics.
-        return GuardProofReport(active, known, checked_files, checked_rules)  # Return the combined report.
+        checked_deps = first.checked_dependencies + second.checked_dependencies  # Sum dependency decisions.
+        return GuardProofReport(  # Return the combined report for the command-line output.
+            active, known, checked_files, checked_rules, checked_deps
+        )
 
     def analyze_source(self, relative_path: Path, source: str) -> GuardProofFinding | None:
         """Return a finding when one guard source can skip every test unconditionally."""
@@ -252,6 +293,92 @@ class GuardProofAuditor:
         issue = self._known_guards.get(path)  # Known debt stays reported without blocking unrelated work.
         return GuardProofFinding(path, reason, tests, issue)  # Return the complete finding.
 
+    def audit_dependencies(self) -> GuardProofReport:
+        """Audit repository dependency declarations for silent upgrade drift."""
+        logging.info("Auditing dependency bounds under %s", self._root)  # Log the repository path before reading files.
+        requirements = self._read_optional("requirements.txt")  # Read pip dependencies when the file exists.
+        pyproject = self._read_optional("pyproject.toml")  # Read package metadata when the file exists.
+        return self.audit_dependency_sources(requirements, pyproject)  # Reuse the source-only path for unit tests.
+
+    def audit_dependency_sources(self, requirements: str | None, pyproject: str | None) -> GuardProofReport:
+        """Audit supplied dependency text without writing files."""
+        entries = self._dependency_entries(requirements, pyproject)  # Normalize each dependency source.
+        findings = tuple(  # Convert each missing dependency ceiling to a blocking finding.
+            self._dependency_finding(entry) for entry in entries if not self._has_upper_bound(entry[2])
+        )
+        if not entries:  # A guard that measures no dependency decisions cannot prove safety.
+            findings = (GuardProofFinding(Path("requirements.txt"), "dependency audit inspected zero entries", 0),)
+        logging.debug("Dependency audit checked %d entries", len(entries))  # Report the measured dependency count.
+        return GuardProofReport(  # Return dependency results through the common report.
+            findings, (), 0, 0, len(entries)
+        )
+
+    def _read_optional(self, name: str) -> str | None:
+        path = self._root / name  # Keep repository paths relative to the root.
+        if not path.exists():  # Some test fixtures provide only one dependency file.
+            return None  # Missing optional inputs are handled by the zero-count rule.
+        return path.read_text(encoding="utf-8")  # Read the file once for deterministic analysis.
+
+    def _dependency_entries(self, requirements: str | None, pyproject: str | None) -> tuple[tuple[Path, int, str], ...]:
+        entries = list(self._requirements_entries(requirements))  # Start with pip dependency declarations.
+        entries.extend(self._pyproject_entries(pyproject))  # Add package dependency declarations.
+        return tuple(entries)  # Freeze the entries so reports are stable.
+
+    def _requirements_entries(self, source: str | None) -> tuple[tuple[Path, int, str], ...]:
+        if source is None:  # A missing requirements file is allowed when pyproject has dependencies.
+            return ()  # The zero-count rule catches a repository with no dependency input.
+        return tuple(  # Parse only dependency lines from the requirements file.
+            self._line_entry(line, number)
+            for number, line in enumerate(source.splitlines(), 1)
+            if self._is_dependency_line(line)
+        )
+
+    def _line_entry(self, line: str, number: int) -> tuple[Path, int, str]:
+        requirement = line.split("#", 1)[0].strip()  # Remove inline comments without changing the requirement.
+        return (Path("requirements.txt"), number, requirement)  # Keep the source path and line for the finding.
+
+    def _pyproject_entries(self, source: str | None) -> tuple[tuple[Path, int, str], ...]:
+        if source is None:  # Some projects use requirements.txt only.
+            return ()  # The caller combines all dependency sources.
+        import tomllib  # Read project dependency declarations without third-party helpers.
+
+        payload = tomllib.loads(source)  # Parse TOML so comments and formatting do not affect the audit.
+        dependencies = payload.get("project", {}).get("dependencies", [])  # Scope the guard to runtime dependencies.
+        return tuple(  # Normalize project dependency entries for the common guard path.
+            (Path("pyproject.toml"), 0, value) for value in dependencies if isinstance(value, str)
+        )
+
+    def _is_dependency_line(self, line: str) -> bool:
+        stripped = line.strip()  # Normalize whitespace before rule checks.
+        return bool(  # Ignore comments and pip options because they are not dependency decisions.
+            stripped and not stripped.startswith("#") and not stripped.startswith("-")
+        )
+
+    def _has_upper_bound(self, requirement_text: str) -> bool:
+        from packaging.requirements import InvalidRequirement, Requirement  # Parse dependency specifiers consistently.
+
+        try:
+            requirement = Requirement(requirement_text)  # Let packaging handle markers and extras.
+        except InvalidRequirement:
+            return False  # Invalid requirements hide dependency intent and must fail visibly.
+        return any(  # Require a ceiling or an exact pin for each dependency decision.
+            spec.operator in {"<", "<=", "~=", "==", "==="} for spec in requirement.specifier
+        )
+
+    def _dependency_finding(self, entry: tuple[Path, int, str]) -> GuardProofFinding:
+        path, line, requirement = entry  # Unpack the normalized dependency declaration.
+        name = self._dependency_name(requirement)  # Use the package name so the repair is direct.
+        reason = f"{name} lacks an upper bound"  # State the missing decision in plain text.
+        return GuardProofFinding(path, reason, line)  # Use the test-count field as the source line.
+
+    def _dependency_name(self, requirement_text: str) -> str:
+        from packaging.requirements import InvalidRequirement, Requirement  # Parse dependency names consistently.
+
+        try:
+            return Requirement(requirement_text).name  # Report the canonical package name when parsing succeeds.
+        except InvalidRequirement:
+            return requirement_text  # Preserve invalid text so the author can find it.
+
 
 class GuardProofCli:
     """Run the guard proof audit from the command line."""
@@ -285,6 +412,7 @@ class GuardProofCli:
     def _print_report(self, report: GuardProofReport, include_known: bool) -> None:
         print(f"Checked guard files: {report.checked_files}")  # Show that the audit measured a nonzero file set.
         print(f"Checked analyzer rules: {report.checked_analyzer_rules}")  # Show detector scope input was measured.
+        print(f"Checked dependency entries: {report.checked_dependencies}")  # Show dependency defaults were measured.
         for finding in report.active_findings:  # Print every blocking finding.
             print(f"FAIL {finding.path}: {finding.reason}")  # Name the file and the missing proof.
         if include_known:  # Known findings are useful in reports but do not block this pull request.
