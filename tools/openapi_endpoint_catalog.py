@@ -20,6 +20,8 @@ This tool follows the project's NON-NEGOTIABLE conventions:
 from __future__ import annotations  # Postpone annotation evaluation for forward refs
 
 import argparse  # CLI flag parsing for generator invocation
+import ast  # Parse installed mistapi modules to find real operation owners
+import importlib.util  # Locate the optional installed mistapi package
 import json  # Read OpenAPI 3.1 JSON document
 import logging  # Project-mandated action logging
 import re  # Tokenize OpenAPI paths and scan MistHelper.py for mistapi calls
@@ -45,6 +47,10 @@ SPEC_NUMBER_END = 1500  # Hard upper bound; should comfortably cover ~500 specs
 KEBAB_RE = re.compile(r"[^a-z0-9]+")  # Used to slugify operationIds
 MISTAPI_CALL_RE = re.compile(r"mistapi\.api\.v1\.[\w\.]+")  # Match mistapi SDK function references
 PATH_PARAM_RE = re.compile(r"\{(\w+)\}")  # Match {param} placeholders in OpenAPI paths
+SDK_MODULE_OVERRIDES = {  # Preserve installed mistapi module names when a path segment is not a package.
+    "/api/v1/sites/{site_id}/devices/{device_id}/ha": "mistapi.api.v1.sites.devices",  # mistapi keeps HA under devices.
+}
+_SDK_DEFINITION_MODULES: dict[str, str] | None = None  # Cache installed SDK function ownership for one run.
 
 
 @dataclass(slots=True)
@@ -80,12 +86,65 @@ def slugify(operation_id: str) -> str:
 def derive_mistapi_module(api_path: str) -> str:
     """Reconstruct the mistapi SDK module path from an OpenAPI URL path."""
     LOG.debug("Deriving mistapi module from path %s", api_path)  # Trace input path
+    if api_path in SDK_MODULE_OVERRIDES:  # Prefer verified SDK module names for path exceptions.
+        return SDK_MODULE_OVERRIDES[api_path]  # Return the installed module path for guardrail parity.
     tokens = [t for t in api_path.split("/") if t and not t.startswith("{")]  # Drop empties and {params}
     if tokens[:2] == ["api", "v1"]:  # mistapi SDK is rooted at api.v1
         tokens = tokens[2:]  # Trim the leading api/v1
     parts = [re.sub(r"[^a-z0-9_]+", "_", tok.lower()).strip("_") for tok in tokens]  # Normalize each token
     parts = [p for p in parts if p]  # Drop empty segments
     return "mistapi.api.v1." + ".".join(parts) if parts else "mistapi.api.v1"  # Final module dotted path
+
+
+def resolve_mistapi_module(api_path: str, operation_id: str) -> str:
+    """Return the installed mistapi module for an operation when available."""
+    LOG.debug("Resolving mistapi module for %s", operation_id)  # Trace operation lookup.
+    definitions = sdk_definition_modules()  # Read cached SDK ownership data for exact matches.
+    if operation_id in definitions:  # Prefer the installed SDK when it defines the operation.
+        return definitions[operation_id]  # Keep generated specs aligned with guardrail tests.
+    if definitions:  # Treat an absent function as SDK-only evidence that no wrapper exists.
+        LOG.debug("No installed mistapi module defines %s", operation_id)  # Report the SDK gap.
+        return ""  # Leave generated specs without a guardrail-checked module declaration.
+    return derive_mistapi_module(api_path)  # Fall back to path derivation when SDK data is absent.
+
+
+def sdk_definition_modules() -> dict[str, str]:
+    """Map each installed mistapi function to its defining module."""
+    global _SDK_DEFINITION_MODULES  # Share the scan result across all endpoints in one run.
+    if _SDK_DEFINITION_MODULES is not None:  # Reuse the cache after the first SDK scan.
+        return _SDK_DEFINITION_MODULES  # Avoid repeated filesystem and AST work.
+    LOG.info("Scanning installed mistapi SDK definition modules")  # Announce the SDK ownership scan.
+    mistapi_spec = importlib.util.find_spec("mistapi")  # Locate mistapi without importing runtime state.
+    if mistapi_spec is None or mistapi_spec.origin is None:  # Handle environments without the SDK installed.
+        _SDK_DEFINITION_MODULES = {}  # Leave path derivation as the only available source.
+        LOG.debug("Found %d mistapi SDK definition modules", 0)  # Report the empty cache size.
+        return _SDK_DEFINITION_MODULES  # Return the empty cache for deterministic behavior.
+    sdk_root = Path(mistapi_spec.origin).resolve().parent  # Use the package root for relative module names.
+    python_files = sorted(sdk_root.rglob("*.py"))  # Collect SDK source files in deterministic order.
+    _SDK_DEFINITION_MODULES = _scan_sdk_definitions(sdk_root, python_files)  # Parse real SDK function owners.
+    LOG.debug("Found %d mistapi SDK definition modules", len(_SDK_DEFINITION_MODULES))  # Report cache size.
+    return _SDK_DEFINITION_MODULES  # Return the populated cache for endpoint rendering.
+
+
+def _scan_sdk_definitions(sdk_root: Path, python_files: list[Path]) -> dict[str, str]:
+    """Parse mistapi source files and return function-to-module ownership."""
+    definitions: dict[str, str] = {}  # Store the module path for each discovered function.
+    for python_file in python_files:  # Read each SDK module source file once.
+        module_path = _mistapi_module_path(sdk_root, python_file)  # Convert the file path into a module path.
+        module_ast = ast.parse(python_file.read_text(encoding="utf-8"), filename=str(python_file))  # Parse safely.
+        for node in module_ast.body:  # Inspect top-level definitions that become SDK functions.
+            if isinstance(node, ast.FunctionDef):  # Ignore imports, constants, and helper objects.
+                definitions[node.name] = module_path  # Record the module that defines this function.
+    return definitions  # Return complete ownership data for exact operation lookups.
+
+
+def _mistapi_module_path(sdk_root: Path, python_file: Path) -> str:
+    """Convert an installed mistapi source file path into a dotted module path."""
+    relative_path = python_file.relative_to(sdk_root).with_suffix("")  # Remove package root and suffix.
+    path_parts = ["mistapi", *relative_path.parts]  # Add the top-level package to path parts.
+    if path_parts[-1] == "__init__":  # Package initializers map to the package module.
+        path_parts = path_parts[:-1]  # Drop the initializer file segment.
+    return ".".join(path_parts)  # Return the dotted import path used in generated specs.
 
 
 def parse_openapi_get_endpoints(spec_path: Path) -> list[GetEndpoint]:
@@ -117,7 +176,7 @@ def _endpoint_from_op(path: str, op: dict) -> GetEndpoint:
         description=str(op.get("description") or "").strip(),  # Description trimmed
         path_params=path_params,  # Required path params
         query_params=query_params,  # Query params with required flag
-        mistapi_module=derive_mistapi_module(path),  # Derived SDK module dotted path
+        mistapi_module=resolve_mistapi_module(path, operation_id),  # Use installed SDK ownership when possible
     )
 
 
@@ -320,6 +379,8 @@ def _render_spec(ep: GetEndpoint, branch_name: str) -> str:
     path_param_block = _format_path_param_block(ep.path_params)  # Helper rendering for path params
     query_param_block = _format_query_param_block(ep.query_params)  # Helper for query params
     fr_block = _format_functional_requirements(ep)  # FR list driven by metadata
+    sdk_module_line = _format_sdk_module_line(ep)  # Render SDK ownership only when the SDK defines it.
+    sdk_invocation = _format_sdk_invocation(ep)  # Render scenario text that is true for SDK gaps.
     today = datetime.now(UTC).strftime("%Y-%m-%d")  # Stamp Created date
     return _SPEC_BODY.format(
         title=summary,  # Title from summary
@@ -328,7 +389,8 @@ def _render_spec(ep: GetEndpoint, branch_name: str) -> str:
         op=ep.operation_id,  # operationId
         path=ep.path,  # OpenAPI path
         tag=ep.tag,  # Tag
-        module=ep.mistapi_module,  # SDK module
+        sdk_module_line=sdk_module_line,  # SDK module declaration or explicit gap
+        sdk_invocation=sdk_invocation,  # SDK call or OpenAPI operation text
         description=description,  # Long description
         path_params=path_param_block,  # Path params markdown
         query_params=query_param_block,  # Query params markdown
@@ -356,13 +418,30 @@ def _format_query_param_block(params: list[tuple[str, bool]]) -> str:
     return "\n".join(bullets)  # Joined markdown
 
 
+def _format_sdk_module_line(ep: GetEndpoint) -> str:
+    """Render the source endpoint SDK module line."""
+    LOG.debug("Formatting SDK module line for %s", ep.operation_id)  # Trace SDK module rendering.
+    if ep.mistapi_module:  # A real SDK module can be checked by guardrail tests.
+        return f"- **mistapi SDK module**: `{ep.mistapi_module}`"  # Keep the guardrail-readable form.
+    return "- **mistapi SDK module**: _No installed mistapi SDK module found._"  # Record the SDK gap.
+
+
+def _format_sdk_invocation(ep: GetEndpoint) -> str:
+    """Render a truthful operation reference for generated specs."""
+    LOG.debug("Formatting SDK invocation for %s", ep.operation_id)  # Trace invocation rendering.
+    if ep.mistapi_module:  # Prefer the installed SDK call when it exists.
+        return f"`{ep.mistapi_module}.{ep.operation_id}()`"  # Return exact callable syntax.
+    return f"the OpenAPI operation `{ep.operation_id}`"  # Avoid naming a missing SDK callable.
+
+
 def _format_functional_requirements(ep: GetEndpoint) -> str:
     """Produce a stable Functional Requirements section for the endpoint."""
     LOG.debug("Formatting FRs for %s", ep.operation_id)  # Trace
+    sdk_invocation = _format_sdk_invocation(ep)  # Build a true SDK or OpenAPI reference.
     reqs = [
         (
             f"**FR-001**: Provide a new menu item that invokes "
-            f"`{ep.mistapi_module}.{ep.operation_id}()` via the `mistapi` SDK."
+            f"{sdk_invocation} via the `mistapi` SDK when available."
         ),  # Calls the right SDK
         (
             "**FR-002**: Collect required inputs using `safe_input()` "
@@ -416,7 +495,7 @@ _SPEC_BODY = """# Feature Specification: Mist API Read Operation -- {title}
 - **Method**: `GET`
 - **Path**: `{path}`
 - **Tag**: `{tag}`
-- **mistapi SDK module**: `{module}`
+{sdk_module_line}
 
 ### Description
 
@@ -449,7 +528,7 @@ item upserts cleanly into SQLite (no duplicate primary keys).
 **Acceptance Scenarios**:
 
 1. **Given** valid credentials and org context, **When** the user selects the new menu item, **Then**
-   MistHelper invokes `{module}.{op}()` exactly once per required scope and persists results.
+   MistHelper invokes {sdk_invocation} exactly once per required scope and persists results.
 2. **Given** an SSH or container session, **When** the user is prompted for identifiers, **Then**
    `safe_input()` handles EOF gracefully and the operation exits 0 without a traceback.
 3. **Given** repeated runs, **When** SQLite is the active backend, **Then** rows upsert by the configured
