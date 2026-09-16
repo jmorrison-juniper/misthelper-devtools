@@ -1,15 +1,16 @@
 """Good fixture for MissingEdgeCaseDetector (T038).
 
 README (good fixture scenario for MissingEdgeCaseDetector):
-    This module exercises the same numeric SUT but adds tests for every
-    edge case tracked by MissingEdgeCaseDetector. The detector must NOT
-    emit any finding when scanning this file.
+    This module exercises the same numeric SUT but adds tests for the
+    numeric edge cases tracked by MissingEdgeCaseDetector. The detector
+    must NOT emit any finding when scanning this file.
+    test-quality: edge-case-required=numeric
 
 Edge cases covered here (via distinctive markers):
-    - empty_input: `[]` argument (empty container).
     - zero_value:  `0` argument literal.
     - negative_value: negative-int argument literal `-5`.
-    - none_input: `None` argument literal.
+    - empty_input: present as extra coverage but not required by numeric.
+    - none_input: present as extra coverage but not required by numeric.
 
 Expected finding count: 0.
 """
@@ -28,8 +29,8 @@ def test_positive_int_case() -> None:
 
 
 def test_empty_input_case() -> None:
-    """Edge: empty container as input."""
-    assert process([]) == 0  # Empty list is falsy -> SUT returns 0.
+    """Extra edge: empty container as input."""
+    assert process([]) == 0  # Empty list is accepted even though numeric marker does not require it.
 
 
 def test_zero_value_case() -> None:
@@ -43,5 +44,5 @@ def test_negative_value_case() -> None:
 
 
 def test_none_input_case() -> None:
-    """Edge: None as input."""
-    assert process(None) == 0  # None is falsy -> SUT returns 0.
+    """Extra edge: None as input."""
+    assert process(None) == 0  # None is accepted even though numeric marker does not require it.

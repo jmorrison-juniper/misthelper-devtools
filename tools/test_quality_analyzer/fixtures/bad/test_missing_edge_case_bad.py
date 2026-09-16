@@ -3,14 +3,13 @@
 README (bad fixture scenario for MissingEdgeCaseDetector):
     This module exercises a numeric-input SUT but only tests a single
     positive value. MissingEdgeCaseDetector (heuristic=True) must emit
-    exactly one finding per uncovered edge case:
+    exactly one finding for each uncovered numeric edge case:
+    test-quality: edge-case-required=numeric
 
-        - missing_ec_empty_input
         - missing_ec_zero_value
         - missing_ec_negative_value
-        - missing_ec_none_input
 
-Expected finding count: 4 (all heuristic=True).
+Expected finding count: 2 (all heuristic=True).
 """
 
 from __future__ import annotations  # Postponed annotations for cleaner typing.

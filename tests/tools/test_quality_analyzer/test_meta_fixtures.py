@@ -214,7 +214,7 @@ def test_missing_failure_mode_detector() -> None:
 
 
 def test_missing_edge_case_detector() -> None:
-    """MissingEdgeCaseDetector: bad fixture yields 4 heuristic findings; good yields zero."""
+    """MissingEdgeCaseDetector: bad fixture yields numeric findings; good yields zero."""
     # Import inside the test so a missing module surfaces as a clean failure.
     from tools.test_quality_analyzer.detection.missing_edge_case import MissingEdgeCaseDetector
 
@@ -231,17 +231,15 @@ def test_missing_edge_case_detector() -> None:
     detector = MissingEdgeCaseDetector()  # No ctor args required.
     findings_bad = detector.detect(bad_path, bad_tree, bad_source)  # Per-file detection.
     expected_rule_ids = {
-        "missing_ec_empty_input",
         "missing_ec_zero_value",
         "missing_ec_negative_value",
-        "missing_ec_none_input",
     }
     got_rule_ids = {f.rule_id for f in findings_bad}  # Actual rule ids.
     assert got_rule_ids == expected_rule_ids, "Missing-edge-case sub-rule mismatch. Got: %s Expected: %s" % (
         got_rule_ids,
         expected_rule_ids,
     )
-    assert len(findings_bad) == 4, "Expected 4 missing_ec_* findings, got %s: %s" % (
+    assert len(findings_bad) == 2, "Expected 2 missing_ec_* findings, got %s: %s" % (
         len(findings_bad),
         [f.rule_id for f in findings_bad],
     )
@@ -255,6 +253,42 @@ def test_missing_edge_case_detector() -> None:
     detector_good = MissingEdgeCaseDetector()  # Fresh detector.
     findings_good = detector_good.detect(good_path, good_tree, good_source)
     assert findings_good == [], "Expected zero findings on missing-edge-case good fixture, got: %s" % findings_good
+
+
+def test_missing_edge_case_detector_ignores_support_calls() -> None:
+    """MissingEdgeCaseDetector must ignore mock assertions and response helpers."""
+    from tools.test_quality_analyzer.detection.missing_edge_case import MissingEdgeCaseDetector
+
+    source = (  # Keep the synthetic fixture local so this test proves the repaired rule directly.
+        "# test-quality: edge-case-required=numeric\n\n"
+        "def test_support_calls(emitter):\n"
+        "    emitter.emit.assert_called_once_with('sites', 1)\n"
+        "    _make_response(200)\n"
+    )
+    tree = ast.parse(source)  # Parse the small fixture that reproduces the false positives.
+    detector = MissingEdgeCaseDetector()  # Use a fresh detector so the test has no shared state.
+    findings = detector.detect(Path("test_support_calls.py"), tree, source)  # Run the detector on helper calls.
+    assert findings == [], "Expected support calls to emit zero findings, got: %s" % findings  # Guard false positives.
+
+
+def test_missing_edge_case_detector_flags_empty_collection_gap() -> None:
+    """MissingEdgeCaseDetector must keep valid empty-input findings."""
+    from tools.test_quality_analyzer.detection.missing_edge_case import MissingEdgeCaseDetector
+
+    source = (  # Keep the synthetic fixture local so the collection obligation is clear.
+        "# test-quality: edge-case-required=collection\n\n"
+        "def process_items(items):\n"
+        "    return len(items)\n"
+        "\n"
+        "def test_items():\n"
+        "    assert process_items([1]) == 1\n"
+    )
+    tree = ast.parse(source)  # Parse the fixture that represents a valid collection gap.
+    detector = MissingEdgeCaseDetector()  # Use a fresh detector so the test has no shared state.
+    findings = detector.detect(Path("test_collection_gap.py"), tree, source)  # Run the detector on a collection SUT.
+    assert [finding.rule_id for finding in findings] == [
+        "missing_ec_empty_input"
+    ]  # Prove the valid rule remains active.
 
 
 def _run_cli_meta(
