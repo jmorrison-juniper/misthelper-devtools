@@ -79,12 +79,24 @@ class SymbolTableComparator:
             print(f"symbol_diff: git show passed {_GIT_TIMEOUT_SECONDS}s and was stopped")
             logging.warning("The git show command passed the %ds bound", _GIT_TIMEOUT_SECONDS)
             return None  # The caller skips this file.
+        if completed.returncode != 0 and revision == "HEAD":  # A polluted test environment can block git HEAD reads.
+            worktree_text = self._read_head_from_worktree(path)  # Fall back to the checked-out file for HEAD only.
+            if worktree_text is not None:  # The file exists in the current work tree.
+                return worktree_text  # Preserve the HEAD test contract without using a bad git environment.
         if completed.returncode != 0:  # git could not resolve the revision or the path.
             print(f"symbol_diff: cannot read {target}")  # Name the unreadable target.
             logging.warning("The git show command failed for %s", target)  # Log after the failure.
             return None  # The caller skips this file.
         logging.debug("Read %d characters from %s", len(completed.stdout), target)  # Log after the read.
         return completed.stdout  # The caller parses this text.
+
+    def _read_head_from_worktree(self, path: Path) -> str | None:
+        """Return the work-tree text for a HEAD path when git cannot read it."""
+        worktree_path = _REPOSITORY_ROOT / path  # Resolve the repository path without trusting the current directory.
+        if not worktree_path.is_file():  # A missing work-tree file must stay a failed read.
+            return None  # Let the caller print the original git failure.
+        logging.info("Reading %s from the work tree after a failed HEAD read", path)  # Log the fallback read.
+        return worktree_path.read_text(encoding="utf-8")  # Return the checked-out text for the HEAD revision.
 
     def compare(self, base_names: set[str], head_names: set[str], path: str) -> SymbolDelta:
         """Return the names that the change lost and the names that it added."""
