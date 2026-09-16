@@ -28,7 +28,7 @@ import argparse  # Stdlib CLI parser (contract mandates argparse).
 import ast  # Parses each discovered test file into an AST.
 import logging  # Structured logging per Constitution Principle VII.
 import sys  # sys.exit / sys.stderr for the module-run form.
-from collections.abc import Sequence  # Structural annotation for input sequences.
+from collections.abc import Mapping, Sequence  # Structural annotations for inputs and metrics.
 from datetime import UTC, datetime  # UTC timestamp for --generated_at fallback.
 from pathlib import Path  # Path arithmetic for outputs and discovery.
 
@@ -245,7 +245,7 @@ class TestQualityCLI:
             len(parse_errors),
         )
         # 4. Run per-file detectors (everything except UntestedDetector).
-        findings = self._run_per_file_detectors(parsed_files)
+        findings, detector_metrics = self._run_per_file_detectors(parsed_files)
         # 5. Run the cross-file UntestedDetector once against the parsed corpus and roots.
         findings.extend(self._run_untested_detector(parsed_files, roots))
         # 6. Apply --disable-rule filtering and config severity overrides.
@@ -277,8 +277,10 @@ class TestQualityCLI:
                 config_snapshot=config_snapshot,
                 args=args,
                 analyzed_files=[path.as_posix() for path, _tree, _source in parsed_files],
+                detector_metrics=detector_metrics,
             )
             self._write_outputs(report=report, report_path=Path(args.report), summary_path=Path(args.summary))
+            self._emit_detector_metrics(detector_metrics)  # Print scope proof before the contract summary.
             self._emit_stdout_summary(findings=findings, skipped=skipped, parse_errors=parse_errors)
             return 0  # --write-baseline always exits 0 per contract.
         # 9. Load baseline + compute diff/stale entries when enabled.
@@ -311,14 +313,19 @@ class TestQualityCLI:
             config_snapshot=config_snapshot,
             args=args,
             analyzed_files=[path.as_posix() for path, _tree, _source in parsed_files],
+            detector_metrics=detector_metrics,
         )
         # 11. Serialize + write both artifacts.
         self._write_outputs(report=report, report_path=Path(args.report), summary_path=Path(args.summary))
         # 12. Print the one-line stdout summary per contracts/cli.md.
+        self._emit_detector_metrics(detector_metrics)  # Print scope proof for detector-specific guards.
         self._emit_stdout_summary(findings=findings, skipped=skipped, parse_errors=parse_errors)
         if any(item.reason == "missing_root" for item in skipped):  # Missing explicit roots make coverage invalid.
             sys.stderr.write("test_quality_analyzer: missing root skipped\n")  # State the skip failure.
             return 2  # Usage-error exit code.
+        if self._missing_edge_scope_failed(roots, detector_metrics):  # Real runs must measure edge-case scope.
+            sys.stderr.write("test_quality_analyzer: missing_edge_case inspected zero real modules\n")
+            return 2  # A guard that measures nothing is an engine failure.
         # 13. Gate-mode exit logic (FR-018 + contracts/cli.md).
         if args.gate:
             # Parse errors are fatal in gate mode per FR-018.
@@ -395,6 +402,7 @@ class TestQualityCLI:
         config_snapshot,  # ConfigSnapshot for envelope.
         args: argparse.Namespace,  # For timestamp + scanned roots.
         analyzed_files: Sequence[str],  # Test files read by detectors.
+        detector_metrics: Mapping[str, int],  # Per-detector proof counts.
     ):
         """Assemble the Report envelope; factored out for gate + write-baseline paths."""
         return ReportBuilder().build(
@@ -407,6 +415,7 @@ class TestQualityCLI:
             generated_at=self._resolve_timestamp(args.fixed_timestamp),
             scanned_roots=[root.as_posix() for root in self._resolve_roots(args.roots)],
             analyzed_files=analyzed_files,
+            detector_metrics=detector_metrics,
         )
 
     def _resolve_roots(self, root_args: Sequence[str] | None) -> list[Path]:
@@ -514,12 +523,13 @@ class TestQualityCLI:
     def _run_per_file_detectors(
         self,
         parsed_files: Sequence[tuple[Path, ast.Module, str]],
-    ) -> list[Finding]:
-        """Run every registered detector EXCEPT UntestedDetector against each parsed file."""
+    ) -> tuple[list[Finding], dict[str, int]]:
+        """Run every registered per-file detector and return scope metrics."""
         # Per-file findings accumulator returned to the pipeline.
         findings: list[Finding] = []  # Grows one detector-file pair at a time.
         # Build the reduced registry: skip UntestedDetector -- it runs cross-file below.
         per_file_detectors = [d for d in DetectorRegistry if not isinstance(d, UntestedDetector)]
+        self._reset_detector_inspection(per_file_detectors)  # Clear stale state on registry singletons.
         _LOGGER.info(
             "Running %s per-file detector(s) across %s file(s)",
             len(per_file_detectors),
@@ -531,7 +541,25 @@ class TestQualityCLI:
                 # Detectors may raise; surface as engine error rather than silent skip.
                 findings.extend(detector.detect(path, tree, source))
         _LOGGER.debug("Per-file detector finding count: %s", len(findings))
-        return findings
+        metrics = self._detector_metrics(per_file_detectors)  # Collect scope counts after the run.
+        return findings, metrics  # Return findings and the proof that detectors measured files.
+
+    def _reset_detector_inspection(self, detectors) -> None:
+        """Reset detectors that expose per-run inspection state."""
+        for detector in detectors:  # Registry instances can survive multiple in-process CLI tests.
+            reset = getattr(detector, "reset_inspection", None)  # Look for the optional reset seam.
+            if callable(reset):  # Only detectors with state implement the seam.
+                reset()  # Clear stale inspection counts before this run.
+
+    def _detector_metrics(self, detectors) -> dict[str, int]:
+        """Return detector-specific proof metrics."""
+        metrics: dict[str, int] = {}  # Accumulate metrics by stable key.
+        for detector in detectors:  # Read optional metrics from each detector.
+            counter = getattr(detector, "inspected_module_count", None)  # Missing-edge detector exposes this seam.
+            if callable(counter):  # Detectors without the seam do not contribute.
+                metrics[f"{detector.__class__.__name__}.inspected_modules"] = counter()  # Store the scope count.
+        _LOGGER.debug("Detector metrics: %s", metrics)  # Log the final metric set.
+        return metrics  # Return metrics for report and stdout output.
 
     def _run_untested_detector(
         self,
@@ -667,6 +695,28 @@ class TestQualityCLI:
             len(parse_errors),  # Parse-error count.
         )
         sys.stdout.write(line + "\n")  # Trailing newline for POSIX cleanliness.
+
+    def _emit_detector_metrics(self, detector_metrics: Mapping[str, int]) -> None:
+        """Write per-detector proof metrics to stdout."""
+        for key, value in sorted(detector_metrics.items()):  # Stable order keeps command evidence repeatable.
+            sys.stdout.write("detector_metric: %s=%d\n" % (key, value))  # Print one metric per line.
+
+    def _missing_edge_scope_failed(self, roots: Sequence[Path], metrics: Mapping[str, int]) -> bool:
+        """Return True when a real repository run inspected zero edge-case modules."""
+        key = "MissingEdgeCaseDetector.inspected_modules"  # Stable metric name used by the audit guard.
+        if metrics.get(key, 0) > 0:  # A positive count proves the rule measured real files.
+            return False  # The edge-case scope is healthy.
+        return any(self._is_real_repo_root(root) for root in roots)  # Enforce only real repository test roots.
+
+    def _is_real_repo_root(self, root: Path) -> bool:
+        """Return True when the root is a real repository test root."""
+        if not root.exists() or not self._is_repo_test_root(root):  # Missing or fixture roots do not enforce scope.
+            return False  # Other checks report missing roots separately.
+        try:
+            root.resolve().relative_to(Path.cwd().resolve())  # Confirm the root lives inside this checkout.
+            return True  # Repository roots must prove rule scope.
+        except ValueError:
+            return False  # Temporary external roots stay test fixtures.
 
 
 def main(argv: Sequence[str] | None = None) -> int:

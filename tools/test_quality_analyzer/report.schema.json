@@ -10,6 +10,7 @@
     "generated_at",
     "scanned_roots",
     "analyzed_files",
+    "detector_metrics",
     "config_snapshot",
     "findings",
     "skipped_files",
@@ -35,6 +36,10 @@
     "analyzed_files": {
       "type": "array",
       "items": {"type": "string", "minLength": 1}
+    },
+    "detector_metrics": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
     },
     "config_snapshot": {
       "type": "object",

@@ -260,7 +260,6 @@ def test_missing_edge_case_detector_ignores_support_calls() -> None:
     from tools.test_quality_analyzer.detection.missing_edge_case import MissingEdgeCaseDetector
 
     source = (  # Keep the synthetic fixture local so this test proves the repaired rule directly.
-        "# test-quality: edge-case-required=numeric\n\n"
         "def test_support_calls(emitter):\n"
         "    emitter.emit.assert_called_once_with('sites', 1)\n"
         "    _make_response(200)\n"
@@ -276,7 +275,6 @@ def test_missing_edge_case_detector_flags_empty_collection_gap() -> None:
     from tools.test_quality_analyzer.detection.missing_edge_case import MissingEdgeCaseDetector
 
     source = (  # Keep the synthetic fixture local so the collection obligation is clear.
-        "# test-quality: edge-case-required=collection\n\n"
         "def process_items(items):\n"
         "    return len(items)\n"
         "\n"
@@ -289,6 +287,42 @@ def test_missing_edge_case_detector_flags_empty_collection_gap() -> None:
     assert [finding.rule_id for finding in findings] == [
         "missing_ec_empty_input"
     ]  # Prove the valid rule remains active.
+
+
+def test_missing_edge_case_detector_infers_optional_annotation() -> None:
+    """MissingEdgeCaseDetector must require None only for optional source inputs."""
+    from tools.test_quality_analyzer.detection.missing_edge_case import MissingEdgeCaseDetector
+
+    source = (  # Keep a local SUT so annotation inference is the measured behavior.
+        "def process_name(name: str | None):\n"
+        "    return name or 'missing'\n"
+        "\n"
+        "def test_name():\n"
+        "    assert process_name('alpha') == 'alpha'\n"
+    )
+    tree = ast.parse(source)  # Parse the optional annotation fixture.
+    detector = MissingEdgeCaseDetector()  # Use a fresh detector for isolated state.
+    findings = detector.detect(Path("test_optional_gap.py"), tree, source)  # Run the detector.
+    assert [finding.rule_id for finding in findings] == [
+        "missing_ec_none_input"
+    ]  # Optional annotation must require a None test.
+
+
+def test_missing_edge_case_detector_ignores_status_code_numbers() -> None:
+    """MissingEdgeCaseDetector must keep HTTP status codes outside numeric scope."""
+    from tools.test_quality_analyzer.detection.missing_edge_case import MissingEdgeCaseDetector
+
+    source = (  # Keep a local response builder so status-code inference is measured.
+        "def build_response(status_code: int):\n"
+        "    return {'status_code': status_code}\n"
+        "\n"
+        "def test_response():\n"
+        "    assert build_response(status_code=200)['status_code'] == 200\n"
+    )
+    tree = ast.parse(source)  # Parse the categorical status-code fixture.
+    detector = MissingEdgeCaseDetector()  # Use a fresh detector for isolated state.
+    findings = detector.detect(Path("test_status_code.py"), tree, source)  # Run the detector.
+    assert findings == []  # Status codes must not require zero or negative tests.
 
 
 def _run_cli_meta(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations  # Keep annotations stable on the supported Python versions.
 
+import json  # Write synthetic analyzer reports for scope-audit tests.
 from pathlib import Path  # Build repository-relative paths without hardcoded separators.
 
 from tools.guard_proof_audit import GuardProofAuditor  # Exercise the same auditor used by the command line.
@@ -55,6 +56,18 @@ class TestGuardProofAuditDecisions:
         auditor = GuardProofAuditor(REPOSITORY_ROOT, known_guards={})  # Remove baseline noise from this unit test.
         report = auditor.audit_sources({Path("tests/guardrails/test_windows_guard.py"): source})  # Audit fake source.
         assert not report.blocks_merge  # The enforcement must not reject a legitimate conditional skip.
+
+    def test_zero_scope_analyzer_rule_is_rejected(self, tmp_path: Path) -> None:
+        """An analyzer rule that inspects zero real files must fail the audit."""
+        report_path = tmp_path / "report.json"  # Keep the synthetic report outside the repository tree.
+        report_path.write_text(  # Write the smallest report fragment that the scope audit needs.
+            json.dumps({"detector_metrics": {"MissingEdgeCaseDetector.inspected_modules": 0}}),
+            encoding="utf-8",
+        )
+        auditor = GuardProofAuditor(REPOSITORY_ROOT, known_guards={}, analyzer_report=report_path)  # Scope audit on.
+        report = auditor.audit_sources({})  # No guard source files are needed for this direct decision test.
+        assert report.blocks_merge  # The audit must reject a detector that measures no real files.
+        assert "inspected zero real files" in report.active_findings[0].reason  # Explain the scope failure.
 
 
 class TestRepositoryGuardProofAudit:

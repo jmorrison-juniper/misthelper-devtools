@@ -17,7 +17,7 @@ from __future__ import annotations  # Postponed annotations for cleaner typing.
 import json  # Stdlib JSON emitter -- no third-party JSON library.
 import logging  # info-before / debug-after logging pattern.
 import re  # Used by the tiny inline schema validator for `pattern` keyword.
-from collections.abc import Iterable  # Any for schema/payload; Iterable for inputs.
+from collections.abc import Iterable, Mapping  # Any for schema/payload; Iterable and Mapping for inputs.
 from typing import Any
 
 from tools.test_quality_analyzer.detection import (  # Types from detection package.
@@ -46,6 +46,7 @@ class ReportBuilder:
         generated_at: str,  # ISO-8601 UTC timestamp with seconds precision.
         scanned_roots: Iterable[str],  # CLI-supplied test roots (POSIX strings).
         analyzed_files: Iterable[str] = (),  # Test files read by detectors.
+        detector_metrics: Mapping[str, int] | None = None,  # Per-detector proof counts.
     ) -> Report:
         """Return an immutable Report with deterministically sorted collections."""
         # Log before build so operators can trace which run produced which report.
@@ -60,12 +61,14 @@ class ReportBuilder:
         # Freeze scanned_roots into a tuple with insertion order preserved.
         roots_tuple = tuple(scanned_roots)
         analyzed_tuple = tuple(sorted(analyzed_files))  # Sort analyzed files for deterministic output.
+        metrics = dict(sorted((detector_metrics or {}).items()))  # Sort metrics for stable reports.
         # Build and return the frozen dataclass.
         report = Report(
             engine_version=engine_version,
             generated_at=generated_at,
             scanned_roots=roots_tuple,
             analyzed_files=analyzed_tuple,
+            detector_metrics=metrics,
             config_snapshot=config_snapshot,
             findings=sorted_findings,
             skipped_files=sorted_skipped,
@@ -101,6 +104,7 @@ class ReportBuilder:
             "generated_at": report.generated_at,
             "scanned_roots": list(report.scanned_roots),
             "analyzed_files": list(report.analyzed_files),
+            "detector_metrics": dict(report.detector_metrics),
             "config_snapshot": {
                 "rules_enabled": dict(cs.rules_enabled),
                 "severity_overrides": {key: value.value for key, value in cs.severity_overrides.items()},
@@ -324,6 +328,8 @@ class MarkdownRenderer:
             "- Generated at: %s" % report.generated_at,
             "- Scanned roots: %s" % ", ".join(report.scanned_roots),
             "- Analyzed files: %s" % len(report.analyzed_files),
+            "- Detector metrics: %s"
+            % ", ".join("%s=%s" % (key, value) for key, value in sorted(report.detector_metrics.items())),
             "",
             "## Summary",
             "",

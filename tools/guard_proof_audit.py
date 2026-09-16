@@ -4,6 +4,7 @@ from __future__ import annotations  # Keep type hints stable on the supported Py
 
 import argparse  # Parse command arguments for local and CI runs.
 import ast  # Read test modules without importing them or running fixtures.
+import json  # Read analyzer report metrics without importing the analyzer CLI.
 import logging  # Record each audit step for operator diagnostics.
 from collections.abc import Mapping, Sequence  # Type the public seams used by tests.
 from dataclasses import dataclass  # Store findings in explicit records.
@@ -31,6 +32,7 @@ class GuardProofReport:
     active_findings: tuple[GuardProofFinding, ...]  # New findings fail the gate.
     known_findings: tuple[GuardProofFinding, ...]  # Known findings stay visible in reports.
     checked_files: int  # Prove that the audit read guard files.
+    checked_analyzer_rules: int = 0  # Prove that the audit read analyzer rule scope metrics.
 
     @property
     def blocks_merge(self) -> bool:
@@ -45,9 +47,19 @@ class GuardProofAuditor:
         self,
         root: Path | None = None,
         known_guards: Mapping[Path, str] | None = None,
+        analyzer_report: Path | None = None,
     ) -> None:
         self._root = root or Path.cwd()  # Default to the caller checkout for command-line use.
         self._known_guards = known_guards or KNOWN_UNMEASURED_GUARDS  # Allow tests to override known debt.
+        self._analyzer_report = self._resolve_report_path(analyzer_report)  # Optional analyzer scope report path.
+
+    def _resolve_report_path(self, analyzer_report: Path | None) -> Path | None:
+        """Return the analyzer report path relative to the audit root when needed."""
+        if analyzer_report is None:  # Unit tests can disable analyzer scope auditing.
+            return None  # No analyzer report will be read.
+        if analyzer_report.is_absolute():  # Absolute paths already name their checkout or test file.
+            return analyzer_report  # Keep the caller-supplied path unchanged.
+        return self._root / analyzer_report  # Relative report paths belong to the audited checkout.
 
     def audit(self) -> GuardProofReport:
         """Audit guard files in the repository checkout."""
@@ -66,7 +78,61 @@ class GuardProofAuditor:
         active = tuple(finding for finding in findings if finding.issue is None)  # New debt blocks the gate.
         known = tuple(finding for finding in findings if finding.issue is not None)  # Known debt remains visible.
         logging.debug("Audit found %d active and %d known finding(s)", len(active), len(known))  # Summarize results.
-        return GuardProofReport(active, known, len(sources))  # Return one complete audit report.
+        report = GuardProofReport(active, known, len(sources))  # Return one complete source-only audit report.
+        scope_report = self._audit_analyzer_report()  # Add analyzer scope checks when the caller requests them.
+        return self._merge_reports(report, scope_report)  # Return one complete audit report.
+
+    def _audit_analyzer_report(self) -> GuardProofReport:
+        """Return findings for analyzer rules that inspected zero real files."""
+        if self._analyzer_report is None:  # Unit tests can audit skip logic without an analyzer report.
+            return GuardProofReport((), (), 0, 0)  # No analyzer scope input was requested.
+        logging.info("Auditing analyzer scope report %s", self._analyzer_report)  # Log before reading the report.
+        payload = self._load_analyzer_payload(self._analyzer_report)  # Read the report or create an input finding.
+        if payload is None:  # Missing or invalid report already became a finding.
+            finding = self._analyzer_report_finding("analyzer report cannot be read")  # Required input is absent.
+            return GuardProofReport((finding,), (), 0, 0)  # Block merge because scope is unknown.
+        findings = tuple(self._analyzer_scope_findings(payload))  # Convert zero-scope metrics to findings.
+        logging.debug("Analyzer scope audit found %d finding(s)", len(findings))  # Summarize analyzer scope.
+        return GuardProofReport(findings, (), 0, len(payload.get("detector_metrics", {})))  # Return scope result.
+
+    def _load_analyzer_payload(self, report_path: Path) -> Mapping[str, object] | None:
+        """Return analyzer report JSON, or None when the required input is invalid."""
+        try:
+            text = report_path.read_text(encoding="utf-8")  # Read the report written by the analyzer command.
+            payload = json.loads(text)  # Parse JSON without importing analyzer internals.
+        except (OSError, json.JSONDecodeError) as exc:
+            logging.debug("Analyzer report read failed: %s", exc)  # Record why the required input is unavailable.
+            return None  # The caller turns this into a blocking finding.
+        return payload if isinstance(payload, dict) else None  # The report envelope must be a JSON object.
+
+    def _analyzer_scope_findings(self, payload: Mapping[str, object]) -> tuple[GuardProofFinding, ...]:
+        """Return one finding for each analyzer metric that measured zero real files."""
+        metrics = payload.get("detector_metrics")  # The analyzer writes detector proof counts here.
+        if not isinstance(metrics, dict):  # A missing metric block means the guard cannot measure the rule.
+            return (self._analyzer_report_finding("analyzer report lacks detector_metrics"),)  # Block merge.
+        findings = [  # Build findings for all zero inspector metrics.
+            self._analyzer_report_finding(f"{key} inspected zero real files")
+            for key, value in metrics.items()
+            if key.endswith(".inspected_modules") and value == 0
+        ]
+        return tuple(findings)  # Return an immutable finding set.
+
+    def _analyzer_report_finding(self, reason: str) -> GuardProofFinding:
+        """Return a guard finding that names the analyzer report scope failure."""
+        path = self._analyzer_report or Path("tools/test_quality_analyzer/output/report.json")  # Default path.
+        try:
+            relative = path if not path.is_absolute() else path.relative_to(self._root)  # Prefer repository path.
+        except ValueError:
+            relative = path  # External test reports keep their absolute path.
+        return GuardProofFinding(relative, reason, 0)  # Analyzer-scope findings block the gate.
+
+    def _merge_reports(self, first: GuardProofReport, second: GuardProofReport) -> GuardProofReport:
+        """Merge guard-skip and analyzer-scope audit reports."""
+        active = first.active_findings + second.active_findings  # Both finding sets block the audit.
+        known = first.known_findings + second.known_findings  # Preserve known skip debt if any returns.
+        checked_files = first.checked_files + second.checked_files  # Sum measured guard test files.
+        checked_rules = first.checked_analyzer_rules + second.checked_analyzer_rules  # Sum analyzer metrics.
+        return GuardProofReport(active, known, checked_files, checked_rules)  # Return the combined report.
 
     def analyze_source(self, relative_path: Path, source: str) -> GuardProofFinding | None:
         """Return a finding when one guard source can skip every test unconditionally."""
@@ -195,13 +261,19 @@ class GuardProofCli:
         parser = self._build_parser()  # Build the parser at run time for test isolation.
         arguments = parser.parse_args(argv)  # Parse the caller arguments.
         self._configure_logging(arguments.verbose)  # Configure logs before the first audit action.
-        report = GuardProofAuditor(arguments.root).audit()  # Run the same enforcement used by the tests.
+        report = GuardProofAuditor(arguments.root, analyzer_report=arguments.analyzer_report).audit()  # Run audit.
         self._print_report(report, arguments.include_known)  # Print the measured result for pull request evidence.
         return 1 if report.blocks_merge else 0  # Active findings fail the command.
 
     def _build_parser(self) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(description="Fail new guard tests that can skip every test.")  # CLI help text.
         parser.add_argument("--root", type=Path, default=Path.cwd(), help="Repository root to audit.")  # Checkout path.
+        parser.add_argument(  # Analyzer report path used to reject detector rules with empty real scope.
+            "--analyzer-report",
+            type=Path,
+            default=Path("tools/test_quality_analyzer/output/report.json"),
+            help="Analyzer JSON report to audit for detector scope metrics.",
+        )
         parser.add_argument("--include-known", action="store_true", help="Print known findings.")  # Show baseline debt.
         parser.add_argument("--verbose", action="store_true", help="Print DEBUG log lines.")  # Control log detail.
         return parser  # Return the parser to the caller.
@@ -212,6 +284,7 @@ class GuardProofCli:
 
     def _print_report(self, report: GuardProofReport, include_known: bool) -> None:
         print(f"Checked guard files: {report.checked_files}")  # Show that the audit measured a nonzero file set.
+        print(f"Checked analyzer rules: {report.checked_analyzer_rules}")  # Show detector scope input was measured.
         for finding in report.active_findings:  # Print every blocking finding.
             print(f"FAIL {finding.path}: {finding.reason}")  # Name the file and the missing proof.
         if include_known:  # Known findings are useful in reports but do not block this pull request.

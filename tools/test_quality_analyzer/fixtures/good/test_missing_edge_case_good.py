@@ -4,7 +4,6 @@ README (good fixture scenario for MissingEdgeCaseDetector):
     This module exercises the same numeric SUT but adds tests for the
     numeric edge cases tracked by MissingEdgeCaseDetector. The detector
     must NOT emit any finding when scanning this file.
-    test-quality: edge-case-required=numeric
 
 Edge cases covered here (via distinctive markers):
     - zero_value:  `0` argument literal.
@@ -18,7 +17,7 @@ Expected finding count: 0.
 from __future__ import annotations  # Postponed annotations for cleaner typing.
 
 
-def process(value):  # SUT accepting any input; tests cover multiple shapes.
+def process(value: int):  # SUT accepts an integer, so numeric edge tests apply.
     """Return `value * 2` when truthy, else 0."""
     return value * 2 if value else 0  # Simple truthy-doubling logic.
 
