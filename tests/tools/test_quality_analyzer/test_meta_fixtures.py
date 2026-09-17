@@ -245,7 +245,7 @@ def test_missing_failure_mode_detector_counts_real_mist_endpoint_scope() -> None
 
     assert detector.inspected_module_count() == 1  # A positive count proves the detector measured the module.
     assert "missing_fm_connection_error" in rule_ids  # A broken source-risk check would miss this finding.
-    assert "missing_fm_http_5xx" in rule_ids  # A broken network-risk check would miss this finding.
+    assert "missing_fm_connection_timeout" in rule_ids  # A broken network-risk check would miss this finding.
 
 
 def test_missing_edge_case_detector() -> None:
