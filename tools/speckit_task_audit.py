@@ -11,6 +11,8 @@ import re  # Match status lines and checkbox markers without a Markdown parser.
 from dataclasses import dataclass  # Keep audit records explicit and typed.
 from pathlib import Path  # Keep path handling portable across Windows and Linux.
 
+logger = logging.getLogger(__name__)  # Use a module logger so tests can identify this log source.
+
 LOGGER = logging.getLogger(__name__)  # Use a module logger so callers can configure output.
 CHECKBOX_RE = re.compile(r"^\s*- \[([ xX])\]")  # Count task boxes and nested task boxes only.
 FENCE_RE = re.compile(r"^\s*(```|~~~)")  # Ignore examples inside fenced code blocks.
@@ -93,10 +95,10 @@ class CitationValidator:
         self._root = root  # Store the checkout root for repository-relative citations.
 
     def find_errors(self, path: Path) -> tuple[CitationFinding, ...]:
-        logging.info("Validating checked task citations in %s", path)  # Log the file before path checks.
+        logger.info("Validating checked task citations in %s", path)  # Log the file before path checks.
         lines = path.read_text(encoding="utf-8").splitlines()  # Read lines so reports can name line numbers.
         errors = tuple(self._errors_from_lines(path, lines))  # Collect missing paths outside fenced blocks.
-        logging.debug("Found %s missing checked-task citations in %s", len(errors), path)  # Log the count.
+        logger.debug("Found %s missing checked-task citations in %s", len(errors), path)  # Log the count.
         return errors  # Return immutable findings so callers do not mutate audit results.
 
     def _errors_from_lines(self, path: Path, lines: list[str]) -> list[CitationFinding]:
@@ -150,12 +152,12 @@ class AllowList:
 
     @classmethod
     def from_path(cls, path: Path | None) -> AllowList:
-        logging.info("Loading the SpecKit audit allow list from %s", path)  # Log the optional file read.
+        logger.info("Loading the SpecKit audit allow list from %s", path)  # Log the optional file read.
         if path is None or not path.exists():  # A missing optional file means no exceptions.
-            logging.debug("Loaded %s allow-list entries", 0)  # Record the empty allow-list size.
+            logger.debug("Loaded %s allow-list entries", 0)  # Record the empty allow-list size.
             return cls(set())  # Return an empty set so callers have one code path.
         entries = cls._read_entries(path)  # Read only non-comment lines from the file.
-        logging.debug("Loaded %s allow-list entries", len(entries))  # Record how many exceptions exist.
+        logger.debug("Loaded %s allow-list entries", len(entries))  # Record how many exceptions exist.
         return cls(entries)  # Return the allow-list object for the audit run.
 
     @staticmethod
@@ -178,10 +180,10 @@ class TaskFileScanner:
     """
 
     def scan(self, path: Path) -> TaskCounts:
-        logging.info("Scanning task file %s", path)  # Log the file that the scanner reads.
+        logger.info("Scanning task file %s", path)  # Log the file that the scanner reads.
         text = path.read_text(encoding="utf-8")  # Read one file so the scanner can count each line.
         counts = self._count_lines(text.splitlines())  # Count only valid boxes outside code fences.
-        logging.debug("Scanned %s with %s unchecked tasks", path, counts.unchecked)  # Log the result.
+        logger.debug("Scanned %s with %s unchecked tasks", path, counts.unchecked)  # Log the result.
         return counts  # Return counts for the reporter and the gate.
 
     def _count_lines(self, lines: list[str]) -> TaskCounts:
@@ -225,11 +227,11 @@ class SpecTaskAudit:
         self._citation_validator = CitationValidator(root)  # Reuse one validator for proof path checks.
 
     def run(self) -> int:
-        logging.info("Starting the SpecKit task audit under %s", self._root)  # Log the audit start.
+        logger.info("Starting the SpecKit task audit under %s", self._root)  # Log the audit start.
         findings = self._findings()  # Measure every specification directory.
         self._report(findings)  # Print a human-readable report for CI logs.
         failures = [finding for finding in findings if finding.blocks_merge]  # Select blocking drift.
-        logging.debug("The SpecKit task audit found %s blocking specs", len(failures))  # Log failure count.
+        logger.debug("The SpecKit task audit found %s blocking specs", len(failures))  # Log failure count.
         return 1 if failures else 0  # Fail only when shipped specs still hold open tasks.
 
     def _findings(self) -> list[SpecFinding]:

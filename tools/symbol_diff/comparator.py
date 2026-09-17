@@ -14,6 +14,8 @@ import subprocess  # nosec B404 - The class queries git, and the call below uses
 from dataclasses import dataclass  # Builds the immutable per-file result record.
 from pathlib import Path  # Holds every path, so no code hardcodes a separator.
 
+logger = logging.getLogger(__name__)  # Use a module logger so tests can identify this log source.
+
 # The statement types that define a module-level name through a name attribute.
 # An annotated assignment parses as ast.AnnAssign, not as ast.Assign. A tool that
 # matches ast.Assign alone misses every annotated global, which is the exact
@@ -44,7 +46,7 @@ class SymbolTableComparator:
 
     def collect_names(self, source: str, label: str) -> set[str] | None:
         """Return the module-level names in the source, or None when it does not parse."""
-        logging.debug("Parsing the module-level symbol table of %s", label)  # Log before the parse.
+        logger.debug("Parsing the module-level symbol table of %s", label)  # Log before the parse.
         try:
             tree = ast.parse(source)  # ast.parse reads text, so an uncompilable file stays readable.
         except SyntaxError as error:  # Defect 2 of issue #1796 left a file that does not compile.
@@ -54,7 +56,7 @@ class SymbolTableComparator:
         names: set[str] = set()  # Accumulates the module-level names.
         for node in tree.body:  # Only a top-level statement defines a module-level name.
             names.update(self._names_of(node))  # Each statement contributes zero or more names.
-        logging.debug("Collected %d module-level names from %s", len(names), label)  # Log after the parse.
+        logger.debug("Collected %d module-level names from %s", len(names), label)  # Log after the parse.
         return names  # The caller compares this set against the other revision.
 
     def read_revision(self, revision: str, path: Path) -> str | None:
@@ -64,7 +66,7 @@ class SymbolTableComparator:
         if git_path is None:  # A host without git cannot supply the base revision.
             print("symbol_diff: PATH holds no git executable")  # Tell the operator what is missing.
             return None  # The caller skips this file.
-        logging.info("Reading %s from git", target)  # Log before the read.
+        logger.info("Reading %s from git", target)  # Log before the read.
         try:
             completed = subprocess.run(  # nosec B603 - shutil.which resolved the path and the rest are literals.
                 [git_path, "show", target],  # A fixed argument list, so no shell parses the target.
@@ -85,9 +87,9 @@ class SymbolTableComparator:
                 return worktree_text  # Preserve the HEAD test contract without using a bad git environment.
         if completed.returncode != 0:  # git could not resolve the revision or the path.
             print(f"symbol_diff: cannot read {target}")  # Name the unreadable target.
-            logging.warning("The git show command failed for %s", target)  # Log after the failure.
+            logger.warning("The git show command failed for %s", target)  # Log after the failure.
             return None  # The caller skips this file.
-        logging.debug("Read %d characters from %s", len(completed.stdout), target)  # Log after the read.
+        logger.debug("Read %d characters from %s", len(completed.stdout), target)  # Log after the read.
         return completed.stdout  # The caller parses this text.
 
     def _read_head_from_worktree(self, path: Path) -> str | None:
@@ -95,15 +97,15 @@ class SymbolTableComparator:
         worktree_path = _REPOSITORY_ROOT / path  # Resolve the repository path without trusting the current directory.
         if not worktree_path.is_file():  # A missing work-tree file must stay a failed read.
             return None  # Let the caller print the original git failure.
-        logging.info("Reading %s from the work tree after a failed HEAD read", path)  # Log the fallback read.
+        logger.info("Reading %s from the work tree after a failed HEAD read", path)  # Log the fallback read.
         return worktree_path.read_text(encoding="utf-8")  # Return the checked-out text for the HEAD revision.
 
     def compare(self, base_names: set[str], head_names: set[str], path: str) -> SymbolDelta:
         """Return the names that the change lost and the names that it added."""
-        logging.debug("Comparing the symbol table of %s", path)  # Log before the comparison.
+        logger.debug("Comparing the symbol table of %s", path)  # Log before the comparison.
         lost = tuple(sorted(base_names - head_names))  # A lost name is the defect of issue #1796.
         added = tuple(sorted(head_names - base_names))  # An added name can shadow an import.
-        logging.info("Found %d lost and %d added names in %s", len(lost), len(added), path)  # Log after.
+        logger.info("Found %d lost and %d added names in %s", len(lost), len(added), path)  # Log after.
         return SymbolDelta(path=path, lost=lost, added=added)  # The report method prints this record.
 
     def report(self, deltas: list[SymbolDelta]) -> int:
@@ -116,15 +118,15 @@ class SymbolTableComparator:
         if not changed:  # Every compared file holds the same module-level names.
             print("symbol_diff: no module-level name changed")  # State the clean result plainly.
             return 0  # Exit code 0 lets the sweep continue.
-        logging.info("Reported a symbol table change in %d file(s)", len(changed))  # Log the outcome.
+        logger.info("Reported a symbol table change in %d file(s)", len(changed))  # Log the outcome.
         return 1  # Exit code 1 stops a sweep that changed the symbol table.
 
     def run(self, base: str, paths: list[str]) -> int:
         """Compare every path against the base revision and return the process exit code."""
-        logging.info("Comparing %d path(s) against base revision %s", len(paths), base)  # Log before.
+        logger.info("Comparing %d path(s) against base revision %s", len(paths), base)  # Log before.
         results = (self._inspect(base, Path(name)) for name in paths)  # One delta for each path.
         deltas = [delta for delta in results if delta is not None]  # Drop the paths that nobody could read.
-        logging.debug("Collected %d comparable delta(s)", len(deltas))  # Log after the comparison.
+        logger.debug("Collected %d comparable delta(s)", len(deltas))  # Log after the comparison.
         return self.report(deltas)  # The report method owns the exit code.
 
     def _inspect(self, base: str, path: Path) -> SymbolDelta | None:
@@ -141,7 +143,7 @@ class SymbolTableComparator:
 
     def _read_worktree(self, path: Path) -> str | None:
         """Return the work tree text of the path, or None when the read fails."""
-        logging.debug("Reading %s from the work tree", path.as_posix())  # Log before the read.
+        logger.debug("Reading %s from the work tree", path.as_posix())  # Log before the read.
         absolute = path if path.is_absolute() else _REPOSITORY_ROOT / path  # Match the git side.
         try:
             return absolute.read_text(encoding="utf-8")  # UTF-8 matches the project source encoding.

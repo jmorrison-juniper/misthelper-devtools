@@ -36,6 +36,8 @@ from typing import Any  # Type hint for the heterogeneous test-input dicts.
 import libcst as cst  # AST-preserving CST library for safe line extraction.
 from libcst.metadata import PositionProvider  # Resolves 1-based line numbers.
 
+logger = logging.getLogger(__name__)  # Use a module logger so tests can identify this log source.
+
 FIXTURE_SITES: list[dict[str, Any]] = [  # Minimal but representative baseline.
     {  # Plain f-string near the top of the file (Python version warning).
         "site_id": "L315",
@@ -93,20 +95,20 @@ def _load_source_lookup(source_paths: list[Path]) -> _SourceLookup | None:
     """Parse each distinct source file and build its call index once."""
     lookup: _SourceLookup = {}  # Keep each parsed source keyed by its resolved Path.
     for source_path in source_paths:  # Process each distinct source once for performance.
-        logging.info("reading source file: %s", source_path)  # Log before file I/O.
+        logger.info("reading source file: %s", source_path)  # Log before file I/O.
         try:
             source = source_path.read_text(encoding="utf-8")  # Read the target source file.
         except OSError as exc:  # Cover missing file and permission errors uniformly.
             logging.error("failed to read %s: %s", source_path, exc)  # Surface a clear read failure.
             return None  # Caller returns the documented read-error exit code.
-        logging.debug("read %d characters from %s", len(source), source_path)  # Log read size only.
-        logging.info("parsing source file: %s", source_path)  # Log before libcst parse.
+        logger.debug("read %d characters from %s", len(source), source_path)  # Log read size only.
+        logger.info("parsing source file: %s", source_path)  # Log before libcst parse.
         try:
             module = cst.parse_module(source)  # Build the libcst module once for this source.
         except cst.ParserSyntaxError as exc:  # libcst parse failure type.
             logging.error("libcst parse failed for %s: %s", source_path, exc)  # Name the bad source.
             return None  # Caller returns the documented parse-error exit code.
-        logging.debug("parsed source file: %s", source_path)  # Confirm parse success without source text.
+        logger.debug("parsed source file: %s", source_path)  # Confirm parse success without source text.
         call_index = _index_calls_by_line(module)  # Build one reusable call lookup for this source.
         lookup[source_path] = (module, call_index)  # Store the reusable parse and index.
     return lookup  # Caller uses this map for fixture rendering.
@@ -114,11 +116,11 @@ def _load_source_lookup(source_paths: list[Path]) -> _SourceLookup | None:
 
 def _index_calls_by_line(module: cst.Module) -> _CallIndex:
     """Build one line-to-call index for a parsed module."""
-    logging.debug("indexing calls by line")  # Action log before the whole tree walk.
+    logger.debug("indexing calls by line")  # Action log before the whole tree walk.
     wrapper = cst.MetadataWrapper(module)  # MetadataWrapper enables PositionProvider once.
     collector = _LineCallIndexCollector()  # Collector groups calls by start line.
     wrapper.visit(collector)  # Walk the module one time for all fixture sites.
-    logging.debug(  # Confirm index size without logging source content.
+    logger.debug(  # Confirm index size without logging source content.
         "indexed %d calls on %d lines",
         collector.call_count,
         len(collector.calls_by_line),
@@ -137,7 +139,7 @@ def _render_call_at_line(
     Returns the string that ``LogRecord.getMessage()`` would produce when
     the logging framework formats the call with the supplied inputs.
     """
-    logging.debug("rendering call at line %d", target_line)  # Action log before lookup.
+    logger.debug("rendering call at line %d", target_line)  # Action log before lookup.
     lookup_index = call_index  # Use the caller index when the caller can reuse it.
     if lookup_index is None:  # Keep the helper safe for direct unit tests and reuse.
         lookup_index = _index_calls_by_line(module)  # Build one index for this direct call.
@@ -157,7 +159,7 @@ def _render_call_at_line(
         exc_info=None,
     )
     rendered = record.getMessage()  # Same path the real logger uses; no shortcuts.
-    logging.debug("rendered line %d -> %r", target_line, rendered)  # Confirm in action log.
+    logger.debug("rendered line %d -> %r", target_line, rendered)  # Confirm in action log.
     return rendered  # The frozen baseline value for this site.
 
 
@@ -346,11 +348,11 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)s %(message)s",
     )
     args = build_argument_parser().parse_args(argv)  # Parse CLI arguments.
-    logging.info("capture start: source=%s output=%s", args.source, args.output)  # Action-log entry point parameters.
+    logger.info("capture start: source=%s output=%s", args.source, args.output)  # Action-log entry point parameters.
     source_paths = list(  # Keep first-seen order while removing duplicate source files.
         dict.fromkeys(_resolve_fixture_source(site, args.source) for site in FIXTURE_SITES)
     )
-    logging.debug("resolved %d source file(s)", len(source_paths))  # Report the grouped source count.
+    logger.debug("resolved %d source file(s)", len(source_paths))  # Report the grouped source count.
     source_lookup = _load_source_lookup(source_paths)  # Parse and index each distinct source once.
     if source_lookup is None:  # A read or parse failure already logged a clear error.
         return 1  # Documented failure exit code.
@@ -386,13 +388,13 @@ def main(argv: list[str] | None = None) -> int:
             "pattern": site["pattern"],
             "rendered": rendered,
         }
-        logging.info("captured %s -> %r", site["site_id"], rendered)  # Progress feedback.
+        logger.info("captured %s -> %r", site["site_id"], rendered)  # Progress feedback.
     args.output.parent.mkdir(parents=True, exist_ok=True)  # Ensure the output dir exists.
     args.output.write_text(  # Persist with stable formatting for clean diffs.
         json.dumps(captured, indent=2, sort_keys=True, ensure_ascii=True) + "\n",
         encoding="utf-8",
     )
-    logging.info("wrote baseline: %d entries -> %s", len(captured), args.output)  # Final summary line.
+    logger.info("wrote baseline: %d entries -> %s", len(captured), args.output)  # Final summary line.
     return 0  # Success.
 
 

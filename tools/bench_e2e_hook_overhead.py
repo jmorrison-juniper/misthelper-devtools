@@ -22,6 +22,8 @@ from dataclasses import dataclass  # Store results in small typed records.
 from pathlib import Path  # Locate the repository root on Windows and Linux.
 from typing import Any  # Type capture dictionaries from the fixture builder.
 
+logger = logging.getLogger(__name__)  # Use a module logger so tests can identify this log source.
+
 REPO_ROOT = Path(__file__).resolve().parents[1]  # Locate the repository root from tools.
 sys.path.insert(0, str(REPO_ROOT))  # Make src importable when the script runs by file path.
 clients = importlib.import_module("src.upgrade_portal.compare.clients")  # Import the measured path.
@@ -151,17 +153,17 @@ def canonical_result(size: int, level: str) -> dict[str, Any]:
 
 def _set_production_level(level: str) -> None:
     """Apply one documented performance level to the comparison module."""
-    logging.info("Setting performance level %s", level)  # Log before the setting change.
+    logger.info("Setting performance level %s", level)  # Log before the setting change.
     os.environ["MISTHELPER_PERF_LEVEL"] = level  # Use the documented environment variable.
     clients._PERFORMANCE_RECORDER = Recorder(clients._performance_settings())  # Use production settings.
-    logging.debug("Set performance level %s", level)  # Log after the setting change.
+    logger.debug("Set performance level %s", level)  # Log after the setting change.
 
 
 def _set_full_sample_level(level: str) -> None:
     """Apply one full-sample recorder for a span count assertion."""
-    logging.info("Setting full-sample performance level %s", level)  # Log before the setting change.
+    logger.info("Setting full-sample performance level %s", level)  # Log before the setting change.
     clients._PERFORMANCE_RECORDER = Recorder(RecorderSettings(level=level))  # Emit every success.
-    logging.debug("Set full-sample performance level %s", level)  # Log after the setting change.
+    logger.debug("Set full-sample performance level %s", level)  # Log after the setting change.
 
 
 def _time_call(function: Any, size: int) -> ClockSample:
@@ -294,12 +296,12 @@ def _cpu_percents(off: list[ClockSample], base: list[ClockSample]) -> list[float
 
 def _validate_output(size: int) -> None:
     """Fail loudly when the enabled hook changes the function output."""
-    logging.info("Validating output equality for size %s", size)  # Log before the equality check.
+    logger.info("Validating output equality for size %s", size)  # Log before the equality check.
     off = canonical_result(size, LEVEL_OFF)  # Build the reference result outside timing.
     base = canonical_result(size, LEVEL_BASE)  # Build the candidate result outside timing.
     if off != base:  # Compare the public output shape.
         raise SystemExit(f"Output changed for size {size}")  # Fail with the affected size.
-    logging.debug("Validated output equality for size %s", size)  # Log after the equality check.
+    logger.debug("Validated output equality for size %s", size)  # Log after the equality check.
 
 
 def _assert_span_count(size: int) -> int:
@@ -378,11 +380,11 @@ def _clean_attempts(size: int, collections: int, repeats: int, span_ns: float) -
     """Return enough clean collection attempts for one size."""
     attempts: list[Row] = []  # Store clean collection rows for this size.
     for attempt in range(collections * 4):  # Retry only when the control detects contamination.
-        logging.info("Running collection %s for size %s", attempt + 1, size)  # Log before an attempt.
+        logger.info("Running collection %s for size %s", attempt + 1, size)  # Log before an attempt.
         row = _attempt(size, repeats, span_ns)  # Measure one candidate collection.
         if row is not None:  # Accept only clean control windows.
             attempts.append(row)  # Keep the clean attempt.
-        logging.debug("Size %s has %s clean collections", size, len(attempts))  # Log the clean count.
+        logger.debug("Size %s has %s clean collections", size, len(attempts))  # Log the clean count.
         if len(attempts) == collections:  # Stop when the requirement is met.
             return attempts  # Return the clean attempts.
     raise SystemExit(f"Control stayed contaminated for size {size}")  # State the blocked size.

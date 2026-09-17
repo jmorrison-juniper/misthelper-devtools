@@ -10,6 +10,8 @@ from collections.abc import Mapping, Sequence  # Type the public seams used by t
 from dataclasses import dataclass  # Store findings in explicit records.
 from pathlib import Path  # Keep path handling portable across Windows and Linux.
 
+logger = logging.getLogger(__name__)  # Use a module logger so tests can identify this log source.
+
 LOGGER = logging.getLogger(__name__)  # Use a module logger so callers control the output format.
 GUARD_WORDS = frozenset({"guard", "compatibility"})  # Limit the audit to test files that claim a guard role.
 KNOWN_UNMEASURED_GUARDS: Mapping[Path, str] = {}  # Keep no baseline after issue #2689 removes the dead guard.
@@ -64,9 +66,9 @@ class GuardProofAuditor:
 
     def audit(self) -> GuardProofReport:
         """Audit guard files in the repository checkout."""
-        logging.info("Searching for guard test files under %s", self._root)  # Show the scan root.
+        logger.info("Searching for guard test files under %s", self._root)  # Show the scan root.
         paths = tuple(self._candidate_paths())  # Materialize the list so the report can count it.
-        logging.debug("Found %d guard test candidate(s)", len(paths))  # Show whether the gate measured files.
+        logger.debug("Found %d guard test candidate(s)", len(paths))  # Show whether the gate measured files.
         sources = {path: (self._root / path).read_text(encoding="utf-8") for path in paths}  # Read each file once.
         report = self.audit_sources(sources)  # Reuse the same decision path that the unit tests exercise.
         dependency_report = self.audit_dependencies()  # Add dependency default checks to this guard.
@@ -74,13 +76,13 @@ class GuardProofAuditor:
 
     def audit_sources(self, sources: Mapping[Path, str]) -> GuardProofReport:
         """Audit a supplied source map for test-only proof cases."""
-        logging.info("Auditing %d guard source file(s)", len(sources))  # Log the measured input size.
+        logger.info("Auditing %d guard source file(s)", len(sources))  # Log the measured input size.
         findings = tuple(  # Build an immutable record so callers cannot change the result.
             finding for path, source in sources.items() if (finding := self.analyze_source(path, source)) is not None
         )
         active = tuple(finding for finding in findings if finding.issue is None)  # New debt blocks the gate.
         known = tuple(finding for finding in findings if finding.issue is not None)  # Known debt remains visible.
-        logging.debug("Audit found %d active and %d known finding(s)", len(active), len(known))  # Summarize results.
+        logger.debug("Audit found %d active and %d known finding(s)", len(active), len(known))  # Summarize results.
         report = GuardProofReport(active, known, len(sources))  # Return one complete source-only audit report.
         scope_report = self._audit_analyzer_report()  # Add analyzer scope checks when the caller requests them.
         return self._merge_reports(report, scope_report)  # Return one complete audit report.
@@ -89,13 +91,13 @@ class GuardProofAuditor:
         """Return findings for analyzer rules that inspected zero real files."""
         if self._analyzer_report is None:  # Unit tests can audit skip logic without an analyzer report.
             return GuardProofReport((), (), 0, 0)  # No analyzer scope input was requested.
-        logging.info("Auditing analyzer scope report %s", self._analyzer_report)  # Log before reading the report.
+        logger.info("Auditing analyzer scope report %s", self._analyzer_report)  # Log before reading the report.
         payload = self._load_analyzer_payload(self._analyzer_report)  # Read the report or create an input finding.
         if payload is None:  # Missing or invalid report already became a finding.
             finding = self._analyzer_report_finding("analyzer report cannot be read")  # Required input is absent.
             return GuardProofReport((finding,), (), 0, 0)  # Block merge because scope is unknown.
         findings = tuple(self._analyzer_scope_findings(payload))  # Convert zero-scope metrics to findings.
-        logging.debug("Analyzer scope audit found %d finding(s)", len(findings))  # Summarize analyzer scope.
+        logger.debug("Analyzer scope audit found %d finding(s)", len(findings))  # Summarize analyzer scope.
         return GuardProofReport(findings, (), 0, len(payload.get("detector_metrics", {})))  # Return scope result.
 
     def _load_analyzer_payload(self, report_path: Path) -> Mapping[str, object] | None:
@@ -113,7 +115,7 @@ class GuardProofAuditor:
 
     def _generate_and_load_analyzer_payload(self, report_path: Path) -> Mapping[str, object] | None:
         """Generate the analyzer report and return its parsed payload."""
-        logging.info("Generating analyzer scope report %s", report_path)  # Explain the extra guard input step.
+        logger.info("Generating analyzer scope report %s", report_path)  # Explain the extra guard input step.
         self._run_analyzer(report_path)  # Generate the detector metrics in the repository output path.
         try:
             text = report_path.read_text(encoding="utf-8")  # Read the generated report after the analyzer exits.
@@ -141,7 +143,7 @@ class GuardProofAuditor:
             str(summary_path),
         ]
         return_code = TestQualityCLI().run(arguments)  # Run the analyzer in the current Python process.
-        logging.debug("Analyzer report generation exit code: %s", return_code)  # Keep the result visible.
+        logger.debug("Analyzer report generation exit code: %s", return_code)  # Keep the result visible.
 
     def _analyzer_scope_findings(self, payload: Mapping[str, object]) -> tuple[GuardProofFinding, ...]:
         """Return one finding for each analyzer metric that measured zero real files."""
@@ -177,14 +179,14 @@ class GuardProofAuditor:
 
     def analyze_source(self, relative_path: Path, source: str) -> GuardProofFinding | None:
         """Return a finding when one guard source can skip every test unconditionally."""
-        logging.info("Analyzing guard source %s", relative_path)  # Name the file before parsing it.
+        logger.info("Analyzing guard source %s", relative_path)  # Name the file before parsing it.
         tree = ast.parse(source, filename=str(relative_path))  # Parse only syntax, so no test side effect runs.
         test_names = self._test_names(tree)  # Count tests so a finding proves a hidden measured path.
         if not test_names:  # A helper-only file is not a guard test module.
-            logging.debug("Guard source %s has no test functions", relative_path)  # Explain the quiet decision.
+            logger.debug("Guard source %s has no test functions", relative_path)  # Explain the quiet decision.
             return None  # Leave helper modules to other repository checks.
         reason = self._skip_reason(tree, test_names)  # Decide whether every test is unconditionally skipped.
-        logging.debug("Guard source %s skip reason is %s", relative_path, reason or "none")  # Record the outcome.
+        logger.debug("Guard source %s skip reason is %s", relative_path, reason or "none")  # Record the outcome.
         if reason is None:  # A guard with no all-skip defect does not need a finding.
             return None  # Keep measured or environmental guards green.
         return self._finding(relative_path, reason, len(test_names))  # Convert a defect to a report record.
@@ -295,7 +297,7 @@ class GuardProofAuditor:
 
     def audit_dependencies(self) -> GuardProofReport:
         """Audit repository dependency declarations for silent upgrade drift."""
-        logging.info("Auditing dependency bounds under %s", self._root)  # Log the repository path before reading files.
+        logger.info("Auditing dependency bounds under %s", self._root)  # Log the repository path before reading files.
         requirements = self._read_optional("requirements.txt")  # Read pip dependencies when the file exists.
         pyproject = self._read_optional("pyproject.toml")  # Read package metadata when the file exists.
         return self.audit_dependency_sources(requirements, pyproject)  # Reuse the source-only path for unit tests.
@@ -308,7 +310,7 @@ class GuardProofAuditor:
         )
         if not entries:  # A guard that measures no dependency decisions cannot prove safety.
             findings = (GuardProofFinding(Path("requirements.txt"), "dependency audit inspected zero entries", 0),)
-        logging.debug("Dependency audit checked %d entries", len(entries))  # Report the measured dependency count.
+        logger.debug("Dependency audit checked %d entries", len(entries))  # Report the measured dependency count.
         return GuardProofReport(  # Return dependency results through the common report.
             findings, (), 0, 0, len(entries)
         )

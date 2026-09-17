@@ -29,6 +29,8 @@ from pathlib import Path  # Portable path handling on Windows + POSIX.
 
 import libcst as cst  # AST-preserving CST library for safe rewrites.
 
+logger = logging.getLogger(__name__)  # Use a module logger so tests can identify this log source.
+
 
 class SaveDataToOutputInliner(cst.CSTTransformer):
     """Rewrite ``X.save_data_to_output(...)`` -> ``X.write_with_format_selection(...)``.
@@ -54,7 +56,7 @@ class SaveDataToOutputInliner(cst.CSTTransformer):
             attr=cst.Name("write_with_format_selection")
         )
         self.rewrites += 1  # Track the conversion.
-        logging.debug(  # Action-log every rewrite so reviewers can audit.
+        logger.debug(  # Action-log every rewrite so reviewers can audit.
             "rewrote call site to write_with_format_selection"
         )
         return updated_node.with_changes(func=new_func)  # Return tree with the new callable in place.
@@ -74,7 +76,7 @@ class SaveDataToOutputInliner(cst.CSTTransformer):
         if updated_node.attr.value != "save_data_to_output":  # Only the target attribute qualifies.
             return updated_node  # Leave every other attribute access alone.
         self.rewrites += 1  # Count this rewrite too so the summary reflects all touched sites.
-        logging.debug("rewrote attribute reference to write_with_format_selection")  # Action log.
+        logger.debug("rewrote attribute reference to write_with_format_selection")  # Action log.
         return updated_node.with_changes(attr=cst.Name("write_with_format_selection"))  # Rename the attr.
 
 
@@ -122,7 +124,7 @@ def _parse_source(source: str, path: Path) -> cst.Module | None:
 def _process_file(path: Path, dry_run: bool) -> int:
     """Rewrite one file; returns rewrite count, or -1 on read/parse failure."""
     # WHY: extracted so main() drops CC 6->3 and length 37->~8 lines.
-    logging.info("codemod start: path=%s dry_run=%s", path, dry_run)  # Action-log entry.
+    logger.info("codemod start: path=%s dry_run=%s", path, dry_run)  # Action-log entry.
     source = _read_source(path)  # Read target file (None on IO failure).
     if source is None:
         return -1  # Signal failure to caller.
@@ -131,10 +133,10 @@ def _process_file(path: Path, dry_run: bool) -> int:
         return -1  # Signal failure to caller.
     transformer = SaveDataToOutputInliner()  # Build visitor with counters reset.
     new_module = module.visit(transformer)  # Walk tree; build the rewritten module.
-    logging.info("  rewrites in %s: %d", path, transformer.rewrites)  # Per-file progress summary.
+    logger.info("  rewrites in %s: %d", path, transformer.rewrites)  # Per-file progress summary.
     if not dry_run and new_module.code != source:  # Tree changed and not a dry run.
         path.write_text(new_module.code, encoding="utf-8")  # Persist the rewrite.
-        logging.info("  wrote %d bytes to %s", len(new_module.code), path)  # Confirm write.
+        logger.info("  wrote %d bytes to %s", len(new_module.code), path)  # Confirm write.
     return transformer.rewrites  # Return per-file rewrite count.
 
 
@@ -148,7 +150,7 @@ def main(argv: list[str] | None = None) -> int:
         if count < 0:  # Read or parse failure signaled.
             return 1  # Documented IO/parse-error exit code.
         total_rewrites += count  # Aggregate for the final summary.
-    logging.info("total rewrites across %d file(s): %d", len(args.paths), total_rewrites)  # Final summary.
+    logger.info("total rewrites across %d file(s): %d", len(args.paths), total_rewrites)  # Final summary.
     return 0  # Success.
 
 

@@ -57,6 +57,8 @@ from pathlib import Path  # Portable path handling on Windows + POSIX.
 import libcst as cst  # The AST-preserving CST library we transform against.
 from libcst.metadata import PositionProvider  # Lets us read 1-based line numbers.
 
+logger = logging.getLogger(__name__)  # Use a module logger so tests can identify this log source.
+
 LOGGER_NAMES: frozenset[str] = frozenset(  # Names the codemod recognizes as a logger object.
     {"logging", "logger", "log", "LOG", "_logger", "_log"}
 )
@@ -119,7 +121,7 @@ class LoggingLazyCodemod(cst.CSTTransformer):
         self.report = CodemodReport(file="")  # Filled in by the CLI before transform.
         self._rewrite_count = 0  # Running count of sites rewritten this invocation.
         self._except_depth = 0  # Tracks lexical depth inside `except:` blocks for G201.
-        logging.debug(  # Action-logging rule: emit configuration after construction.
+        logger.debug(  # Action-logging rule: emit configuration after construction.
             "LoggingLazyCodemod configured: start=%s end=%s skip=%d max=%s dry_run=%s",
             start_line,
             end_line,
@@ -131,14 +133,14 @@ class LoggingLazyCodemod(cst.CSTTransformer):
     def visit_ExceptHandler(self, node: cst.ExceptHandler) -> None:
         """Track lexical depth inside `except:` blocks for G201 detection."""
         self._except_depth += 1  # Children are now considered "inside an except".
-        logging.debug("entered except handler: depth=%d", self._except_depth)  # Action log.
+        logger.debug("entered except handler: depth=%d", self._except_depth)  # Action log.
 
     def leave_ExceptHandler(  # libcst expects leave_X to mirror visit_X.
         self, original_node: cst.ExceptHandler, updated_node: cst.ExceptHandler
     ) -> cst.ExceptHandler:
         """Pop the except-handler depth counter on the way out."""
         self._except_depth -= 1  # Restore depth so siblings are not counted as "in except".
-        logging.debug("left except handler: depth=%d", self._except_depth)  # Action log.
+        logger.debug("left except handler: depth=%d", self._except_depth)  # Action log.
         return updated_node  # No tree change at this node.
 
     def leave_Call(  # libcst hook invoked once per Call node after children visited.
@@ -171,7 +173,7 @@ class LoggingLazyCodemod(cst.CSTTransformer):
             return updated_node  # Tree unchanged.
         self._rewrite_count += 1  # Bump the per-run counter for --max-sites enforcement.
         self.report.rewrites.append({"line": line, "kind": change_kind})  # Record what we did so reviewers can audit.
-        logging.info("rewrote line %d (%s)", line, change_kind)  # Action log on success.
+        logger.info("rewrote line %d (%s)", line, change_kind)  # Action log on success.
         return new_node  # Updated tree replaces the original Call node.
 
     def _try_rewrite(self, call: cst.Call) -> tuple[cst.Call, str]:
@@ -533,7 +535,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser = build_argument_parser()  # Build the CLI parser.
     args = parser.parse_args(argv)  # Parse caller-supplied or sys.argv arguments.
-    logging.info("codemod start: path=%s dry_run=%s", args.path, args.dry_run)  # Action log entry.
+    logger.info("codemod start: path=%s dry_run=%s", args.path, args.dry_run)  # Action log entry.
     try:
         source = args.path.read_text(encoding="utf-8")  # Read the target file.
     except OSError as exc:  # Cover both missing file and permission errors.
@@ -555,7 +557,7 @@ def main(argv: list[str] | None = None) -> int:
     transformer.report.file = str(args.path)  # Stamp the file path for the report.
     new_module = wrapper.visit(transformer)  # Run the visitor; returns a new (or unchanged) module.
     detected = len(transformer.report.skipped) + len(transformer.report.rewrites)  # Combined visit count.
-    logging.info(  # Summary line after the walk completes.
+    logger.info(  # Summary line after the walk completes.
         "codemod done: detected=%d rewrites=%d skipped=%d",
         detected,
         len(transformer.report.rewrites),
@@ -563,13 +565,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     if args.report is not None:  # Caller wants a machine-readable artifact.
         args.report.write_text(transformer.report.to_json(), encoding="utf-8")  # Emit the JSON.
-        logging.info("wrote report to %s", args.report)  # Acknowledge the write.
+        logger.info("wrote report to %s", args.report)  # Acknowledge the write.
     if args.dry_run:  # Dry-run: never touch the source file.
-        logging.info("dry-run: source file untouched")  # Be explicit about the no-op.
+        logger.info("dry-run: source file untouched")  # Be explicit about the no-op.
         return 0  # Phase 0 scaffold exits cleanly when there's nothing to do.
     if new_module.code != source:  # Tree changed during transform.
         args.path.write_text(new_module.code, encoding="utf-8")  # Persist the rewrite.
-        logging.info("wrote %d bytes to %s", len(new_module.code), args.path)  # Confirm write.
+        logger.info("wrote %d bytes to %s", len(new_module.code), args.path)  # Confirm write.
     return 0  # Success.
 
 
