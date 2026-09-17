@@ -13,6 +13,7 @@ Covers the US2 gate/write-baseline surface documented in contracts/cli.md:
 from __future__ import annotations  # Postponed annotations for cleaner typing.
 
 import json  # Parse the produced baseline + report artefacts.
+import sys  # Control argv so the None-input test stays hermetic.
 from pathlib import Path  # Filesystem primitives for hermetic paths.
 
 import pytest  # Fixture primitives.
@@ -165,6 +166,57 @@ def test_empty_baseline_flag_disables_baseline_logic(
     report = json.loads(report_path.read_text(encoding="utf-8"))
     # Stale entries must be empty when baseline logic is disabled (no baseline to audit).
     assert report.get("stale_baseline_entries", []) == []
+
+
+def test_empty_argv_reports_missing_default_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An empty argument list must fail with a clear missing-root error outside a repository."""
+    monkeypatch.chdir(tmp_path)  # Run away from the repository so default config resolution fails.
+    rc = main([])  # Exercise the empty sequence edge case for the CLI entry point.
+    stderr = capsys.readouterr().err  # Capture the observable error signal from the CLI.
+    assert rc == 2, "Empty argv without a test root must exit 2; got %d" % rc
+    assert "test_quality_analyzer: missing root skipped" in stderr  # The operator must see the root error.
+
+
+def test_none_argv_uses_process_arguments(
+    repo_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A None argument list must read process arguments and write the report."""
+    monkeypatch.chdir(repo_root)  # Resolve the config path from the repository root.
+    report_path = tmp_path / "none-argv-report.json"  # Keep the generated report outside tracked files.
+    summary_path = tmp_path / "none-argv-summary.md"  # Keep the generated summary outside tracked files.
+    fixtures_root = repo_root / "tools" / "test_quality_analyzer" / "fixtures" / "bad"  # Use stable fixtures.
+    monkeypatch.setattr(  # Replace process arguments so the None path stays deterministic.
+        sys,
+        "argv",
+        [
+            "test_quality_analyzer",
+            "--roots",
+            str(fixtures_root),
+            "--config",
+            str(repo_root / "tools" / "test_quality_analyzer" / "config.toml"),
+            "--report",
+            str(report_path),
+            "--summary",
+            str(summary_path),
+            "--baseline",
+            "",
+            "--include-mist-api",
+            "--fixed-timestamp",
+            _FROZEN_TIMESTAMP,
+            "--log-level",
+            "WARNING",
+        ],
+    )
+    rc = main(None)  # Exercise the None input path that the module-run form uses.
+    report = json.loads(report_path.read_text(encoding="utf-8"))  # Read the report for an outcome assertion.
+    assert rc == 0, "None argv with process arguments must exit 0; got %d" % rc
+    assert report["findings"], "The fixture corpus must produce findings through the None argv path."
 
 
 def test_pytest_helper_root_does_not_emit_untested_public_function(

@@ -10,6 +10,7 @@ from __future__ import annotations  # Postponed annotations for cleaner typing.
 
 import json  # Parse the produced report to check non-emptiness.
 import socket  # Target of the monkeypatch: reject any socket construction.
+import sys  # Control process argv for the None-input CLI path.
 from pathlib import Path  # Filesystem primitives for output paths.
 
 import pytest  # Fixture primitives.
@@ -58,3 +59,34 @@ def test_zero_network_during_full_run(
     assert report_path.exists(), "Report must be produced without socket access."
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report.get("findings"), "Fixture corpus must yield findings even offline."
+    process_report_path = tmp_path / "process-report.json"  # Keep the None-input report separate.
+    process_summary_path = tmp_path / "process-summary.md"  # Keep the None-input summary separate.
+    monkeypatch.setattr(  # Replace argv so main(None) stays hermetic and offline.
+        sys,
+        "argv",
+        [
+            "test_quality_analyzer",
+            "--roots",
+            str(fixtures_root),
+            "--config",
+            str(repo_root / "tools" / "test_quality_analyzer" / "config.toml"),
+            "--report",
+            str(process_report_path),
+            "--summary",
+            str(process_summary_path),
+            "--baseline",
+            "",
+            "--include-mist-api",
+            "--fixed-timestamp",
+            _FROZEN_TIMESTAMP,
+            "--log-level",
+            "WARNING",
+        ],
+    )
+    process_exit_code = main(None)  # Exercise the None edge case without socket access.
+    process_report = json.loads(process_report_path.read_text(encoding="utf-8"))  # Parse the second report.
+    assert process_exit_code == 0, "None argv must exit 0 under the zero-network constraint."
+    assert process_report.get("findings"), "None argv must still yield findings without network access."
+    monkeypatch.chdir(tmp_path)  # Move away from repository roots before the empty-input path.
+    empty_exit_code = main([])  # Exercise the empty sequence edge case without socket access.
+    assert empty_exit_code == 2, "Empty argv without a test root must exit 2 under the zero-network constraint."
