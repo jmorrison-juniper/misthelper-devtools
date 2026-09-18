@@ -67,6 +67,15 @@ class TestGuardProofAuditDecisions:
         assert len(findings) > 0  # The audit must reject a detector that measures no real files.
         assert "inspected zero real files" in findings[0].reason  # Explain the scope failure.
 
+    def test_empty_analyzer_report_blocks_merge(self, tmp_path: Path) -> None:
+        """An empty analyzer report body must become a blocking audit finding."""
+        report_path = tmp_path / "report.json"  # Use a temporary report path outside the repository.
+        report_path.write_bytes(b"")  # Model a zero-byte analyzer JSON report.
+        auditor = GuardProofAuditor(REPOSITORY_ROOT, known_guards={}, analyzer_report=report_path)  # Audit it.
+        report = auditor.audit_sources({})  # Drive the product analyzer-report path.
+        assert report.blocks_merge is True  # A missing body must not report a green guard.
+        assert report.active_findings[0].reason == "analyzer report cannot be read"  # Name the input defect.
+
     def test_unbounded_dependency_is_rejected(self) -> None:
         """A dependency floor without a ceiling can install an unverified version."""
         source = "\n".join(("mistapi>=0.64.0", "requests>=2.28.0,<3"))  # Plant one bad and one good decision.
