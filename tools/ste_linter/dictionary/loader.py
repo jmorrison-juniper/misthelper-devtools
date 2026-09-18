@@ -12,6 +12,7 @@ import json  # Reads the dictionary file.
 import logging  # Records the load result.
 import os  # Tests whether the file exists.
 from dataclasses import dataclass, field  # Declares the entry value type.
+from typing import Any  # Types JSON objects without losing strict dictionary checks.
 
 # The logger for the dictionary stage. The CLI configures the handlers.
 _LOG = logging.getLogger("ste_linter.dictionary")
@@ -62,7 +63,7 @@ class Dictionary:
         return cls(entries)  # Return the built dictionary.
 
     @staticmethod
-    def _build_entries(data: dict) -> dict[str, list[DictionaryEntry]]:
+    def _build_entries(data: dict[str, Any]) -> dict[str, list[DictionaryEntry]]:
         """Turn the raw JSON records into an entry map keyed by the word."""
         entries: dict[str, list[DictionaryEntry]] = {}  # Holds the built entries.
         for record in data.get("entries", []):  # Walk each record in the file.
