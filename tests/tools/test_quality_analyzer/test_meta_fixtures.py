@@ -230,22 +230,32 @@ def test_missing_failure_mode_detector_ignores_status_value_objects() -> None:
     assert detector.inspected_module_count() == 0  # The detector must not count an out-of-scope module.
 
 
-def test_missing_failure_mode_detector_counts_real_mist_endpoint_scope() -> None:
-    """MissingFailureModeDetector must measure tests whose source calls Mist."""
+def test_missing_failure_mode_detector_excludes_unreachable_mistapi_exceptions() -> None:
+    """MissingFailureModeDetector must not require exceptions that mistapi swallows."""
     from tools.test_quality_analyzer.detection.missing_failure_mode import (
         MissingFailureModeDetector,
     )  # Import the detector under the same path as the CLI.
 
-    path = _PLATFORM_TESTS / "test_pagination.py"  # This file imports MistEndpointService.
-    tree, source = _parse(path)  # Parse a real test for a Mist SDK backed service.
+    source = (  # Build a fixture where mistapi owns the network call and catches request exceptions.
+        "import mistapi\n"
+        "\n"
+        "def call_api(session):\n"
+        "    return mistapi.api.v1.orgs.sites.listOrgSites(session, 'org-id')\n"
+        "\n"
+        "def test_happy_path(session):\n"
+        "    assert call_api(session).status_code == 200\n"
+    )
+    tree = ast.parse(source)  # Parse the fixture so the detector uses the normal AST path.
     detector = MissingFailureModeDetector()  # Use a fresh detector so no prior file affects this proof.
 
-    findings = detector.detect(path, tree, source)  # Run the rule against a real Mist network seam.
+    findings = detector.detect(Path("fixture_mistapi_exception_scope.py"), tree, source)  # Run the rule.
     rule_ids = {finding.rule_id for finding in findings}  # Compare rule identifiers, not message text.
 
     assert detector.inspected_module_count() == 1  # A positive count proves the detector measured the module.
-    assert "missing_fm_connection_error" in rule_ids  # A broken source-risk check would miss this finding.
-    assert "missing_fm_connection_timeout" in rule_ids  # A broken network-risk check would miss this finding.
+    assert "missing_fm_http_4xx" in rule_ids  # Mistapi callers can still inspect client-error status values.
+    assert "missing_fm_http_5xx" in rule_ids  # Mistapi callers can still inspect server-error status values.
+    assert "missing_fm_connection_error" not in rule_ids  # Mistapi catches connection errors before callers see them.
+    assert "missing_fm_connection_timeout" not in rule_ids  # Mistapi catches timeouts before callers see them.
 
 
 def test_missing_failure_mode_detector_separates_network_from_json_parse() -> None:

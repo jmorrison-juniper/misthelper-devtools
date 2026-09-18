@@ -43,7 +43,10 @@ _EMPTY_BODY_MARKERS: tuple[str, ...] = ('b""', "b''", 'data=""', "data=''")  # E
 _STATUS_4XX_RE = re.compile(r"\b4\d\d\b")  # Matches 400-499.
 _STATUS_5XX_RE = re.compile(r"\b5\d\d\b")  # Matches 500-599.
 
-_SOURCE_HTTP_MODULES = frozenset({"aiohttp", "httpx", "mistapi", "requests"})  # Libraries that can fail by network.
+_SOURCE_HTTP_STATUS_MODULES = frozenset(  # Libraries that can expose HTTP status failures to callers.
+    {"aiohttp", "httpx", "mistapi", "requests"}  # Mistapi callers can inspect status_code without an exception.
+)
+_SOURCE_EXCEPTION_MODULES = frozenset({"aiohttp", "httpx", "requests"})  # Libraries that can raise to the caller.
 _SOURCE_JSON_MODULES = frozenset({"json"})  # JSON parser modules that can fail on malformed bodies.
 
 
@@ -51,13 +54,16 @@ _SOURCE_JSON_MODULES = frozenset({"json"})  # JSON parser modules that can fail 
 class FailureModeRisk:
     """Store failure modes that can occur in the source under test."""
 
-    network: bool = False  # True when the source can raise connection and HTTP failures.
+    http_status: bool = False  # True when the source can expose HTTP 4xx and 5xx status results.
+    network_exception: bool = False  # True when the source can raise connection failures to the caller.
     json_parse: bool = False  # True when the source can raise body parsing failures.
 
     @property
     def applies(self) -> bool:
         """Return True when the rule can measure this test module."""
-        return self.network or self.json_parse  # Any source risk puts the module in scope.
+        return (
+            self.http_status or self.network_exception or self.json_parse
+        )  # Any source risk puts the module in scope.
 
 
 @dataclass
@@ -150,20 +156,34 @@ class FailureModeApplicabilityInferer:
             tree = ast.parse(source)  # Parse the source slice so docstrings do not create false scope.
         except SyntaxError:
             return FailureModeRisk()  # Unparseable slices cannot establish applicability.
-        network = any(self._node_has_network_risk(node) for node in ast.walk(tree))  # Find executable client use.
+        http_status = any(self._node_has_http_status_risk(node) for node in ast.walk(tree))  # Find response risks.
+        network_exception = any(self._node_has_exception_risk(node) for node in ast.walk(tree))  # Find raised risks.
         json_parse = any(self._node_has_json_risk(node) for node in ast.walk(tree))  # Find executable JSON parsing.
-        return FailureModeRisk(network=network, json_parse=json_parse)  # Require a real parser before JSON findings.
+        return FailureModeRisk(  # Return each failure channel separately so unreachable exceptions stay out of scope.
+            http_status=http_status,  # HTTP status remains visible through mistapi APIResponse objects.
+            network_exception=network_exception,  # Mistapi swallows request exceptions before callers can catch them.
+            json_parse=json_parse,  # Empty and malformed body findings require an in-process parser.
+        )
 
-    def _node_has_network_risk(self, node: ast.AST) -> bool:
+    def _node_has_http_status_risk(self, node: ast.AST) -> bool:
         if isinstance(node, ast.Import):  # Direct imports identify source dependencies.
-            return any(alias.name.split(".")[0] in _SOURCE_HTTP_MODULES for alias in node.names)  # HTTP client.
+            return any(alias.name.split(".")[0] in _SOURCE_HTTP_STATUS_MODULES for alias in node.names)  # HTTP client.
         if isinstance(node, ast.ImportFrom) and node.module:  # From-imports identify source dependencies.
-            return node.module.split(".")[0] in _SOURCE_HTTP_MODULES  # HTTP client module.
+            return node.module.split(".")[0] in _SOURCE_HTTP_STATUS_MODULES  # HTTP client module.
         if isinstance(node, ast.Attribute):  # Dotted names catch annotations and direct SDK calls.
-            return self._root_name(node) in _SOURCE_HTTP_MODULES  # A client root means network scope.
+            return self._root_name(node) in _SOURCE_HTTP_STATUS_MODULES  # A client root means HTTP response scope.
         if isinstance(node, ast.Constant) and isinstance(node.value, str):  # Dynamic imports often use strings.
             return "mistapi.api." in node.value  # Mist SDK import paths mean cloud API scope.
-        return False  # Other syntax does not prove a network operation.
+        return False  # Other syntax does not prove an HTTP status result.
+
+    def _node_has_exception_risk(self, node: ast.AST) -> bool:
+        if isinstance(node, ast.Import):  # Direct imports identify exception-raising clients.
+            return any(alias.name.split(".")[0] in _SOURCE_EXCEPTION_MODULES for alias in node.names)  # Direct client.
+        if isinstance(node, ast.ImportFrom) and node.module:  # From-imports identify exception-raising clients.
+            return node.module.split(".")[0] in _SOURCE_EXCEPTION_MODULES  # Direct client module.
+        if isinstance(node, ast.Attribute):  # Dotted names catch direct requests/httpx/aiohttp calls.
+            return self._root_name(node) in _SOURCE_EXCEPTION_MODULES  # Mistapi is excluded because it catches them.
+        return False  # Other syntax does not prove an exception reaches the caller.
 
     def _node_has_json_risk(self, node: ast.AST) -> bool:
         if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):  # Require parser execution.
@@ -208,7 +228,8 @@ class FailureModeApplicabilityInferer:
         return isinstance(node, ast.FunctionDef) and node.name.startswith("test_")  # Exclude pytest cases.
 
     def _merge(self, target: FailureModeRisk, source: FailureModeRisk) -> None:
-        target.network = target.network or source.network  # Preserve any network risk already found.
+        target.http_status = target.http_status or source.http_status  # Preserve any HTTP status risk already found.
+        target.network_exception = target.network_exception or source.network_exception  # Preserve raised network risk.
         target.json_parse = target.json_parse or source.json_parse  # Preserve any parse risk already found.
 
 
@@ -271,7 +292,7 @@ class MissingFailureModeDetector:
     ) -> list[Finding]:
         """Return findings for each required failure mode that lacks evidence."""
         findings: list[Finding] = []  # Accumulate file-level rule findings.
-        if risk.network and not coverage.connection_timeout:  # Network calls can time out.
+        if risk.network_exception and not coverage.connection_timeout:  # Direct network clients can time out.
             findings.append(
                 self._finding(
                     posix,
@@ -280,7 +301,9 @@ class MissingFailureModeDetector:
                     "Add a test that raises `requests.exceptions.Timeout` (or equivalent).",
                 )
             )
-        if risk.network and not coverage.connection_error:  # Network calls can fail before an HTTP response exists.
+        if (
+            risk.network_exception and not coverage.connection_error
+        ):  # Direct network clients can fail before a response.
             findings.append(
                 self._finding(
                     posix,
@@ -289,7 +312,7 @@ class MissingFailureModeDetector:
                     "Add a test that raises `requests.exceptions.ConnectionError` (or equivalent).",
                 )
             )
-        if risk.network and not coverage.http_4xx:  # Cloud APIs can refuse or reject the request.
+        if risk.http_status and not coverage.http_4xx:  # Cloud APIs can refuse or reject the request.
             findings.append(
                 self._finding(
                     posix,
@@ -298,7 +321,7 @@ class MissingFailureModeDetector:
                     "Add a test whose fake response has a 4xx status_code (e.g. 400, 404).",
                 )
             )
-        if risk.network and not coverage.http_5xx:  # Cloud APIs can return a server error.
+        if risk.http_status and not coverage.http_5xx:  # Cloud APIs can return a server error.
             findings.append(
                 self._finding(
                     posix,
