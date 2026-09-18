@@ -298,9 +298,11 @@ class EdgeCaseApplicabilityInferer:
     def _domain_from_parameter(self, parameter: ast.arg, default: ast.expr | None) -> EdgeCaseDomain:
         if self._is_status_parameter(parameter.arg):  # Status parameters are categorical, even with int annotation.
             return EdgeCaseDomain()  # Preserve the pull request #2734 status-code exclusion.
-        from_name = self.domain_from_name(parameter.arg)  # Parameter names are the weakest inference source.
         from_annotation = self._domain_from_annotation(parameter.annotation)  # Type annotations are stronger.
         from_default = self._domain_from_default(default)  # Defaults prove accepted shapes.
+        from_name = EdgeCaseDomain()  # Prefer source types over weak name guesses when types exist.
+        if parameter.annotation is None and not from_default.applies:  # Use names only when no stronger proof exists.
+            from_name = self.domain_from_name(parameter.arg)  # Parameter names are the weakest inference source.
         return EdgeCaseDomain(
             numeric=from_name.numeric or from_annotation.numeric or from_default.numeric,  # Merge numeric proof.
             collection=from_name.collection
@@ -475,7 +477,7 @@ class MissingEdgeCaseDetector:
 
     def _has_zero_arg(self, call: ast.Call) -> bool:
         for node in self._call_args(call):  # Check every argument literal.
-            if isinstance(node, ast.Constant) and isinstance(node.value, int):  # Integers include bool in Python.
+            if isinstance(node, ast.Constant) and isinstance(node.value, int | float):  # Numeric literals include bool.
                 if not isinstance(node.value, bool) and node.value == 0:  # Boolean false is categorical.
                     return True  # Zero satisfies the numeric edge.
         return False  # No zero literal reached the source under test.
@@ -484,7 +486,7 @@ class MissingEdgeCaseDetector:
         for node in self._call_args(call):  # Check every argument literal.
             if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):  # Negative literals use unary minus.
                 operand = node.operand  # Read the literal behind the minus sign.
-                if isinstance(operand, ast.Constant) and isinstance(operand.value, int):  # Confirm integer literal.
+                if isinstance(operand, ast.Constant) and isinstance(operand.value, int | float):  # Confirm number.
                     if not isinstance(operand.value, bool) and operand.value >= 1:  # Exclude boolean values.
                         return True  # Negative integer satisfies the numeric edge.
         return False  # No negative integer reached the source under test.

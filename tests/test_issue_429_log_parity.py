@@ -15,6 +15,7 @@ format spec, this test fails and pinpoints the offending line.
 from __future__ import annotations  # Enable PEP 604 union syntax on Python 3.13.
 
 import json  # Stdlib JSON loader for the baseline fixture.
+import sys  # Test CLI defaults without inheriting the pytest command line.
 from pathlib import Path  # Portable filesystem access on Windows + POSIX.
 from typing import Any  # Type hint for the heterogeneous inputs dict.
 
@@ -274,6 +275,29 @@ def test_capture_main_reports_missing_fixture_source(
     assert exit_code == 1  # Missing source files must keep the failure exit code.
     assert "failed to read missing_source.py" in caplog.text  # The error must name the missing fixture source.
     assert not output_path.exists()  # A failed read must not write a partial baseline.
+
+
+def test_capture_main_empty_arguments_use_default_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Confirm an empty argument list uses the documented default output path."""
+    monkeypatch.chdir(tmp_path)  # Keep the default output away from the committed fixture.
+    monkeypatch.setattr(capture_log_baseline, "FIXTURE_SITES", [])  # Avoid reading the large production file.
+    (tmp_path / "tests" / "fixtures").mkdir(parents=True)  # Create the default output parent.
+    exit_code = capture_log_baseline.main([])  # Empty arguments take the default source and output values.
+    output_path = tmp_path / "tests" / "fixtures" / "issue_429_log_baseline.json"  # Default output path.
+    assert exit_code == 0  # The default path succeeds when no fixture rows need a source read.
+    assert json.loads(output_path.read_text(encoding="utf-8")) == {}  # No fixture rows produce an empty baseline.
+
+
+def test_capture_main_none_arguments_use_sys_argv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Confirm a None argument list reads sys.argv and uses default output."""
+    monkeypatch.chdir(tmp_path)  # Keep the default output away from the committed fixture.
+    monkeypatch.setattr(capture_log_baseline, "FIXTURE_SITES", [])  # Avoid reading the large production file.
+    monkeypatch.setattr(sys, "argv", ["capture_log_baseline"])  # Keep pytest flags out of this CLI call.
+    (tmp_path / "tests" / "fixtures").mkdir(parents=True)  # Create the default output parent.
+    exit_code = capture_log_baseline.main(None)  # None is the module execution path.
+    output_path = tmp_path / "tests" / "fixtures" / "issue_429_log_baseline.json"  # Default output path.
+    assert exit_code == 0  # The default path succeeds when no fixture rows need a source read.
+    assert json.loads(output_path.read_text(encoding="utf-8")) == {}  # No fixture rows produce an empty baseline.
 
 
 _LEVEL_METHODS = frozenset(  # Mirrors LEVEL_METHODS in the codemod module.

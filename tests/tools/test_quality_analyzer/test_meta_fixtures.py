@@ -369,6 +369,42 @@ def test_missing_edge_case_detector_infers_optional_annotation() -> None:
     ]  # Optional annotation must require a None test.
 
 
+def test_missing_edge_case_detector_trusts_string_annotation_over_value_name() -> None:
+    """MissingEdgeCaseDetector must not infer a numeric domain from typed text."""
+    from tools.test_quality_analyzer.detection.missing_edge_case import MissingEdgeCaseDetector
+
+    source = (  # Keep a local SUT so source annotation applicability is measured directly.
+        "def redact_value(value: str):\n"
+        "    return '***'\n"
+        "\n"
+        "def test_redact_value():\n"
+        "    assert redact_value('secret') == '***'\n"
+    )
+    tree = ast.parse(source)  # Parse the typed value-name fixture.
+    detector = MissingEdgeCaseDetector()  # Use a fresh detector for isolated state.
+    findings = detector.detect(Path("test_typed_text_value.py"), tree, source)  # Run the detector.
+    assert findings == []  # A string annotation excludes numeric zero and negative tests.
+
+
+def test_missing_edge_case_detector_counts_float_edge_literals() -> None:
+    """MissingEdgeCaseDetector must count float literals as numeric edge tests."""
+    from tools.test_quality_analyzer.detection.missing_edge_case import MissingEdgeCaseDetector
+
+    source = (  # Keep a local SUT so float edge coverage is measured directly.
+        "def render_value(value: float):\n"
+        "    return str(value)\n"
+        "\n"
+        "def test_render_value():\n"
+        "    assert render_value(1.5) == '1.5'\n"
+        "    assert render_value(0.0) == '0.0'\n"
+        "    assert render_value(-2.0) == '-2.0'\n"
+    )
+    tree = ast.parse(source)  # Parse the float edge fixture.
+    detector = MissingEdgeCaseDetector()  # Use a fresh detector for isolated state.
+    findings = detector.detect(Path("test_float_edges.py"), tree, source)  # Run the detector.
+    assert findings == []  # Float zero and negative values satisfy the numeric edge rules.
+
+
 def test_missing_edge_case_detector_ignores_status_code_numbers() -> None:
     """MissingEdgeCaseDetector must keep HTTP status codes outside numeric scope."""
     from tools.test_quality_analyzer.detection.missing_edge_case import MissingEdgeCaseDetector

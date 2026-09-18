@@ -4,6 +4,7 @@ from __future__ import annotations  # Postponed annotations keep the type hints 
 
 import json  # Parses the JSON output.
 import pathlib  # Builds paths to the fixtures.
+import sys  # Test CLI defaults without inheriting the pytest command line.
 
 import pytest  # Catches the SystemExit from the version flag.
 
@@ -65,3 +66,18 @@ def test_version_flag_exits() -> None:
     with pytest.raises(SystemExit) as caught:  # The version action raises SystemExit.
         main(["--version"])  # Ask for the version.
     assert caught.value.code == 0  # The version flag exits cleanly.
+
+
+def test_empty_arguments_return_usage_error() -> None:
+    """An empty argument list returns the documented usage error."""
+    with pytest.raises(SystemExit) as caught:  # Argparse raises when no path exists.
+        main([])  # Empty arguments must report the missing path.
+    assert caught.value.code == 2  # Argparse uses status 2 for a usage error.
+
+
+def test_none_arguments_read_sys_argv(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A None argument list reads sys.argv like module execution."""
+    monkeypatch.setattr(sys, "argv", ["ste_linter"])  # Keep pytest flags out of argparse.
+    with pytest.raises(SystemExit) as caught:  # Argparse raises when sys.argv holds no path.
+        main(None)  # None is the module execution path.
+    assert caught.value.code == 2  # Argparse uses status 2 for a usage error.
