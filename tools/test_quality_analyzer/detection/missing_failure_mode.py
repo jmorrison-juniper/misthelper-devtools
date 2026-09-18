@@ -152,7 +152,7 @@ class FailureModeApplicabilityInferer:
             return FailureModeRisk()  # Unparseable slices cannot establish applicability.
         network = any(self._node_has_network_risk(node) for node in ast.walk(tree))  # Find executable client use.
         json_parse = any(self._node_has_json_risk(node) for node in ast.walk(tree))  # Find executable JSON parsing.
-        return FailureModeRisk(network=network, json_parse=json_parse or network)  # Network replies need parsing.
+        return FailureModeRisk(network=network, json_parse=json_parse)  # Require a real parser before JSON findings.
 
     def _node_has_network_risk(self, node: ast.AST) -> bool:
         if isinstance(node, ast.Import):  # Direct imports identify source dependencies.
@@ -166,9 +166,11 @@ class FailureModeApplicabilityInferer:
         return False  # Other syntax does not prove a network operation.
 
     def _node_has_json_risk(self, node: ast.AST) -> bool:
-        if isinstance(node, ast.Attribute) and node.attr == "loads":  # json.loads parses response bodies.
-            return self._root_name(node) in _SOURCE_JSON_MODULES  # Require the json module root.
-        return isinstance(node, ast.Attribute) and node.attr == "json"  # response.json can raise JSONDecodeError.
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):  # Require parser execution.
+            return False  # Attribute names alone do not prove JSON parsing.
+        if node.func.attr == "loads":  # json.loads parses response bodies.
+            return self._root_name(node.func) in _SOURCE_JSON_MODULES  # Require the json module root.
+        return node.func.attr == "json"  # response.json() can raise JSONDecodeError.
 
     def _root_name(self, node: ast.AST) -> str:
         current = node  # Walk left through an attribute chain.

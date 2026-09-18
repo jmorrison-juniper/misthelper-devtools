@@ -248,6 +248,32 @@ def test_missing_failure_mode_detector_counts_real_mist_endpoint_scope() -> None
     assert "missing_fm_connection_timeout" in rule_ids  # A broken network-risk check would miss this finding.
 
 
+def test_missing_failure_mode_detector_separates_network_from_json_parse() -> None:
+    """MissingFailureModeDetector must require a parser before malformed-JSON debt."""
+    from tools.test_quality_analyzer.detection.missing_failure_mode import (  # Import the detector under test.
+        MissingFailureModeDetector,  # Use the real detector so this guard proves rule behavior.
+    )
+
+    source = (  # Build a source fixture where network can fail but no JSON parser runs.
+        "import requests\n"
+        "\n"
+        "def call_api():\n"
+        "    return requests.get('https://example.com/api')\n"
+        "\n"
+        "def test_happy_path(monkeypatch):\n"
+        "    assert call_api().status_code == 200\n"
+    )
+    tree = ast.parse(source)  # Parse the fixture so the detector uses the normal AST path.
+    detector = MissingFailureModeDetector()  # Use a fresh detector so the count is isolated.
+
+    findings = detector.detect(Path("fixture_network_without_json.py"), tree, source)  # Run the detector.
+    rule_ids = {finding.rule_id for finding in findings}  # Compare rule identifiers, not message text.
+
+    assert detector.inspected_module_count() == 1  # Network scope must stay measured.
+    assert "missing_fm_connection_error" in rule_ids  # Network failure coverage must still be required.
+    assert "missing_fm_malformed_json" not in rule_ids  # Malformed JSON needs a parser to be in scope.
+
+
 def test_missing_edge_case_detector() -> None:
     """MissingEdgeCaseDetector: bad fixture yields numeric findings; good yields zero."""
     # Import inside the test so a missing module surfaces as a clean failure.
