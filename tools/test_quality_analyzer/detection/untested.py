@@ -37,6 +37,18 @@ class UntestedDetector:
         self._source_paths: tuple[Path, ...] = tuple(source_paths or ())  # Frozen input list.
         # Test-corpus reference set is built up across detect() calls.
         self._referenced_names: set[str] = set()  # Names seen in analyzed test files.
+        self._inspected_paths: set[str] = set()  # Track each module read for this cross-file detector.
+
+    def reset_inspection(self) -> None:
+        """Clear per-run inspection state before a CLI scan."""
+        _LOGGER.info("Resetting untested public function inspection state")  # Log before shared state changes.
+        self._referenced_names.clear()  # Remove stale test references from a prior in-process scan.
+        self._inspected_paths.clear()  # Remove stale module paths from a prior in-process scan.
+        _LOGGER.debug("Untested public function inspection state reset")  # Confirm stale state is gone.
+
+    def inspected_module_count(self) -> int:
+        """Return the number of modules inspected for public function coverage."""
+        return len(self._inspected_paths)  # Count unique test and source modules, not findings.
 
     # --- Detector protocol ---------------------------------------------------
 
@@ -49,6 +61,7 @@ class UntestedDetector:
         """Record references from `tree`; emit findings only on `analyze()`."""
         # UntestedDetector is cross-file: per-file detect() is a no-op emitter.
         _LOGGER.info("Recording references from test file %s", test_path)
+        self._inspected_paths.add(test_path.as_posix())  # Count this test module because it supplies references.
         # Walk every Name/Attribute node and record simple identifiers.
         for node in ast.walk(tree):
             # `foo(...)` -> Name("foo"); `mod.foo(...)` -> Attribute(value=Name("mod"), attr="foo").
@@ -80,6 +93,7 @@ class UntestedDetector:
                 except SyntaxError as exc:
                     _LOGGER.warning("Skipping unparseable source %s: %s", module_path, exc)
                     continue
+                self._inspected_paths.add(module_path.as_posix())  # Count the source module after a valid parse.
                 # Extract public function names declared at module scope only.
                 findings.extend(self._diff_public_functions(module_path, tree))
         # Debug-after with the untested count for quick log skimming.

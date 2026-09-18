@@ -2,7 +2,10 @@
 
 from __future__ import annotations  # Keep annotations stable on the supported Python versions.
 
+import json  # Parse generated analyzer reports for detector metric coverage checks.
 from pathlib import Path  # Build repository-relative paths without hardcoded separators.
+
+import pytest  # Type pytest fixtures used by repository guard tests.
 
 from tools.guard_proof_audit import GuardProofAuditor  # Exercise the same auditor used by the command line.
 
@@ -82,11 +85,39 @@ class TestGuardProofAuditDecisions:
 class TestRepositoryGuardProofAudit:
     """Repository checks that enforce the rule for new guard files."""
 
+    def _registered_detector_modules(self) -> set[str]:
+        """Return detector modules that register an analyzer detector."""
+        detection_root = REPOSITORY_ROOT / "tools" / "test_quality_analyzer" / "detection"  # Detector package.
+        modules: set[str] = set()  # Accumulate real detector module names only.
+        for path in detection_root.glob("*.py"):  # Scan the package so a new detector changes the count.
+            source = path.read_text(encoding="utf-8")  # Read without import side effects.
+            if "DetectorRegistry.append(" in source:  # Registration marks a module as a detector.
+                modules.add(path.stem)  # Store the module name for clear failure output.
+        return modules  # Return the measured detector module set.
+
     def test_no_new_guard_file_skips_every_test(self) -> None:
         """Only known debt may keep a guard that skips every test."""
         report = GuardProofAuditor(REPOSITORY_ROOT).audit()  # Scan the real repository guard files.
         messages = [f"{finding.path}: {finding.reason}" for finding in report.active_findings]  # Build failures.
         assert not messages, "\n".join(messages)  # A new all-skipped guard must fail this test.
+
+    def test_analyzer_scope_metrics_cover_registered_detectors(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The analyzer report must emit one scope metric for each registered detector."""
+        monkeypatch.chdir(REPOSITORY_ROOT)  # Make analyzer relative paths match command-line audit behavior.
+        report_path = tmp_path / "analyzer-report.json"  # Keep generated proof outside tracked files.
+        auditor = GuardProofAuditor(REPOSITORY_ROOT, analyzer_report=report_path)  # Use the real audit generator.
+        report = auditor.audit_sources({})  # Generate and audit the analyzer scope report.
+        payload = json.loads(report_path.read_text(encoding="utf-8"))  # Read the generated report for metric names.
+        detector_modules = self._registered_detector_modules()  # Count detector modules from the package.
+        metric_keys = {key for key in payload["detector_metrics"] if key.endswith(".inspected_modules")}  # Scope only.
+        messages = [f"{finding.path}: {finding.reason}" for finding in report.active_findings]  # Build failures.
+        assert report.checked_analyzer_rules == len(detector_modules)  # The audit must measure every detector.
+        assert len(metric_keys) == len(detector_modules)  # The report must hold one metric per detector.
+        assert not messages, "\n".join(messages)  # No registered detector may inspect zero modules.
 
     def test_sdk_compatibility_gap_no_longer_stays_visible(self) -> None:
         """Issue #2689 removed the known no-measurement SDK guard baseline."""

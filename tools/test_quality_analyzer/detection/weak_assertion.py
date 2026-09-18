@@ -44,9 +44,18 @@ class WeakAssertionDetector:
     """Detects weak assertion patterns within a test file."""
 
     def __init__(self) -> None:
-        """No configuration required for the detector."""
-        # Nothing to store; state is confined to per-detect() locals.
-        return  # Explicit noop to satisfy inline-comment rule.
+        """Initialize per-run inspection state."""
+        self._inspected_paths: set[str] = set()  # Track each test module this detector inspects.
+
+    def reset_inspection(self) -> None:
+        """Clear per-run inspection state before a CLI scan."""
+        _LOGGER.info("Resetting weak assertion inspection state")  # Log before shared state changes.
+        self._inspected_paths.clear()  # Registry instances persist across in-process test invocations.
+        _LOGGER.debug("Weak assertion inspection state reset")  # Confirm stale paths are gone.
+
+    def inspected_module_count(self) -> int:
+        """Return the number of test modules inspected for weak assertions."""
+        return len(self._inspected_paths)  # Count unique modules, not findings.
 
     # --- Detector protocol ---------------------------------------------------
 
@@ -63,6 +72,7 @@ class WeakAssertionDetector:
         findings: list[Finding] = []  # Accumulator returned to caller.
         # POSIX-normalized path for cross-platform stable output.
         posix = test_path.as_posix()  # File path stored on each finding.
+        self._inspected_paths.add(posix)  # Count this module because every test file can hold weak assertions.
         # Walk to collect every test_* function at any nesting (module or class).
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):

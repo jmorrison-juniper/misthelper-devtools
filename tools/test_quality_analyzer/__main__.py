@@ -247,7 +247,9 @@ class TestQualityCLI:
         # 4. Run per-file detectors (everything except UntestedDetector).
         findings, detector_metrics = self._run_per_file_detectors(parsed_files)
         # 5. Run the cross-file UntestedDetector once against the parsed corpus and roots.
-        findings.extend(self._run_untested_detector(parsed_files, roots))
+        untested_findings, untested_metrics = self._run_untested_detector(parsed_files, roots)  # Run cross-file rule.
+        findings.extend(untested_findings)  # Merge cross-file findings into the shared report list.
+        detector_metrics.update(untested_metrics)  # Merge cross-file scope proof into the guard-visible metrics.
         # 6. Apply --disable-rule filtering and config severity overrides.
         findings = self._apply_config_filters(
             findings,
@@ -565,8 +567,8 @@ class TestQualityCLI:
         self,
         parsed_files: Sequence[tuple[Path, ast.Module, str]],
         roots: Sequence[Path],
-    ) -> list[Finding]:
-        """Run UntestedDetector once against the full corpus (cross-file)."""
+    ) -> tuple[list[Finding], dict[str, int]]:
+        """Run UntestedDetector once and return findings with scope metrics."""
         # Resolve source paths before construction so test helper functions are not treated as source code.
         source_paths = self._untested_source_paths(roots)
         # Construct a fresh detector with the source paths selected for this CLI run.
@@ -580,7 +582,8 @@ class TestQualityCLI:
         # analyze() records refs from every parsed test then emits deferred findings.
         findings = detector.analyze(test_files=list(parsed_files))  # Cross-file diff.
         _LOGGER.debug("Untested finding count: %s", len(findings))
-        return findings
+        metrics = self._detector_metrics((detector,))  # Collect scope proof from the fresh cross-file detector.
+        return findings, metrics  # Return findings and metrics so the guard sees UntestedDetector.
 
     def _untested_source_paths(self, roots: Sequence[Path]) -> list[Path]:
         """Return source paths for UntestedDetector without scanning pytest helper modules."""

@@ -32,8 +32,18 @@ class TautologicalTestDetector:
     """Detects logically-always-true assertions within a test file."""
 
     def __init__(self) -> None:
-        """No configuration required."""
-        return  # Explicit noop -- inline-comment principle.
+        """Initialize per-run inspection state."""
+        self._inspected_paths: set[str] = set()  # Track each test module this detector inspects.
+
+    def reset_inspection(self) -> None:
+        """Clear per-run inspection state before a CLI scan."""
+        _LOGGER.info("Resetting tautological assertion inspection state")  # Log before shared state changes.
+        self._inspected_paths.clear()  # Registry instances persist across in-process test invocations.
+        _LOGGER.debug("Tautological assertion inspection state reset")  # Confirm stale paths are gone.
+
+    def inspected_module_count(self) -> int:
+        """Return the number of test modules inspected for tautologies."""
+        return len(self._inspected_paths)  # Count unique modules, not findings.
 
     # --- Detector protocol ---------------------------------------------------
 
@@ -47,6 +57,7 @@ class TautologicalTestDetector:
         _LOGGER.info("Scanning %s for tautological assertions", test_path)
         # POSIX-normalized file path stored on each finding.
         posix = test_path.as_posix()  # Cross-platform stable representation.
+        self._inspected_paths.add(posix)  # Count this module because every AST can contain tautologies.
         # Accumulator returned to caller.
         findings: list[Finding] = []  # Per-file findings list.
         # Walk every Assert node in the module; we do NOT restrict to test_* here
