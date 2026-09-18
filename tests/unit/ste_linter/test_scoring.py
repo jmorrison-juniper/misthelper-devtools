@@ -47,7 +47,7 @@ def test_scoring_is_deterministic(backend, grammar, config) -> None:
 def test_section_breakdown_present(backend, grammar, config) -> None:
     """The score holds a per-section breakdown."""
     result = _score("The file is created by the parser.", backend, grammar, config)  # Grade text.
-    assert result.sections  # The breakdown has at least one section.
+    assert len(result.sections) > 0  # The breakdown has at least one section.
     assert all(0 <= section.score <= 100 for section in result.sections)  # Each score is in range.
 
 

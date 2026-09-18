@@ -75,8 +75,8 @@ class TestSpecKitHarness:
         feature_dir = harness.emit_for_document(document)  # Generate context with the first source hash.
         document.source_path.write_text(self._source_text() + "\nNew section.\n", encoding="utf-8")  # Change source.
         report = harness.living_drift(feature_dir)  # Run the document-specific drift check.
-        assert report.checked  # Prove the drift check read the recorded source path.
-        assert report.drifted  # Prove the changed source hash is visible.
+        assert report.checked is True  # Prove the drift check read the recorded source path.
+        assert report.drifted is True  # Prove the changed source hash is visible.
         assert report.detail == "source hash changed"  # Prove the report explains the drift.
 
     def test_idempotent_rerun_updates_existing_artifacts(self) -> None:

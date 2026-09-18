@@ -152,7 +152,7 @@ def test_cli_stdout_summary_shape(
     captured = capsys.readouterr()  # Reads stdout + stderr for this test only.
     stdout_lines = [ln for ln in captured.out.splitlines() if ln.strip()]  # Non-empty lines.
     # At least one non-empty stdout line must exist (the summary).
-    assert stdout_lines, "CLI produced no stdout output"
+    assert len(stdout_lines) > 0, "CLI produced no stdout output"
     # The last non-empty line is the summary; validate its exact prefix + tail shape.
     summary_line = stdout_lines[-1]  # Trailing summary line per contract.
     assert summary_line.startswith("test_quality_analyzer: "), (

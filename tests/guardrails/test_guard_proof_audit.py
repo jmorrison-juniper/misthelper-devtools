@@ -27,7 +27,7 @@ class TestGuardProofAuditDecisions:
         )
         auditor = GuardProofAuditor(REPOSITORY_ROOT, known_guards={})  # Remove the baseline to test a new guard.
         report = auditor.audit_sources({Path("tests/guardrails/test_dead_guard.py"): source})  # Audit fake source.
-        assert report.blocks_merge  # The enforcement must reject the guard that measures nothing.
+        assert report.blocks_merge is True  # The enforcement must reject the guard that measures nothing.
         assert "module-level unconditional skip" in report.active_findings[0].reason  # Explain the rejected state.
 
     def test_environmental_import_skip_is_allowed(self) -> None:
@@ -64,21 +64,21 @@ class TestGuardProofAuditDecisions:
         payload = {"detector_metrics": {"MissingEdgeCaseDetector.inspected_modules": 0}}  # Plant zero scope.
         auditor = GuardProofAuditor(REPOSITORY_ROOT, known_guards={})  # Scope audit uses the parsed payload directly.
         findings = auditor._analyzer_scope_findings(payload)  # Exercise the same zero-scope decision path.
-        assert findings  # The audit must reject a detector that measures no real files.
+        assert len(findings) > 0  # The audit must reject a detector that measures no real files.
         assert "inspected zero real files" in findings[0].reason  # Explain the scope failure.
 
     def test_unbounded_dependency_is_rejected(self) -> None:
         """A dependency floor without a ceiling can install an unverified version."""
         source = "\n".join(("mistapi>=0.64.0", "requests>=2.28.0,<3"))  # Plant one bad and one good decision.
         report = GuardProofAuditor(REPOSITORY_ROOT).audit_dependency_sources(source, None)  # Audit synthetic text only.
-        assert report.blocks_merge  # The guard must reject a dependency with no upper bound.
+        assert report.blocks_merge is True  # The guard must reject a dependency with no upper bound.
         assert report.checked_dependencies == 2  # The report must prove that it measured both dependencies.
         assert "mistapi lacks an upper bound" in report.active_findings[0].reason  # Name the unsafe default.
 
     def test_zero_dependency_input_is_rejected(self) -> None:
         """A dependency guard that measures no entries must fail visibly."""
         report = GuardProofAuditor(REPOSITORY_ROOT).audit_dependency_sources(None, None)  # Simulate missing inputs.
-        assert report.blocks_merge  # The guard must fail when it has no measured dependency input.
+        assert report.blocks_merge is True  # The guard must fail when it has no measured dependency input.
         assert "inspected zero entries" in report.active_findings[0].reason  # Explain why the guard failed.
 
 

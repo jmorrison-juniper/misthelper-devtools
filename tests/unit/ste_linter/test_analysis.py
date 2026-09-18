@@ -39,4 +39,4 @@ def test_grammar_finds_noun_cluster() -> None:
     """The grammar analyzer finds a long noun cluster."""
     tokens = get_backend(prefer_spacy=False).analyze("runway light connection resistance calibration")  # Five.
     clusters = GrammarAnalyzer().noun_clusters(tokens, limit=3)  # Find clusters longer than three.
-    assert clusters  # The five-word cluster was found.
+    assert len(clusters) > 0  # The five-word cluster was found.

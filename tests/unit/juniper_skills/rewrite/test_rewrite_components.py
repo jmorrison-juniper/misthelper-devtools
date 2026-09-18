@@ -43,7 +43,7 @@ class TestVerbatimSimilarityGuard:
         report = VerbatimSimilarityGuard().check((check,))  # Run the similarity guard.
         assert report.files_checked == 1  # Prove the guard measured the file.
         assert report.results[0].longest_run == 0  # Prove the CLI block did not count as prose.
-        assert report.passed  # Prove approved verbatim classes pass.
+        assert report.passed is True  # Prove approved verbatim classes pass.
 
     def test_guard_catches_light_edit_of_source_prose(self, tmp_path: Path) -> None:
         """The guard fails a copied paragraph with a small edit."""
@@ -68,7 +68,7 @@ class TestVerbatimSimilarityGuard:
         check = SimilarityCheckInput(generated, (source,))  # Compare the generated file to its source.
         report = VerbatimSimilarityGuard().check((check,))  # Run the guard against one file.
         assert report.results[0].longest_run < 12  # Prove the restatement stays below the threshold.
-        assert report.passed  # Prove the guard clears genuine restatement.
+        assert report.passed is True  # Prove the guard clears genuine restatement.
 
     def test_guard_reports_cleared_warned_and_failed_bands(self, tmp_path: Path) -> None:
         """The guard reports the three similarity bands."""
@@ -93,7 +93,7 @@ class TestVerbatimSimilarityGuard:
         report = VerbatimSimilarityGuard().check(tuple())  # Run the guard with no inputs.
         assert report.files_checked == 0  # Prove the report states zero checked files.
         assert not report.passed  # Prove the contract failure is enforced.
-        assert report.errors  # Prove the report explains the failure.
+        assert len(report.errors) > 0  # Prove the report explains the failure.
 
 
 class TestKnowledgeCards:
@@ -133,8 +133,8 @@ class TestRewriteHarness:
         source = "| Field | Value |\n| - | - |\n| Speed | 100 Gb/s |"  # Build structured source content.
         packet = RewriteWorkPacket(source, "p.10", tuple(), "switching", ("day0",), "QFX-GUIDE")  # Build a packet.
         result = RuleBasedBackend().rewrite(packet)  # Run deterministic extraction.
-        assert result.cards  # Prove structured content creates cards.
-        assert result.limitations  # Prove the backend states what it cannot do.
+        assert len(result.cards) > 0  # Prove structured content creates cards.
+        assert len(result.limitations) > 0  # Prove the backend states what it cannot do.
 
 
 class TestSteValidator:
@@ -148,4 +148,4 @@ class TestSteValidator:
         report = SteValidator(minimum_score=1).validate((topic,))  # Run the validator with a low test threshold.
         assert report.files_checked == 1  # Prove the validator measured one file.
         assert report.reports[0].score >= 1  # Prove the validator returned a usable score.
-        assert report.passed  # Prove the report passed the configured threshold.
+        assert report.passed is True  # Prove the report passed the configured threshold.

@@ -38,13 +38,13 @@ def test_sentence_length_flags_long(build_doc, make_context) -> None:
 def test_passive_voice_flagged(build_doc, make_context) -> None:
     """A passive sentence is flagged."""
     violations = _run(PassiveVoiceRule(), build_doc("The file is created by the parser."), make_context())
-    assert violations  # The passive sentence was flagged.
+    assert len(violations) > 0  # The passive sentence was flagged.
 
 
 def test_complex_tense_flagged(build_doc, make_context) -> None:
     """A perfect tense is flagged."""
     violations = _run(ComplexTenseRule(), build_doc("The system has removed the file."), make_context())
-    assert violations  # The complex tense was flagged.
+    assert len(violations) > 0  # The complex tense was flagged.
 
 
 def test_contraction_flagged(build_doc, make_context) -> None:
@@ -56,7 +56,7 @@ def test_contraction_flagged(build_doc, make_context) -> None:
 def test_latin_abbreviation_flagged(build_doc, make_context) -> None:
     """A Latin abbreviation is flagged."""
     violations = _run(LatinAbbreviationRule(), build_doc("Use a tool, e.g. a wrench."), make_context())
-    assert violations  # The Latin abbreviation was flagged.
+    assert len(violations) > 0  # The Latin abbreviation was flagged.
 
 
 def test_phrasal_verb_flagged(build_doc, make_context) -> None:
@@ -68,33 +68,33 @@ def test_phrasal_verb_flagged(build_doc, make_context) -> None:
 def test_gendered_pronoun_flagged(build_doc, make_context) -> None:
     """A gendered pronoun is flagged."""
     violations = _run(GenderedPronounRule(), build_doc("He fixed the cable."), make_context())  # Run.
-    assert violations  # The gendered pronoun was flagged.
+    assert len(violations) > 0  # The gendered pronoun was flagged.
 
 
 def test_semicolon_flagged(build_doc, make_context) -> None:
     """A semicolon is flagged."""
     violations = _run(SemicolonRule(), build_doc("Do this; do that."), make_context())  # Run the rule.
-    assert violations  # The semicolon was flagged.
+    assert len(violations) > 0  # The semicolon was flagged.
 
 
 def test_noun_cluster_flagged(build_doc, make_context) -> None:
     """A long noun cluster is flagged."""
     text = "The runway light connection resistance calibration failed."  # A five-word cluster.
     violations = _run(NounClusterRule(), build_doc(text), make_context())  # Run the rule.
-    assert violations  # The long cluster was flagged.
+    assert len(violations) > 0  # The long cluster was flagged.
 
 
 def test_paragraph_length_flagged(build_doc, make_context) -> None:
     """A paragraph with more than six sentences is flagged."""
     text = "A runs. B runs. C runs. D runs. E runs. F runs. G runs."  # Seven short sentences.
     violations = _run(ParagraphLengthRule(), build_doc(text), make_context())  # Run the rule.
-    assert violations  # The long paragraph was flagged.
+    assert len(violations) > 0  # The long paragraph was flagged.
 
 
 def test_warning_without_consequence_flagged(build_doc, make_context) -> None:
     """A warning with no consequence is flagged."""
     violations = _run(WarningSignalRule(), build_doc("Warning: be careful here."), make_context())  # Run.
-    assert violations  # The incomplete warning was flagged.
+    assert len(violations) > 0  # The incomplete warning was flagged.
 
 
 def test_warning_with_consequence_passes(build_doc, make_context) -> None:

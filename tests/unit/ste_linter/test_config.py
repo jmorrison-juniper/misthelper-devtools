@@ -81,8 +81,8 @@ def test_loads_string_grading_settings(tmp_path: pathlib.Path) -> None:
     path = tmp_path / "pyproject.toml"  # Use pytest storage for an isolated config file.
     path.write_text(content, encoding="utf-8")  # Write the config file.
     config = LinterConfig.load(str(path))  # Load the custom string grading settings.
-    assert config.grade_logging_strings  # Logging strings were enabled.
-    assert config.grade_user_facing_strings  # User-facing strings were enabled.
+    assert config.grade_logging_strings is True  # Logging strings were enabled.
+    assert config.grade_user_facing_strings is True  # User-facing strings were enabled.
     assert config.logging_call_names == ("logger.info",)  # The custom logging list loaded.
     assert config.user_facing_call_names == ("ask_user",)  # The custom user-facing list loaded.
 
