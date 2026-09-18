@@ -104,6 +104,20 @@ class TestStageCommentCodec:
         assert "Topic count: 3." in comment  # Confirm the human audit line includes measured work.
         assert json.loads(comment.split("```json", 1)[1].split("```", 1)[0])["details"] == details  # Confirm JSON.
 
+    def test_parse_comments_ignores_empty_json_block(self) -> None:
+        """A zero-byte journal block must not produce a resume point."""
+        comment = "```json\n" + b"".decode() + "\n```"  # Build an empty JSON block from stored text.
+        resume_point = StageCommentCodec().parse_comments([comment], "doc-key")  # Drive the product parser.
+        assert resume_point.completed_stage is None  # Invalid journal data must not complete a stage.
+        assert resume_point.next_action == "queue the document"  # The product falls back to the initial action.
+
+    def test_parse_comments_ignores_malformed_json_block(self) -> None:
+        """A malformed journal block must not produce a resume point."""
+        comment = "```json\n{not valid JSONDecodeError\n```"  # Build a damaged stored journal block.
+        resume_point = StageCommentCodec().parse_comments([comment], "doc-key")  # Drive the product parser.
+        assert resume_point.completed_stage is None  # Invalid journal data must not complete a stage.
+        assert resume_point.next_action == "queue the document"  # The product falls back to the initial action.
+
     def _metrics(self) -> dict[str, object]:
         """Return measured audit fields for one stage."""
         return {  # Keep test evidence compact and deterministic.
