@@ -143,3 +143,27 @@ def test_load_missing_file_returns_empty_baseline(tmp_path: Path) -> None:
     baseline = differ.load(tmp_path / "no_such_file.json")
     assert isinstance(baseline, Baseline)
     assert baseline.findings == ()  # Empty tuple, not None.
+
+
+def test_load_empty_body_reports_json_parse_error(tmp_path: Path) -> None:
+    """An empty baseline file must report a JSON parse error."""
+    baseline_path = tmp_path / "baseline.json"  # Keep the malformed file isolated to this test.
+    baseline_path.write_text(b"".decode(), encoding="utf-8")  # Model a zero-byte JSON body.
+    try:
+        BaselineDiffer().load(baseline_path)  # Drive the product baseline loader.
+    except json.JSONDecodeError as error:
+        assert error.msg == "Expecting value"  # The parser must name the empty JSON body.
+    else:
+        raise AssertionError("BaselineDiffer.load must reject an empty JSON body.")  # Guard false success.
+
+
+def test_load_malformed_body_reports_json_parse_error(tmp_path: Path) -> None:
+    """A malformed baseline file must report a JSON parse error."""
+    baseline_path = tmp_path / "baseline.json"  # Keep the malformed file isolated to this test.
+    baseline_path.write_text("{not valid JSONDecodeError", encoding="utf-8")  # Model damaged JSON.
+    try:
+        BaselineDiffer().load(baseline_path)  # Drive the product baseline loader.
+    except json.JSONDecodeError as error:
+        assert error.msg == "Expecting property name enclosed in double quotes"  # The parser must name damage.
+    else:
+        raise AssertionError("BaselineDiffer.load must reject a malformed JSON body.")  # Guard false success.
