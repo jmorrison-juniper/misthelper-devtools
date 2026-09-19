@@ -19,6 +19,7 @@ from __future__ import annotations  # Postponed annotations for cleaner typing.
 import json  # Stdlib JSON emitter / parser -- no third-party JSON library.
 import logging  # Principle VII structured logging.
 from collections.abc import Iterable  # Iterable annotation for canonical inputs.
+from dataclasses import dataclass  # Frozen result object for gate decisions.
 from pathlib import Path  # Filesystem primitives for load/write.
 
 from tools.test_quality_analyzer.detection import (  # Shared type layer.
@@ -30,6 +31,17 @@ from tools.test_quality_analyzer.detection import (  # Shared type layer.
 )
 
 _LOGGER = logging.getLogger(__name__)  # Module-scoped logger.
+
+
+@dataclass(frozen=True, slots=True)
+class GateEvaluation:
+    """Decision record for the ratchet gate exit code and output text."""
+
+    exit_code: int  # Shell exit code for the gate decision.
+    stdout_line: str = ""  # Line to print on stdout when the gate reaches a comparison.
+    stderr_line: str = ""  # Line to print on stderr when the gate cannot compare.
+    baseline: Baseline | None = None  # Parsed baseline, when the file loaded correctly.
+    diff: BaselineDiff | None = None  # Finding diff, when the comparison completed.
 
 
 def _canonical_key(finding: Finding) -> tuple[str, str, str, int, str]:
@@ -47,10 +59,12 @@ def _canonical_key(finding: Finding) -> tuple[str, str, str, int, str]:
 class BaselineDiffer:
     """Load, diff, and write baseline snapshots of Finding tuples."""
 
-    def load(self, path: Path) -> Baseline:
+    def load(self, path: Path, require_existing: bool = False) -> Baseline:
         """Return a Baseline parsed from `path`; empty baseline if file missing."""
         # Missing baseline -> empty baseline (caller decides whether that's an error).
         if not path.exists():
+            if require_existing:
+                raise FileNotFoundError("Baseline file %s does not exist" % path)
             _LOGGER.info("Baseline file %s does not exist; treating as empty", path)
             return Baseline(findings=())
         # Read once as UTF-8 text; JSON parser handles any byte-order marks below.
@@ -202,3 +216,21 @@ class BaselineDiffer:
             heuristic=bool(obj.get("heuristic", False)),
             related_source=obj.get("related_source"),
         )
+
+
+def evaluate_gate(current: Iterable[Finding], baseline_path: Path) -> GateEvaluation:
+    """Return the ratchet gate decision for current findings and a required baseline."""
+    _LOGGER.info("Evaluating test quality gate against %s", baseline_path)  # Log before file access.
+    differ = BaselineDiffer()  # Use one differ instance so the load and diff share semantics.
+    try:
+        baseline = differ.load(baseline_path, require_existing=True)  # Load the required comparator.
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        message = "test_quality_analyzer: baseline error: %s\n" % exc  # State why the gate cannot compare.
+        _LOGGER.error("Baseline gate evaluation failed: %s", exc)  # Log the failed input read.
+        return GateEvaluation(exit_code=2, stderr_line=message)  # Exit 2 means an engine/input error.
+    diff = differ.diff(current, baseline)  # Compare the current findings with the committed baseline.
+    new_count = len(diff.new_findings)  # Count findings absent from the baseline.
+    line = "gate: %d new findings vs baseline\n" % new_count  # Preserve the existing gate stdout contract.
+    exit_code = 1 if new_count > 0 else 0  # Exit 1 means a regression; 0 means no regression.
+    _LOGGER.debug("Gate decision exit=%d new=%d", exit_code, new_count)  # Log the comparison result.
+    return GateEvaluation(exit_code=exit_code, stdout_line=line, baseline=baseline, diff=diff)  # Return proof data.

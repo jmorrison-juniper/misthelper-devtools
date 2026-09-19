@@ -33,7 +33,7 @@ from datetime import UTC, datetime  # UTC timestamp for --generated_at fallback.
 from pathlib import Path  # Path arithmetic for outputs and discovery.
 
 from tools.test_quality_analyzer import __version__ as _ENGINE_VERSION  # Report envelope.
-from tools.test_quality_analyzer.baseline import BaselineDiffer  # US2 baseline load/diff/write.
+from tools.test_quality_analyzer.baseline import BaselineDiffer, evaluate_gate  # US2 baseline load/diff/write.
 from tools.test_quality_analyzer.config import ConfigError, ConfigLoader  # Config loader.
 from tools.test_quality_analyzer.detection import (
     DetectorRegistry,
@@ -287,10 +287,19 @@ class TestQualityCLI:
             return 0  # --write-baseline always exits 0 per contract.
         # 9. Load baseline + compute diff/stale entries when enabled.
         diff = None  # BaselineDiff | None -- populated only when baseline is enabled.
+        gate_evaluation = None  # GateEvaluation | None -- populated only in --gate mode.
         stale_entries: tuple[str, ...] = ()  # Absent-file advisory entries.
         if baseline_enabled:
-            baseline = BaselineDiffer().load(baseline_path)  # Empty Baseline if file missing.
-            diff = BaselineDiffer().diff(findings, baseline)  # Set-difference on canonical key.
+            if args.gate:
+                gate_evaluation = evaluate_gate(findings, baseline_path)  # Validate the required baseline first.
+                if gate_evaluation.exit_code == 2:
+                    sys.stderr.write(gate_evaluation.stderr_line)  # State why the gate cannot compare.
+                    return 2  # Required gate inputs must fail closed.
+                baseline = gate_evaluation.baseline  # Reuse the parsed baseline for stale-entry checks.
+                diff = gate_evaluation.diff  # Reuse the tested diff for the final gate result.
+            else:
+                baseline = BaselineDiffer().load(baseline_path)  # Empty Baseline if file missing.
+                diff = BaselineDiffer().diff(findings, baseline)  # Set-difference on canonical key.
             # Stale advisory cross-references baseline paths against scanned test paths.
             scanned_posix = {p.as_posix() for p, _t, _s in parsed_files}
             # Include skipped files too -- they were scanned even though excluded from detection.
@@ -321,11 +330,17 @@ class TestQualityCLI:
         self._write_outputs(report=report, report_path=Path(args.report), summary_path=Path(args.summary))
         # 12. Print the one-line stdout summary per contracts/cli.md.
         self._emit_detector_metrics(detector_metrics)  # Print scope proof for detector-specific guards.
+        if args.gate:
+            self._emit_gate_scope(files_checked=len(test_files), findings_checked=len(findings))  # Print scope counts.
         self._emit_stdout_summary(findings=findings, skipped=skipped, parse_errors=parse_errors)
         if any(item.reason == "missing_root" for item in skipped):  # Missing explicit roots make coverage invalid.
             sys.stderr.write("test_quality_analyzer: missing root skipped\n")  # State the skip failure.
             return 2  # Usage-error exit code.
-        if failed_metric := self._zero_detector_scope_metric(roots, detector_metrics):  # Real runs must measure scope.
+        if failed_metric := self._zero_detector_scope_metric(  # Real runs must measure detector scope.
+            roots,
+            detector_metrics,
+            explicit_roots=args.roots is not None,
+        ):
             sys.stderr.write("test_quality_analyzer: %s inspected zero real modules\n" % failed_metric)
             return 2  # A guard that measures nothing is an engine failure.
         # 13. Gate-mode exit logic (FR-018 + contracts/cli.md).
@@ -342,15 +357,18 @@ class TestQualityCLI:
                     'test_quality_analyzer: --gate requires --baseline (got "")\n',
                 )
                 return 2  # Invalid usage in gate mode without a baseline.
-            new_count = len(diff.new_findings)  # Number of unseen findings this run.
-            sys.stdout.write("gate: %d new findings vs baseline\n" % new_count)
+            if gate_evaluation is None:
+                gate_evaluation = evaluate_gate(findings, baseline_path)  # Defensive fallback for future callers.
+            sys.stdout.write(gate_evaluation.stdout_line)  # Print the ratchet comparison result.
+            if gate_evaluation.exit_code == 1:
+                self._emit_new_gate_findings(diff.new_findings)  # Print enough detail to repair the baseline.
             _LOGGER.debug(
                 "Gate result: new=%s removed=%s unchanged=%s",
-                new_count,
+                len(diff.new_findings),
                 len(diff.removed_findings),
                 diff.unchanged_count,
             )
-            return 1 if new_count > 0 else 0  # Contract exit codes.
+            return gate_evaluation.exit_code  # Contract exit codes.
         # 14. Non-gate success exit.
         _LOGGER.debug("Analyzer run completed successfully")
         return 0  # Non-gate runs always exit 0 on a clean pipeline.
@@ -704,10 +722,37 @@ class TestQualityCLI:
         for key, value in sorted(detector_metrics.items()):  # Stable order keeps command evidence repeatable.
             sys.stdout.write("detector_metric: %s=%d\n" % (key, value))  # Print one metric per line.
 
-    def _zero_detector_scope_metric(self, roots: Sequence[Path], metrics: Mapping[str, int]) -> str | None:
+    def _emit_gate_scope(self, files_checked: int, findings_checked: int) -> None:
+        """Write the ratchet gate scope counts to stdout."""
+        sys.stdout.write(  # Print one stable line so CI logs prove the gate measured real input.
+            "gate_scope: %d files checked, %d findings checked\n" % (files_checked, findings_checked),
+        )
+
+    def _emit_new_gate_findings(self, findings: Sequence[Finding]) -> None:
+        """Write new gate findings to stdout for baseline repair."""
+        for finding in findings[:20]:  # Cap the output so a bad baseline cannot flood CI logs.
+            sys.stdout.write(  # Print identity fields that the baseline comparison uses.
+                "gate_new: %s %s:%d %s\n"
+                % (finding.rule_id, finding.file_path, finding.line_number, finding.explanation),
+            )
+        if len(findings) > 20:  # Report truncation so the operator knows more findings exist.
+            sys.stdout.write("gate_new: %d additional findings not shown\n" % (len(findings) - 20))
+
+    def _zero_detector_scope_metric(
+        self,
+        roots: Sequence[Path],
+        metrics: Mapping[str, int],
+        explicit_roots: bool,
+    ) -> str | None:
         """Return the first detector metric that measured zero real modules."""
         if not any(self._is_real_repo_root(root) for root in roots):  # Fixture roots do not need real scope.
             return None  # Keep synthetic detector tests free to build empty scenarios.
+        inspected_counts = [  # Read only scope metrics, not other future detector measurements.
+            value for key, value in sorted(metrics.items()) if key.endswith(".inspected_modules")
+        ]
+        if explicit_roots:  # A scoped run can validly exercise only some detectors.
+            total_inspected = sum(inspected_counts)  # Total scope proves the scoped run measured at least one module.
+            return "detectors" if inspected_counts and total_inspected == 0 else None  # Fail only on zero total scope.
         return next(  # Report the first metric so stderr names the failing detector.
             (key for key, value in sorted(metrics.items()) if key.endswith(".inspected_modules") and value == 0),
             None,

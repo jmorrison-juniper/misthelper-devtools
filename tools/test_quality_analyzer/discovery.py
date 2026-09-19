@@ -68,8 +68,11 @@ class TestFileDiscoverer:
 
     def _normalize(self, path: Path) -> Path:
         """Return `path` as a POSIX-forward-slash Path (Windows-safe)."""
-        # Convert to PurePosixPath then back to Path; guarantees no backslashes.
-        return Path(PurePosixPath(path.as_posix()))
+        try:
+            normalized = path.resolve().relative_to(Path.cwd().resolve())  # Keep repository paths portable.
+        except ValueError:
+            normalized = path.resolve()  # External fixture paths cannot become repository-relative.
+        return Path(PurePosixPath(normalized.as_posix()))  # Return a separator-stable path object.
 
 
 class MistApiExcluder:
