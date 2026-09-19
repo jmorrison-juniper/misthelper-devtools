@@ -214,6 +214,44 @@ def test_missing_failure_mode_detector() -> None:
     assert findings_good == [], "Expected zero findings on missing-failure-mode good fixture, got: %s" % findings_good
 
 
+def test_missing_failure_mode_detector_reports_comment_and_string_decoys() -> None:
+    """MissingFailureModeDetector must ignore comment and string status decoys."""
+    from tools.test_quality_analyzer.detection.missing_failure_mode import (
+        MissingFailureModeDetector,
+    )  # Import the detector under the same path as the CLI.
+
+    cases = (  # Each case names a fixture and the rule that the old raw-text scan hid.
+        ("test_missing_failure_mode_pep563_bad.py", "missing_fm_http_5xx"),
+        ("test_missing_failure_mode_street_address_bad.py", "missing_fm_http_4xx"),
+    )
+    for fixture_name, expected_rule in cases:  # Run both regression fixtures through the real detector.
+        path = _FIXTURE_BAD / fixture_name  # Resolve the fixture path under the bad corpus.
+        tree, source = _parse(path)  # Parse the fixture so the detector uses the normal AST path.
+        detector = MissingFailureModeDetector()  # Use a fresh detector so inspection count is isolated.
+
+        findings = detector.detect(path, tree, source)  # Run the detector against the decoy fixture.
+        rule_ids = {finding.rule_id for finding in findings}  # Compare rule ids, not wording.
+
+        assert expected_rule in rule_ids  # The decoy number must not clear the expected finding.
+        assert detector.inspected_module_count() == 1  # The detector must report that it measured the fixture.
+
+
+def test_missing_failure_mode_detector_accepts_real_status_contexts() -> None:
+    """MissingFailureModeDetector must keep accepting real status-code assertions."""
+    from tools.test_quality_analyzer.detection.missing_failure_mode import (
+        MissingFailureModeDetector,
+    )  # Import the detector under the same path as the CLI.
+
+    good_path = _FIXTURE_GOOD / "test_missing_failure_mode_good.py"  # Fixture with real status contexts.
+    good_tree, good_source = _parse(good_path)  # Parse the healthy fixture.
+    detector = MissingFailureModeDetector()  # Use a fresh detector so the proof is isolated.
+
+    findings = detector.detect(good_path, good_tree, good_source)  # Run the detector against real status tests.
+
+    assert findings == []  # Real `status_code` assignments and assertions must still clear the findings.
+    assert detector.inspected_module_count() == 1  # The detector must report that it measured the fixture.
+
+
 def test_missing_failure_mode_detector_ignores_status_value_objects() -> None:
     """MissingFailureModeDetector must not require network failures for a value object."""
     from tools.test_quality_analyzer.detection.missing_failure_mode import (

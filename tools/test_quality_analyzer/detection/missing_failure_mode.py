@@ -18,7 +18,7 @@ from __future__ import annotations  # Postponed annotations for cleaner typing.
 
 import ast  # AST inspection for import + literal scanning.
 import logging  # Principle VII structured logging.
-import re  # Regex for HTTP status-code marker matching.
+import re  # Regex for status numbers inside explicit HTTP exception messages.
 from dataclasses import dataclass  # Store inferred failure-mode obligations.
 from pathlib import Path  # Path metadata.
 
@@ -37,11 +37,6 @@ _TIMEOUT_MARKERS: tuple[str, ...] = ("Timeout", "ReadTimeout")  # Timeout except
 _CONNECTION_ERROR_MARKERS: tuple[str, ...] = ("ConnectionError", "ConnectError")  # Conn err names.
 _MALFORMED_JSON_MARKERS: tuple[str, ...] = ("JSONDecodeError",)  # Malformed-JSON exception.
 _EMPTY_BODY_MARKERS: tuple[str, ...] = ('b""', "b''", 'data=""', "data=''")  # Empty body literals.
-
-# Regex for HTTP status codes 400-599 (three-digit ints starting with 4 or 5).
-# Word boundaries prevent 4000 or 5000 from matching.
-_STATUS_4XX_RE = re.compile(r"\b4\d\d\b")  # Matches 400-499.
-_STATUS_5XX_RE = re.compile(r"\b5\d\d\b")  # Matches 500-599.
 
 _SOURCE_HTTP_STATUS_MODULES = frozenset(  # Libraries that can expose HTTP status failures to callers.
     {"aiohttp", "httpx", "mistapi", "requests"}  # Mistapi callers can inspect status_code without an exception.
@@ -76,6 +71,192 @@ class FailureModeCoverage:
     http_5xx: bool = False  # True when a server error path reaches the caller.
     malformed_json: bool = False  # True when invalid JSON reaches the caller.
     empty_body: bool = False  # True when an empty body reaches the caller.
+
+
+@dataclass
+class HttpStatusCoverage:
+    """Store which HTTP status-code families a test exercises."""
+
+    http_4xx: bool = False  # True when an AST status context contains a 4xx integer.
+    http_5xx: bool = False  # True when an AST status context contains a 5xx integer.
+
+
+class HttpStatusCoverageInferer(ast.NodeVisitor):
+    """Infer HTTP status coverage from AST contexts, not raw source text."""
+
+    _STATUS_WORDS = frozenset({"http", "status", "statuscode", "code"})  # Accepted status-context words.
+    _EXCEPTION_NAMES = frozenset({"Exception", "RuntimeError", "ValueError"})  # Explicit failure-signal wrappers.
+    _HTTP_STATUS_TEXT_RE = re.compile(r"\bHTTP\s+([45]\d\d)\b")  # Explicit HTTP status in an exception message.
+
+    def __init__(self) -> None:
+        """Initialize an empty coverage result."""
+        self.coverage = HttpStatusCoverage()  # Accumulate one result while visiting the tree.
+        self._status_arg_positions: dict[str, tuple[int, ...]] = {}  # Map local functions to status arg positions.
+
+    @classmethod
+    def from_source(cls, source: str) -> HttpStatusCoverage:
+        """Return status coverage proved by syntax contexts in one test file."""
+        try:
+            tree = ast.parse(source)  # Parse so comments and unrelated strings cannot prove coverage.
+        except SyntaxError:
+            return HttpStatusCoverage()  # Keep malformed test text from fabricating status coverage.
+        inferer = cls()  # Build a fresh visitor for one source file.
+        inferer._status_arg_positions = inferer._collect_status_arg_positions(tree)  # Learn local helper signatures.
+        inferer.visit(tree)  # Visit every status-related expression.
+        return inferer.coverage  # Return the accumulated status families.
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        """Record status-code assignments such as `response.status_code = 503`."""
+        if any(self._is_status_context(target) for target in node.targets):  # Require a status-like target.
+            self._mark_status_family(node.value)  # Mark only integer values in that status context.
+        self.generic_visit(node)  # Continue visiting nested expressions.
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        """Record annotated status-code assignments."""
+        if node.value is not None and self._is_status_context(node.target):  # Require a status target and value.
+            self._mark_status_family(node.value)  # Mark only integer values in that status context.
+        self.generic_visit(node)  # Continue visiting nested expressions.
+
+    def visit_Call(self, node: ast.Call) -> None:
+        """Record status-code keyword arguments and pytest status parameters."""
+        for keyword in node.keywords:  # Keyword arguments can bind a fake response status.
+            if keyword.arg and self._is_status_name(keyword.arg):  # Require a status-like keyword name.
+                self._mark_status_family(keyword.value)  # Mark only integer values in that status context.
+        self._visit_status_position_args(node)  # Handle helpers such as `_response(503)`.
+        self._visit_exception_status_text(node)  # Handle explicit `RuntimeError("HTTP 503")` signals.
+        self._visit_parametrize_call(node)  # Handle `pytest.mark.parametrize("status_code", [503])`.
+        self.generic_visit(node)  # Continue visiting nested expressions.
+
+    def visit_Compare(self, node: ast.Compare) -> None:
+        """Record status-code comparisons such as `response.status_code == 404`."""
+        if self._is_status_context(node.left):  # Left side can be a status attribute or name.
+            for comparator in node.comparators:  # Each comparison can carry a status integer.
+                self._mark_status_family(comparator)  # Mark only integer values in that status context.
+        for index, comparator in enumerate(node.comparators):  # Right side can also be the status expression.
+            left_peer = node.left if index == 0 else node.comparators[index - 1]  # Pair with its left operand.
+            if self._is_status_context(comparator):  # Require the compared expression to be status-like.
+                self._mark_status_family(left_peer)  # Mark only integer values in the peer expression.
+        self.generic_visit(node)  # Continue visiting nested expressions.
+
+    def visit_Dict(self, node: ast.Dict) -> None:
+        """Record mapping entries such as `{\"status_code\": 503}`."""
+        for key, value in zip(node.keys, node.values, strict=True):  # Pair each key with its value.
+            if self._constant_string(key) and self._is_status_name(str(self._constant_string(key))):  # Status key.
+                self._mark_status_family(value)  # Mark only integer values in that status context.
+        self.generic_visit(node)  # Continue visiting nested expressions.
+
+    def _visit_parametrize_call(self, node: ast.Call) -> None:
+        """Record pytest parameters whose argument name is status-like."""
+        if not self._is_parametrize_call(node):  # Only pytest parametrize assigns literal values to parameters.
+            return
+        if len(node.args) < 2:  # Parametrize needs names and values before it can prove coverage.
+            return
+        names = self._parametrize_names(node.args[0])  # Read the parameter names from the first argument.
+        if not any(self._is_status_name(name) for name in names):  # Require at least one status-like parameter.
+            return
+        self._mark_status_family(node.args[1])  # Mark integer values assigned to the status parameter set.
+
+    def _visit_status_position_args(self, node: ast.Call) -> None:
+        """Record positional arguments passed to local status-code parameters."""
+        call_name = self._call_name(node.func)  # Resolve simple local helper calls only.
+        if call_name not in self._status_arg_positions:  # Unknown helpers do not prove a status context.
+            return
+        for position in self._status_arg_positions[call_name]:  # Only parameters named for status can prove coverage.
+            if position < len(node.args):  # The call supplied this positional argument.
+                self._mark_status_family(node.args[position])  # Mark only integer values in that status context.
+
+    def _visit_exception_status_text(self, node: ast.Call) -> None:
+        """Record explicit HTTP status text passed to an exception constructor."""
+        if self._call_name(node.func) not in self._EXCEPTION_NAMES:  # Keep unrelated strings out of coverage.
+            return
+        for argument in node.args:  # Exception messages are positional in the existing tests.
+            text = self._constant_string(argument)  # Read only literal strings, never comments.
+            if text:
+                self._mark_status_text(text)  # Mark only explicit `HTTP 503` style messages.
+
+    def _collect_status_arg_positions(self, tree: ast.Module) -> dict[str, tuple[int, ...]]:
+        """Return local function positions whose parameter name is status-like."""
+        positions: dict[str, tuple[int, ...]] = {}  # Build lookup by local helper name.
+        for node in tree.body:  # Only top-level test helpers are needed for status response factories.
+            if isinstance(node, ast.FunctionDef):  # Function definitions can name status-code parameters.
+                status_positions = tuple(
+                    index for index, argument in enumerate(node.args.args) if self._is_status_name(argument.arg)
+                )  # Record positions with names such as `status_code`.
+                if status_positions:  # Helpers without status parameters are irrelevant.
+                    positions[node.name] = status_positions  # Save by function name for call-site lookup.
+        return positions  # Return the complete local-helper map.
+
+    def _is_parametrize_call(self, node: ast.Call) -> bool:
+        """Return True when a call is `pytest.mark.parametrize` or `.parametrize`."""
+        func = node.func  # Keep the call target in a local for readable checks.
+        if isinstance(func, ast.Attribute) and func.attr == "parametrize":  # Covers pytest.mark.parametrize.
+            return True
+        return isinstance(func, ast.Name) and func.id == "parametrize"  # Covers an imported helper.
+
+    def _call_name(self, node: ast.AST) -> str:
+        """Return the simple name of a called function or constructor."""
+        if isinstance(node, ast.Name):  # Plain call such as `RuntimeError(...)`.
+            return node.id
+        if isinstance(node, ast.Attribute):  # Qualified call such as `pytest.raises(...)`.
+            return node.attr
+        return ""  # Other call forms do not identify a local helper.
+
+    def _parametrize_names(self, node: ast.AST) -> tuple[str, ...]:
+        """Return the parameter names from a pytest parametrize name expression."""
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):  # Common comma-separated string form.
+            return tuple(name.strip() for name in node.value.split(",") if name.strip())
+        if isinstance(node, (ast.List, ast.Tuple)):  # Pytest also accepts a list or tuple of names.
+            return tuple(str(value) for item in node.elts if (value := self._constant_string(item)))
+        return ()  # Unknown name forms do not prove status coverage.
+
+    def _is_status_context(self, node: ast.AST) -> bool:
+        """Return True when an expression names an HTTP status or code."""
+        if isinstance(node, ast.Name):  # Plain variable such as `status_code`.
+            return self._is_status_name(node.id)
+        if isinstance(node, ast.Attribute):  # Attribute such as `response.status_code`.
+            return self._is_status_name(node.attr)
+        if isinstance(node, ast.Subscript):  # Mapping access such as `row["status_code"]`.
+            key = self._constant_string(node.slice)  # Read only literal keys.
+            return bool(key and self._is_status_name(str(key)))
+        return False  # Other expressions do not name a status target.
+
+    def _is_status_name(self, name: str) -> bool:
+        """Return True when a name token identifies a status-code context."""
+        normalized = name.lower().replace("-", "_")  # Normalize common separators.
+        parts = tuple(part for part in normalized.split("_") if part)  # Split snake-case names into tokens.
+        compact = "".join(parts)  # Also recognize `statusCode` after lowercasing.
+        return compact in self._STATUS_WORDS or any(part in self._STATUS_WORDS for part in parts)
+
+    def _mark_status_family(self, node: ast.AST) -> None:
+        """Mark each 4xx or 5xx integer literal contained in a status context."""
+        for value in self._integer_literals(node):  # Walk nested containers, such as parametrize lists.
+            if 400 <= value <= 499:  # Client-error status code.
+                self.coverage.http_4xx = True  # Mark client-error coverage.
+            if 500 <= value <= 599:  # Server-error status code.
+                self.coverage.http_5xx = True  # Mark server-error coverage.
+
+    def _mark_status_text(self, text: str) -> None:
+        """Mark each explicit HTTP status value contained in an exception message."""
+        for match in self._HTTP_STATUS_TEXT_RE.finditer(text):  # Only explicit HTTP status text is accepted.
+            value = int(match.group(1))  # Convert the matched status digits to an integer.
+            if 400 <= value <= 499:  # Client-error status code.
+                self.coverage.http_4xx = True  # Mark client-error coverage.
+            if 500 <= value <= 599:  # Server-error status code.
+                self.coverage.http_5xx = True  # Mark server-error coverage.
+
+    def _integer_literals(self, node: ast.AST) -> tuple[int, ...]:
+        """Return all integer literals nested inside an AST node."""
+        values: list[int] = []  # Accumulate status-code candidates.
+        for child in ast.walk(node):  # Walk nested tuples, lists, and calls.
+            if isinstance(child, ast.Constant) and isinstance(child.value, int) and not isinstance(child.value, bool):
+                values.append(child.value)  # Keep plain integer literals only.
+        return tuple(values)  # Return an immutable sequence to callers.
+
+    def _constant_string(self, node: ast.AST | None) -> str | None:
+        """Return a literal string from an AST node when one exists."""
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):  # Plain string literal.
+            return node.value
+        return None  # Non-literal keys and names do not prove status context.
 
 
 class FailureModeApplicabilityInferer:
@@ -275,11 +456,12 @@ class MissingFailureModeDetector:
 
     def _coverage_from_source(self, source: str) -> FailureModeCoverage:
         """Return the failure modes that one test source exercises."""
+        status_coverage = HttpStatusCoverageInferer.from_source(source)  # Read status evidence from syntax only.
         return FailureModeCoverage(
             connection_timeout=self._matches_any(source, _TIMEOUT_MARKERS),  # Timeout marker proves timeout path.
             connection_error=self._matches_any(source, _CONNECTION_ERROR_MARKERS),  # Connection marker proof.
-            http_4xx=bool(_STATUS_4XX_RE.search(source)),  # Any 4xx status proves client-error coverage.
-            http_5xx=bool(_STATUS_5XX_RE.search(source)),  # Any 5xx status proves server-error coverage.
+            http_4xx=status_coverage.http_4xx,  # Syntax-tied 4xx status proves client-error coverage.
+            http_5xx=status_coverage.http_5xx,  # Syntax-tied 5xx status proves server-error coverage.
             malformed_json=self._matches_any(source, _MALFORMED_JSON_MARKERS),  # JSONDecodeError marker proof.
             empty_body=self._matches_any(source, _EMPTY_BODY_MARKERS),  # Empty body marker proof.
         )
