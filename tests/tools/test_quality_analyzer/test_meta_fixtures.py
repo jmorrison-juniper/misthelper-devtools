@@ -252,6 +252,39 @@ def test_missing_failure_mode_detector_accepts_real_status_contexts() -> None:
     assert detector.inspected_module_count() == 1  # The detector must report that it measured the fixture.
 
 
+def test_missing_failure_mode_detector_rejects_pasted_helper_coverage() -> None:
+    """MissingFailureModeDetector must reject status coverage that never calls the source."""
+    from tools.test_quality_analyzer.detection.missing_failure_mode import (
+        MissingFailureModeDetector,
+    )  # Import the detector under the same path as the CLI.
+
+    path = _FIXTURE_BAD / "test_missing_failure_mode_pasted_helper_bad.py"  # Fixture with the PR #2962 shape.
+    tree, source = _parse(path)  # Parse the fixture so the detector uses the real AST path.
+    detector = MissingFailureModeDetector()  # Use a fresh detector so inspection count is isolated.
+
+    findings = detector.detect(path, tree, source)  # Run the detector against the pasted helper coverage.
+    rule_ids = {finding.rule_id for finding in findings}  # Compare rule ids, not wording.
+
+    assert "missing_fm_http_4xx" in rule_ids  # The pasted helper must not clear the 4xx finding.
+    assert detector.inspected_module_count() == 1  # The detector must report that it measured the fixture.
+
+
+def test_missing_failure_mode_detector_accepts_source_call_coverage() -> None:
+    """MissingFailureModeDetector must accept status coverage that calls the source."""
+    from tools.test_quality_analyzer.detection.missing_failure_mode import (
+        MissingFailureModeDetector,
+    )  # Import the detector under the same path as the CLI.
+
+    path = _FIXTURE_GOOD / "test_missing_failure_mode_source_call_good.py"  # Fixture with source-driven status tests.
+    tree, source = _parse(path)  # Parse the fixture so the detector uses the real AST path.
+    detector = MissingFailureModeDetector()  # Use a fresh detector so inspection count is isolated.
+
+    findings = detector.detect(path, tree, source)  # Run the detector against source-driven coverage.
+
+    assert findings == []  # Real source calls with 4xx and 5xx statuses must clear HTTP status findings.
+    assert detector.inspected_module_count() == 1  # The detector must report that it measured the fixture.
+
+
 def test_missing_failure_mode_detector_ignores_status_value_objects() -> None:
     """MissingFailureModeDetector must not require network failures for a value object."""
     from tools.test_quality_analyzer.detection.missing_failure_mode import (

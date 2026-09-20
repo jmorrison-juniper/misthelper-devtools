@@ -35,7 +35,7 @@ _LOGGER = logging.getLogger(__name__)  # Module-scoped logger.
 # The detector accepts a match on ANY string in the tuple to consider the mode covered.
 _TIMEOUT_MARKERS: tuple[str, ...] = ("Timeout", "ReadTimeout")  # Timeout exception names.
 _CONNECTION_ERROR_MARKERS: tuple[str, ...] = ("ConnectionError", "ConnectError")  # Conn err names.
-_MALFORMED_JSON_MARKERS: tuple[str, ...] = ("JSONDecodeError",)  # Malformed-JSON exception.
+_MALFORMED_JSON_MARKERS: tuple[str, ...] = ("JSONDecodeError", "bad json")  # Malformed-JSON proof literals.
 _EMPTY_BODY_MARKERS: tuple[str, ...] = ('b""', "b''", 'data=""', "data=''")  # Empty body literals.
 
 _SOURCE_HTTP_STATUS_MODULES = frozenset(  # Libraries that can expose HTTP status failures to callers.
@@ -414,6 +414,191 @@ class FailureModeApplicabilityInferer:
         target.json_parse = target.json_parse or source.json_parse  # Preserve any parse risk already found.
 
 
+class SourceDrivenCoverageSlicer:
+    """Return only tests that drive repository source under test."""
+
+    def __init__(self, test_path: Path, tree: ast.Module) -> None:
+        """Build source-call lookup state for one test module."""
+        self._test_path = test_path  # Keep the file path so fixture files can use local source functions.
+        self._tree = tree  # Keep the parsed test module for import and call inspection.
+        self._root = FailureModeApplicabilityInferer(test_path, tree)._repository_root(test_path)  # Reuse root logic.
+        self._source_call_roots = self._collect_source_call_roots()  # Resolve imported source aliases once.
+        self._local_source_names = self._collect_local_source_names()  # Resolve fixture-local SUT names once.
+        self._source_driver_names = self._collect_source_driver_names()  # Resolve local helpers that call source.
+        self._top_level_defs = self._collect_top_level_defs()  # Resolve local helpers, fakes, and constants once.
+
+    def source_text(self) -> str:
+        """Return source text from test functions that call source under test."""
+        test_sources = [self._source_with_dependencies(node) for node in self._test_nodes() if self._calls_source(node)]
+        return "\n\n".join(test_sources)  # Join only source-driving tests for coverage inference.
+
+    def _source_with_dependencies(self, node: ast.FunctionDef) -> str:
+        """Return a test function plus local definitions that it uses."""
+        nodes = [*self._dependency_nodes(node), node]  # Put helper definitions before the test body.
+        return "\n\n".join(ast.unparse(item) for item in nodes)  # Convert the closure back to Python source.
+
+    def _dependency_nodes(self, node: ast.AST) -> list[ast.stmt]:
+        """Return top-level definitions referenced by a node, recursively."""
+        dependencies: list[ast.stmt] = []  # Preserve discovery order for readable synthetic source.
+        seen: set[str] = set()  # Avoid repeated helper or constant definitions.
+        queue = list(self._referenced_names(node))  # Start with names used directly by the test.
+        while queue:  # Follow helper-to-helper and helper-to-class references.
+            name = queue.pop(0)  # Process names breadth-first for stable output.
+            if name in seen or name not in self._top_level_defs:  # Skip repeated or external names.
+                continue
+            seen.add(name)  # Mark this top-level definition as emitted.
+            dependency = self._top_level_defs[name]  # Fetch the helper, fake class, or constant definition.
+            dependencies.append(dependency)  # Include the definition in the coverage source.
+            queue.extend(item for item in self._referenced_names(dependency) if item not in seen)  # Recurse.
+        return dependencies  # Return every local definition used by the test.
+
+    def _referenced_names(self, node: ast.AST) -> set[str]:
+        """Return loaded names referenced by one AST node."""
+        return {child.id for child in ast.walk(node) if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load)}
+
+    def _collect_top_level_defs(self) -> dict[str, ast.stmt]:
+        """Return top-level helpers, fake classes, and constants by name."""
+        definitions: dict[str, ast.stmt] = {}  # Accumulate definitions that test closures can use.
+        for node in self._tree.body:  # Only module-level definitions are reusable across tests.
+            if isinstance(node, (ast.FunctionDef, ast.ClassDef)):  # Helpers and fake response classes.
+                definitions[node.name] = node  # Store by declared name.
+            if isinstance(node, ast.Assign):  # Constants used in parametrize decorators or response bodies.
+                for target in node.targets:  # One assignment can bind several names.
+                    if isinstance(target, ast.Name):  # Only simple names can be referenced directly.
+                        definitions[target.id] = node  # Store the constant assignment.
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):  # Annotated constants.
+                definitions[node.target.id] = node  # Store the annotated constant assignment.
+        return definitions  # Return all local definitions.
+
+    def _test_nodes(self) -> list[ast.FunctionDef]:
+        """Return every test function or method in the module."""
+        return [
+            node for node in ast.walk(self._tree) if isinstance(node, ast.FunctionDef) and node.name.startswith("test_")
+        ]
+
+    def _calls_source(self, node: ast.FunctionDef) -> bool:
+        """Return True when a test function calls source under test."""
+        source_roots = set(self._source_call_roots)  # Start with module-level source imports.
+        source_roots.update(self._local_source_roots(node))  # Add source imports scoped inside this test function.
+        return any(
+            self._call_drives_source(call, source_roots) for call in ast.walk(node) if isinstance(call, ast.Call)
+        )
+
+    def _call_drives_source(self, call: ast.Call, source_roots: set[str]) -> bool:
+        """Return True when one call targets a source alias or a local SUT."""
+        called_root = self._call_root(call.func)  # Resolve the leftmost callable root for import aliases.
+        called_name = self._call_name(call.func)  # Resolve direct function calls for local fixture SUTs.
+        return (
+            called_root in source_roots
+            or called_name in self._local_source_names
+            or called_name in self._source_driver_names
+        )
+
+    def _local_source_roots(self, node: ast.FunctionDef) -> set[str]:
+        """Return source import roots declared inside one test function."""
+        roots: set[str] = set()  # Accumulate function-scoped source aliases.
+        for child in ast.walk(node):  # Function bodies can import source modules near the assertion.
+            if isinstance(child, ast.ImportFrom) and child.module:  # Direct imports can expose source symbols.
+                roots.update(self._roots_from_import_from(child))  # Add each imported source symbol alias.
+            if isinstance(child, ast.Import):  # Module imports can expose source modules by alias.
+                roots.update(self._roots_from_import(child))  # Add each source module alias.
+        return roots  # Return every source alias local to this test.
+
+    def _collect_source_call_roots(self) -> set[str]:
+        """Return local names that identify repository source imports."""
+        roots: set[str] = set()  # Accumulate names a test can call to reach source.
+        for node in self._tree.body:  # Only module imports define source aliases.
+            if isinstance(node, ast.ImportFrom) and node.module:  # Direct imports can expose source symbols.
+                roots.update(self._roots_from_import_from(node))  # Add each imported source symbol alias.
+            if isinstance(node, ast.Import):  # Module imports can expose source modules by alias.
+                roots.update(self._roots_from_import(node))  # Add each source module alias.
+        return roots  # Return every source-call root found in this test file.
+
+    def _collect_source_driver_names(self) -> set[str]:
+        """Return local helper names that call repository source."""
+        helpers = {
+            node.name: node
+            for node in self._tree.body
+            if isinstance(node, ast.FunctionDef) and not node.name.startswith("test_")
+        }  # Only local helper functions can bridge a test to source code.
+        driver_names: set[str] = set()  # Accumulate helpers known to reach source.
+        changed = True  # Iterate because one helper can call another helper.
+        while changed:  # Continue until transitive helper discovery stabilizes.
+            changed = False  # Reset the fixed-point flag for this pass.
+            for name, helper in helpers.items():  # Examine each local helper.
+                if name not in driver_names and self._helper_calls_source(helper, driver_names):  # New driver found.
+                    driver_names.add(name)  # Mark the helper as source-driving.
+                    changed = True  # Another pass can now find helpers that call this helper.
+        return driver_names  # Return every source-driving helper.
+
+    def _helper_calls_source(self, node: ast.FunctionDef, driver_names: set[str]) -> bool:
+        """Return True when a helper calls source or a source-driving helper."""
+        source_roots = set(self._source_call_roots)  # Start with module-level source imports.
+        source_roots.update(self._local_source_roots(node))  # Add imports scoped inside the helper.
+        for call in (child for child in ast.walk(node) if isinstance(child, ast.Call)):  # Inspect helper calls.
+            called_root = self._call_root(call.func)  # Resolve the leftmost callable root for imports.
+            called_name = self._call_name(call.func)  # Resolve direct helper calls.
+            if called_root in source_roots or called_name in driver_names:  # Source or transitive helper call.
+                return True  # This helper reaches source under test.
+        return False  # No source-driving call was found.
+
+    def _roots_from_import_from(self, node: ast.ImportFrom) -> set[str]:
+        """Return callable roots from one ``from x import y`` source import."""
+        module_path = self._module_path(node.module or "")  # Resolve only repository modules.
+        roots: set[str] = set()  # Accumulate imported source symbols.
+        for alias in node.names:  # Each alias can name a symbol or a submodule.
+            submodule_path = (
+                self._module_path(f"{node.module}.{alias.name}") if node.module else None
+            )  # Package import.
+            if module_path is not None or submodule_path is not None:  # Direct module or package submodule import.
+                roots.add(alias.asname or alias.name)  # Tests call the imported source by this name.
+        return roots  # Return only aliases that resolve to repository source.
+
+    def _roots_from_import(self, node: ast.Import) -> set[str]:
+        """Return callable roots from one ``import x`` source import."""
+        roots: set[str] = set()  # Accumulate source module aliases.
+        for alias in node.names:  # One import statement can hold several modules.
+            module_path = self._module_path(alias.name)  # Resolve only repository modules.
+            if module_path is not None:  # Only repository source imports can clear failure-mode coverage.
+                roots.add(alias.asname or alias.name.split(".")[0])  # Tests call this root or alias.
+        return roots  # Return all module roots from this import statement.
+
+    def _collect_local_source_names(self) -> set[str]:
+        """Return local SUT names for analyzer fixture files only."""
+        if not self._allows_local_source():  # Real tests must import repository source to prove coverage.
+            return set()  # Do not let local helpers satisfy the source-call requirement in real tests.
+        return {
+            node.name
+            for node in self._tree.body
+            if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and not node.name.startswith("test_")
+        }  # Analyzer fixtures can keep their local SUT contract.
+
+    def _allows_local_source(self) -> bool:
+        """Return True when the test path belongs to the analyzer fixture corpus."""
+        resolved = (self._root / self._test_path).resolve() if not self._test_path.is_absolute() else self._test_path
+        try:
+            resolved.relative_to((self._root / "tests").resolve())  # Real repository tests live under tests/.
+            return False  # Real tests must call imported product source.
+        except ValueError:
+            return True  # Analyzer fixtures live outside tests/ and can define local source under test.
+
+    def _module_path(self, module_name: str) -> Path | None:
+        """Return a repository module path for source imports."""
+        candidate = self._root / Path(*module_name.split(".")).with_suffix(".py")  # Build portable module path.
+        return candidate if candidate.exists() else None  # Only existing repository modules are valid source roots.
+
+    def _call_root(self, node: ast.AST) -> str:
+        """Return the leftmost root name of a call target."""
+        current = node  # Walk left through attributes to the import alias.
+        while isinstance(current, ast.Attribute):  # Attribute chains hold module or class access.
+            current = current.value  # Move toward the root.
+        return current.id if isinstance(current, ast.Name) else ""  # Return a simple comparable root.
+
+    def _call_name(self, node: ast.AST) -> str:
+        """Return the direct callable name of a call target."""
+        return node.id if isinstance(node, ast.Name) else ""  # Local fixture SUT calls use plain names.
+
+
 class MissingFailureModeDetector:
     """Detects HTTP-style tests that omit standard failure-mode coverage."""
 
@@ -443,7 +628,8 @@ class MissingFailureModeDetector:
         _LOGGER.info("Scanning %s for missing failure modes", test_path)
         posix = test_path.as_posix()  # Cross-platform stable path.
         risk = FailureModeApplicabilityInferer(test_path, tree).infer()  # Infer from the imported source under test.
-        coverage = self._coverage_from_source(source)  # Read existing test evidence from the whole file.
+        coverage_source = SourceDrivenCoverageSlicer(test_path, tree).source_text()  # Keep only source-driving tests.
+        coverage = self._coverage_from_source(coverage_source)  # Read evidence only from source-driving tests.
         _LOGGER.debug("Failure-mode risk for %s: %s", test_path, risk)  # Log the inferred rule scope.
         if not risk.applies:  # Files that test DTOs or route tables do not own network failure tests.
             return []  # Do not emit findings when the source cannot fail this way.

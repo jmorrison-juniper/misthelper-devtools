@@ -44,6 +44,17 @@
     "severity": "medium"
   },
   {
+    "category": "missing_failure_mode",
+    "explanation": "No HTTP 5xx failure mode is exercised.",
+    "file_path": "mist-ops-platform/tests/unit/api/test_auth.py",
+    "heuristic": false,
+    "line_number": 1,
+    "related_source": "mist-ops-platform/tests/unit/api/test_auth.py",
+    "remediation": "Add a test whose fake response has a 5xx status_code (e.g. 500, 503).",
+    "rule_id": "missing_fm_http_5xx",
+    "severity": "medium"
+  },
+  {
     "category": "weak_assertion",
     "explanation": "Test function 'test_validate_token_writes_cache' contains no assertions.",
     "file_path": "mist-ops-platform/tests/unit/api/test_auth.py",
@@ -1771,58 +1782,25 @@
     "severity": "medium"
   },
   {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
+    "category": "missing_failure_mode",
+    "explanation": "No malformed-JSON failure mode is exercised.",
     "file_path": "tests/test_upgrade_portal_mist.py",
     "heuristic": false,
-    "line_number": 51,
+    "line_number": 1,
     "related_source": "tests/test_upgrade_portal_mist.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
+    "remediation": "Add a test where `.json()` raises `json.JSONDecodeError`.",
+    "rule_id": "missing_fm_malformed_json",
     "severity": "medium"
   },
   {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
+    "category": "missing_failure_mode",
+    "explanation": "No empty-body failure mode is exercised.",
     "file_path": "tests/test_upgrade_portal_mist.py",
     "heuristic": false,
-    "line_number": 133,
+    "line_number": 1,
     "related_source": "tests/test_upgrade_portal_mist.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/test_upgrade_portal_mist.py",
-    "heuristic": false,
-    "line_number": 160,
-    "related_source": "tests/test_upgrade_portal_mist.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_get_sites_missing_org_id' contains no assertions.",
-    "file_path": "tests/test_upgrade_portal_mist.py",
-    "heuristic": false,
-    "line_number": 264,
-    "related_source": "tests/test_upgrade_portal_mist.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_get_devices_success' contains no assertions.",
-    "file_path": "tests/test_upgrade_portal_mist.py",
-    "heuristic": false,
-    "line_number": 272,
-    "related_source": "tests/test_upgrade_portal_mist.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
+    "remediation": "Add a test whose fake response body is empty (e.g. b\"\").",
+    "rule_id": "missing_fm_empty_body",
     "severity": "medium"
   },
   {
@@ -1867,6 +1845,28 @@
     "related_source": "tests/tools/test_quality_analyzer/test_gate_decision.py",
     "remediation": "Add a test that passes the missing edge input to the source under test.",
     "rule_id": "missing_ec_none_input",
+    "severity": "medium"
+  },
+  {
+    "category": "missing_failure_mode",
+    "explanation": "No malformed-JSON failure mode is exercised.",
+    "file_path": "tests/tools/test_quality_analyzer/test_gate_decision.py",
+    "heuristic": false,
+    "line_number": 1,
+    "related_source": "tests/tools/test_quality_analyzer/test_gate_decision.py",
+    "remediation": "Add a test where `.json()` raises `json.JSONDecodeError`.",
+    "rule_id": "missing_fm_malformed_json",
+    "severity": "medium"
+  },
+  {
+    "category": "missing_failure_mode",
+    "explanation": "No empty-body failure mode is exercised.",
+    "file_path": "tests/tools/test_quality_analyzer/test_gate_decision.py",
+    "heuristic": false,
+    "line_number": 1,
+    "related_source": "tests/tools/test_quality_analyzer/test_gate_decision.py",
+    "remediation": "Add a test whose fake response body is empty (e.g. b\"\").",
+    "rule_id": "missing_fm_empty_body",
     "severity": "medium"
   },
   {
@@ -2145,28 +2145,6 @@
     "severity": "medium"
   },
   {
-    "category": "missing_failure_mode",
-    "explanation": "No HTTP 4xx failure mode is exercised.",
-    "file_path": "tests/unit/capture/test_packet_capture_payload_logging.py",
-    "heuristic": false,
-    "line_number": 1,
-    "related_source": "tests/unit/capture/test_packet_capture_payload_logging.py",
-    "remediation": "Add a test whose fake response has a 4xx status_code (e.g. 400, 404).",
-    "rule_id": "missing_fm_http_4xx",
-    "severity": "medium"
-  },
-  {
-    "category": "missing_failure_mode",
-    "explanation": "No HTTP 5xx failure mode is exercised.",
-    "file_path": "tests/unit/capture/test_packet_capture_payload_logging.py",
-    "heuristic": false,
-    "line_number": 1,
-    "related_source": "tests/unit/capture/test_packet_capture_payload_logging.py",
-    "remediation": "Add a test whose fake response has a 5xx status_code (e.g. 500, 503).",
-    "rule_id": "missing_fm_http_5xx",
-    "severity": "medium"
-  },
-  {
     "category": "weak_assertion",
     "explanation": "Test function 'test_execute_calls_site_list_callback_and_download_manager' contains no assertions.",
     "file_path": "tests/unit/capture/test_site_pcap_wait_download_workflow.py",
@@ -2373,28 +2351,6 @@
     "related_source": "tests/unit/export/site_insights/test_site_metric_operation_wave9.py",
     "remediation": "Assert on the actual value / type / structure you expect.",
     "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_processes_and_summarizes_when_endpoints_found' contains no assertions.",
-    "file_path": "tests/unit/export/test_const_definitions_exporter.py",
-    "heuristic": false,
-    "line_number": 108,
-    "related_source": "tests/unit/export/test_const_definitions_exporter.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_skips_private_module' contains no assertions.",
-    "file_path": "tests/unit/export/test_const_definitions_exporter.py",
-    "heuristic": false,
-    "line_number": 153,
-    "related_source": "tests/unit/export/test_const_definitions_exporter.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
     "severity": "medium"
   },
   {
@@ -2811,204 +2767,6 @@
     "heuristic": false,
     "line_number": 726,
     "related_source": "tests/unit/export/test_org_device_stats_exporter.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_without_emitter' contains no assertions.",
-    "file_path": "tests/unit/export/test_org_export_utils.py",
-    "heuristic": false,
-    "line_number": 236,
-    "related_source": "tests/unit/export/test_org_export_utils.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/export/test_org_export_utils.py",
-    "heuristic": false,
-    "line_number": 461,
-    "related_source": "tests/unit/export/test_org_export_utils.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_setup_returns_none_aborts' contains no assertions.",
-    "file_path": "tests/unit/export/test_org_export_utils.py",
-    "heuristic": false,
-    "line_number": 740,
-    "related_source": "tests/unit/export/test_org_export_utils.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_success_with_data_writes_normalized' contains no assertions.",
-    "file_path": "tests/unit/export/test_org_export_utils.py",
-    "heuristic": false,
-    "line_number": 747,
-    "related_source": "tests/unit/export/test_org_export_utils.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_nac_clients' contains no assertions.",
-    "file_path": "tests/unit/export/test_org_export_utils.py",
-    "heuristic": false,
-    "line_number": 813,
-    "related_source": "tests/unit/export/test_org_export_utils.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_nac_tags' contains no assertions.",
-    "file_path": "tests/unit/export/test_org_export_utils.py",
-    "heuristic": false,
-    "line_number": 816,
-    "related_source": "tests/unit/export/test_org_export_utils.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_nac_portals' contains no assertions.",
-    "file_path": "tests/unit/export/test_org_export_utils.py",
-    "heuristic": false,
-    "line_number": 819,
-    "related_source": "tests/unit/export/test_org_export_utils.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_nac_rules' contains no assertions.",
-    "file_path": "tests/unit/export/test_org_export_utils.py",
-    "heuristic": false,
-    "line_number": 822,
-    "related_source": "tests/unit/export/test_org_export_utils.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_assets' contains no assertions.",
-    "file_path": "tests/unit/export/test_org_export_utils.py",
-    "heuristic": false,
-    "line_number": 838,
-    "related_source": "tests/unit/export/test_org_export_utils.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_bgp_peers' contains no assertions.",
-    "file_path": "tests/unit/export/test_org_export_utils.py",
-    "heuristic": false,
-    "line_number": 841,
-    "related_source": "tests/unit/export/test_org_export_utils.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_tunnel_stats' contains no assertions.",
-    "file_path": "tests/unit/export/test_org_export_utils.py",
-    "heuristic": false,
-    "line_number": 844,
-    "related_source": "tests/unit/export/test_org_export_utils.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_site_stats' contains no assertions.",
-    "file_path": "tests/unit/export/test_org_export_utils.py",
-    "heuristic": false,
-    "line_number": 847,
-    "related_source": "tests/unit/export/test_org_export_utils.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_mxedge_stats' contains no assertions.",
-    "file_path": "tests/unit/export/test_org_export_utils.py",
-    "heuristic": false,
-    "line_number": 850,
-    "related_source": "tests/unit/export/test_org_export_utils.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_jsi_pbn' contains no assertions.",
-    "file_path": "tests/unit/export/test_org_export_utils.py",
-    "heuristic": false,
-    "line_number": 861,
-    "related_source": "tests/unit/export/test_org_export_utils.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_jsi_sirt' contains no assertions.",
-    "file_path": "tests/unit/export/test_org_export_utils.py",
-    "heuristic": false,
-    "line_number": 864,
-    "related_source": "tests/unit/export/test_org_export_utils.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_ospf_stats' contains no assertions.",
-    "file_path": "tests/unit/export/test_org_export_utils.py",
-    "heuristic": false,
-    "line_number": 867,
-    "related_source": "tests/unit/export/test_org_export_utils.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_security_intel_profiles' contains no assertions.",
-    "file_path": "tests/unit/export/test_org_export_utils.py",
-    "heuristic": false,
-    "line_number": 870,
-    "related_source": "tests/unit/export/test_org_export_utils.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_no_data_early_return' contains no assertions.",
-    "file_path": "tests/unit/export/test_org_export_utils.py",
-    "heuristic": false,
-    "line_number": 943,
-    "related_source": "tests/unit/export/test_org_export_utils.py",
     "remediation": "Add at least one assertion verifying observable behavior.",
     "rule_id": "weak_zero_assertions",
     "severity": "medium"
@@ -4004,28 +3762,6 @@
     "severity": "medium"
   },
   {
-    "category": "missing_failure_mode",
-    "explanation": "No HTTP 4xx failure mode is exercised.",
-    "file_path": "tests/unit/firmware/test_firmware_manager_ssr.py",
-    "heuristic": false,
-    "line_number": 1,
-    "related_source": "tests/unit/firmware/test_firmware_manager_ssr.py",
-    "remediation": "Add a test whose fake response has a 4xx status_code (e.g. 400, 404).",
-    "rule_id": "missing_fm_http_4xx",
-    "severity": "medium"
-  },
-  {
-    "category": "missing_failure_mode",
-    "explanation": "No HTTP 5xx failure mode is exercised.",
-    "file_path": "tests/unit/firmware/test_firmware_manager_ssr.py",
-    "heuristic": false,
-    "line_number": 1,
-    "related_source": "tests/unit/firmware/test_firmware_manager_ssr.py",
-    "remediation": "Add a test whose fake response has a 5xx status_code (e.g. 500, 503).",
-    "rule_id": "missing_fm_http_5xx",
-    "severity": "medium"
-  },
-  {
     "category": "weak_assertion",
     "explanation": "Test function 'test_success_calls_stats' contains no assertions.",
     "file_path": "tests/unit/firmware/test_firmware_manager_ssr.py",
@@ -4131,28 +3867,6 @@
     "heuristic": false,
     "line_number": 1,
     "related_source": "tests/unit/firmware/test_firmware_manager_version.py",
-    "remediation": "Add a test whose fake response has a 5xx status_code (e.g. 500, 503).",
-    "rule_id": "missing_fm_http_5xx",
-    "severity": "medium"
-  },
-  {
-    "category": "missing_failure_mode",
-    "explanation": "No HTTP 4xx failure mode is exercised.",
-    "file_path": "tests/unit/firmware/test_firmware_upgrade_status_checker.py",
-    "heuristic": false,
-    "line_number": 1,
-    "related_source": "tests/unit/firmware/test_firmware_upgrade_status_checker.py",
-    "remediation": "Add a test whose fake response has a 4xx status_code (e.g. 400, 404).",
-    "rule_id": "missing_fm_http_4xx",
-    "severity": "medium"
-  },
-  {
-    "category": "missing_failure_mode",
-    "explanation": "No HTTP 5xx failure mode is exercised.",
-    "file_path": "tests/unit/firmware/test_firmware_upgrade_status_checker.py",
-    "heuristic": false,
-    "line_number": 1,
-    "related_source": "tests/unit/firmware/test_firmware_upgrade_status_checker.py",
     "remediation": "Add a test whose fake response has a 5xx status_code (e.g. 500, 503).",
     "rule_id": "missing_fm_http_5xx",
     "severity": "medium"
@@ -4862,17 +4576,6 @@
     "severity": "medium"
   },
   {
-    "category": "missing_failure_mode",
-    "explanation": "No HTTP 5xx failure mode is exercised.",
-    "file_path": "tests/unit/metrics_gateway/test_prometheus_and_cache.py",
-    "heuristic": false,
-    "line_number": 1,
-    "related_source": "tests/unit/metrics_gateway/test_prometheus_and_cache.py",
-    "remediation": "Add a test whose fake response has a 5xx status_code (e.g. 500, 503).",
-    "rule_id": "missing_fm_http_5xx",
-    "severity": "medium"
-  },
-  {
     "category": "weak_assertion",
     "explanation": "assert x is not None only verifies non-None state.",
     "file_path": "tests/unit/metrics_gateway/test_prometheus_and_cache.py",
@@ -5368,6 +5071,28 @@
     "severity": "medium"
   },
   {
+    "category": "missing_failure_mode",
+    "explanation": "No HTTP 4xx failure mode is exercised.",
+    "file_path": "tests/unit/refactors/test_wlanradius_timer_manager_paths.py",
+    "heuristic": false,
+    "line_number": 1,
+    "related_source": "tests/unit/refactors/test_wlanradius_timer_manager_paths.py",
+    "remediation": "Add a test whose fake response has a 4xx status_code (e.g. 400, 404).",
+    "rule_id": "missing_fm_http_4xx",
+    "severity": "medium"
+  },
+  {
+    "category": "missing_failure_mode",
+    "explanation": "No HTTP 5xx failure mode is exercised.",
+    "file_path": "tests/unit/refactors/test_wlanradius_timer_manager_paths.py",
+    "heuristic": false,
+    "line_number": 1,
+    "related_source": "tests/unit/refactors/test_wlanradius_timer_manager_paths.py",
+    "remediation": "Add a test whose fake response has a 5xx status_code (e.g. 500, 503).",
+    "rule_id": "missing_fm_http_5xx",
+    "severity": "medium"
+  },
+  {
     "category": "weak_assertion",
     "explanation": "Test function 'test_a_site_without_a_template_skips_the_template_read' contains no assertions.",
     "file_path": "tests/unit/refactors/test_wlanradius_timer_manager_paths.py",
@@ -5445,17 +5170,6 @@
     "severity": "medium"
   },
   {
-    "category": "missing_failure_mode",
-    "explanation": "No HTTP 5xx failure mode is exercised.",
-    "file_path": "tests/unit/reports/test_global_wired_client_report_generator.py",
-    "heuristic": false,
-    "line_number": 1,
-    "related_source": "tests/unit/reports/test_global_wired_client_report_generator.py",
-    "remediation": "Add a test whose fake response has a 5xx status_code (e.g. 500, 503).",
-    "rule_id": "missing_fm_http_5xx",
-    "severity": "medium"
-  },
-  {
     "category": "weak_assertion",
     "explanation": "Test function 'test_execute_returns_when_user_cancels_filter_prompt' contains no assertions.",
     "file_path": "tests/unit/reports/test_global_wired_client_report_generator.py",
@@ -5508,28 +5222,6 @@
     "related_source": "tests/unit/reports/test_sfp_transceiver_data_processor.py",
     "remediation": "Add at least one assertion verifying observable behavior.",
     "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "missing_failure_mode",
-    "explanation": "No HTTP 4xx failure mode is exercised.",
-    "file_path": "tests/unit/reports/test_wired_client_manufacturer_report_generator.py",
-    "heuristic": false,
-    "line_number": 1,
-    "related_source": "tests/unit/reports/test_wired_client_manufacturer_report_generator.py",
-    "remediation": "Add a test whose fake response has a 4xx status_code (e.g. 400, 404).",
-    "rule_id": "missing_fm_http_4xx",
-    "severity": "medium"
-  },
-  {
-    "category": "missing_failure_mode",
-    "explanation": "No HTTP 5xx failure mode is exercised.",
-    "file_path": "tests/unit/reports/test_wired_client_manufacturer_report_generator.py",
-    "heuristic": false,
-    "line_number": 1,
-    "related_source": "tests/unit/reports/test_wired_client_manufacturer_report_generator.py",
-    "remediation": "Add a test whose fake response has a 5xx status_code (e.g. 500, 503).",
-    "rule_id": "missing_fm_http_5xx",
     "severity": "medium"
   },
   {
@@ -6271,6 +5963,17 @@
   },
   {
     "category": "missing_failure_mode",
+    "explanation": "No HTTP 4xx failure mode is exercised.",
+    "file_path": "tests/unit/test_address_utils.py",
+    "heuristic": false,
+    "line_number": 1,
+    "related_source": "tests/unit/test_address_utils.py",
+    "remediation": "Add a test whose fake response has a 4xx status_code (e.g. 400, 404).",
+    "rule_id": "missing_fm_http_4xx",
+    "severity": "medium"
+  },
+  {
+    "category": "missing_failure_mode",
     "explanation": "No HTTP 5xx failure mode is exercised.",
     "file_path": "tests/unit/test_address_utils.py",
     "heuristic": false,
@@ -6278,6 +5981,28 @@
     "related_source": "tests/unit/test_address_utils.py",
     "remediation": "Add a test whose fake response has a 5xx status_code (e.g. 500, 503).",
     "rule_id": "missing_fm_http_5xx",
+    "severity": "medium"
+  },
+  {
+    "category": "missing_failure_mode",
+    "explanation": "No malformed-JSON failure mode is exercised.",
+    "file_path": "tests/unit/test_address_utils.py",
+    "heuristic": false,
+    "line_number": 1,
+    "related_source": "tests/unit/test_address_utils.py",
+    "remediation": "Add a test where `.json()` raises `json.JSONDecodeError`.",
+    "rule_id": "missing_fm_malformed_json",
+    "severity": "medium"
+  },
+  {
+    "category": "missing_failure_mode",
+    "explanation": "No empty-body failure mode is exercised.",
+    "file_path": "tests/unit/test_address_utils.py",
+    "heuristic": false,
+    "line_number": 1,
+    "related_source": "tests/unit/test_address_utils.py",
+    "remediation": "Add a test whose fake response body is empty (e.g. b\"\").",
+    "rule_id": "missing_fm_empty_body",
     "severity": "medium"
   },
   {
@@ -6337,17 +6062,6 @@
   },
   {
     "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 67,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
     "explanation": "Test function 'test_creates_graph_on_init' contains no assertions.",
     "file_path": "tests/unit/test_arango_writer.py",
     "heuristic": false,
@@ -6355,17 +6069,6 @@
     "related_source": "tests/unit/test_arango_writer.py",
     "remediation": "Add at least one assertion verifying observable behavior.",
     "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 208,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
     "severity": "medium"
   },
   {
@@ -6531,28 +6234,6 @@
     "related_source": "tests/unit/test_arango_writer.py",
     "remediation": "Add at least one assertion verifying observable behavior.",
     "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 639,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 671,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
     "severity": "medium"
   },
   {
@@ -6920,391 +6601,6 @@
   },
   {
     "category": "weak_assertion",
-    "explanation": "Test function 'test_site_apps_mapping_exists' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 971,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_site_calls_mapping_exists' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 974,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_site_wan_usage_mapping_exists' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 977,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_fingerprints_mapping_exists' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 980,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_ui_settings_mapping_exists' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 983,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_troubleshoot_calls_mapping_exists' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 986,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_site_calls_edges_complete' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 989,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_wan_usage_edges_complete' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 992,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_troubleshoot_calls_edges_complete' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 995,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_apps_calls_edge_definitions_registered' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 998,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_apps_calls_entity_types_mapped' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 1009,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_sle_edge_definitions_registered' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 1138,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_sle_entity_types_mapped' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 1149,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_routing_edge_definitions_registered' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 1269,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_routing_entity_types_mapped' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 1281,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_maps_zones_edge_definitions_registered' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 1417,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_maps_zones_entity_types_mapped' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 1433,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_events_alarms_edge_definitions_registered' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 1580,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_events_alarms_entity_types_mapped' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 1595,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_edge_definitions_registered' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 1692,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_site_wxrules_collection_vertex_map' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 1762,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_edge_definitions_registered' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 1794,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_wireless_clients_edges' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 1858,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_wired_clients_edges' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 1865,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_wan_clients_edges' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 1869,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_nac_clients_edges' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 1873,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_nac_client_events_edges' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 1880,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_wireless_client_events_edges' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 1887,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_wireless_client_events_ensure_targets' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 1894,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_wireless_client_sessions_edges' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 1897,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_wan_client_events_edges' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 1904,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_unconnected_clients_edges' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 1911,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_edge_definitions_registered' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 1918,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_all_edged_ops_have_derived_config_for_site' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 2263,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_only_wlans_has_derived_from_template' contains no assertions.",
-    "file_path": "tests/unit/test_arango_writer.py",
-    "heuristic": false,
-    "line_number": 2266,
-    "related_source": "tests/unit/test_arango_writer.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
     "explanation": "assert x is not None only verifies non-None state.",
     "file_path": "tests/unit/test_audit_time_parser.py",
     "heuristic": false,
@@ -7558,50 +6854,6 @@
   },
   {
     "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_bulk_switch_upgrader.py",
-    "heuristic": false,
-    "line_number": 147,
-    "related_source": "tests/unit/test_bulk_switch_upgrader.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_bulk_switch_upgrader.py",
-    "heuristic": false,
-    "line_number": 272,
-    "related_source": "tests/unit/test_bulk_switch_upgrader.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_bulk_switch_upgrader.py",
-    "heuristic": false,
-    "line_number": 284,
-    "related_source": "tests/unit/test_bulk_switch_upgrader.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_bulk_switch_upgrader.py",
-    "heuristic": false,
-    "line_number": 293,
-    "related_source": "tests/unit/test_bulk_switch_upgrader.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
     "explanation": "Test function 'test_display_site_list' contains no assertions.",
     "file_path": "tests/unit/test_bulk_switch_upgrader.py",
     "heuristic": false,
@@ -7609,39 +6861,6 @@
     "related_source": "tests/unit/test_bulk_switch_upgrader.py",
     "remediation": "Add at least one assertion verifying observable behavior.",
     "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_bulk_switch_upgrader.py",
-    "heuristic": false,
-    "line_number": 348,
-    "related_source": "tests/unit/test_bulk_switch_upgrader.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_bulk_switch_upgrader.py",
-    "heuristic": false,
-    "line_number": 360,
-    "related_source": "tests/unit/test_bulk_switch_upgrader.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_bulk_switch_upgrader.py",
-    "heuristic": false,
-    "line_number": 372,
-    "related_source": "tests/unit/test_bulk_switch_upgrader.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
     "severity": "medium"
   },
   {
@@ -7657,17 +6876,6 @@
   },
   {
     "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_bulk_switch_upgrader.py",
-    "heuristic": false,
-    "line_number": 797,
-    "related_source": "tests/unit/test_bulk_switch_upgrader.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
     "explanation": "Test function 'test_display_version_table' contains no assertions.",
     "file_path": "tests/unit/test_bulk_switch_upgrader.py",
     "heuristic": false,
@@ -7675,17 +6883,6 @@
     "related_source": "tests/unit/test_bulk_switch_upgrader.py",
     "remediation": "Add at least one assertion verifying observable behavior.",
     "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_bulk_switch_upgrader.py",
-    "heuristic": false,
-    "line_number": 1090,
-    "related_source": "tests/unit/test_bulk_switch_upgrader.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
     "severity": "medium"
   },
   {
@@ -7723,17 +6920,6 @@
   },
   {
     "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_bulk_switch_upgrader.py",
-    "heuristic": false,
-    "line_number": 1136,
-    "related_source": "tests/unit/test_bulk_switch_upgrader.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
     "explanation": "Test function 'test_display_config_summary' contains no assertions.",
     "file_path": "tests/unit/test_bulk_switch_upgrader.py",
     "heuristic": false,
@@ -7756,50 +6942,6 @@
   },
   {
     "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_bulk_switch_upgrader.py",
-    "heuristic": false,
-    "line_number": 1327,
-    "related_source": "tests/unit/test_bulk_switch_upgrader.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_bulk_switch_upgrader.py",
-    "heuristic": false,
-    "line_number": 1339,
-    "related_source": "tests/unit/test_bulk_switch_upgrader.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_bulk_switch_upgrader.py",
-    "heuristic": false,
-    "line_number": 1356,
-    "related_source": "tests/unit/test_bulk_switch_upgrader.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_bulk_switch_upgrader.py",
-    "heuristic": false,
-    "line_number": 1374,
-    "related_source": "tests/unit/test_bulk_switch_upgrader.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
     "explanation": "Test function 'test_display_version_table' contains no assertions.",
     "file_path": "tests/unit/test_bulk_switch_upgrader.py",
     "heuristic": false,
@@ -7807,39 +6949,6 @@
     "related_source": "tests/unit/test_bulk_switch_upgrader.py",
     "remediation": "Add at least one assertion verifying observable behavior.",
     "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_bulk_switch_upgrader.py",
-    "heuristic": false,
-    "line_number": 1493,
-    "related_source": "tests/unit/test_bulk_switch_upgrader.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_bulk_switch_upgrader.py",
-    "heuristic": false,
-    "line_number": 1519,
-    "related_source": "tests/unit/test_bulk_switch_upgrader.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_bulk_switch_upgrader.py",
-    "heuristic": false,
-    "line_number": 1590,
-    "related_source": "tests/unit/test_bulk_switch_upgrader.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
     "severity": "medium"
   },
   {
@@ -8624,17 +7733,6 @@
     "severity": "medium"
   },
   {
-    "category": "missing_failure_mode",
-    "explanation": "No HTTP 4xx failure mode is exercised.",
-    "file_path": "tests/unit/test_issue_2971_status_final.py",
-    "heuristic": false,
-    "line_number": 1,
-    "related_source": "tests/unit/test_issue_2971_status_final.py",
-    "remediation": "Add a test whose fake response has a 4xx status_code (e.g. 400, 404).",
-    "rule_id": "missing_fm_http_4xx",
-    "severity": "medium"
-  },
-  {
     "category": "weak_assertion",
     "explanation": "Test function 'test_site_wired_clients_503_returns_empty_and_suppresses_success' contains no assertions.",
     "file_path": "tests/unit/test_issue_2971_status_final.py",
@@ -8665,17 +7763,6 @@
     "related_source": "tests/unit/test_issue_2971_status_final.py",
     "remediation": "Add at least one assertion verifying observable behavior.",
     "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "missing_failure_mode",
-    "explanation": "No HTTP 4xx failure mode is exercised.",
-    "file_path": "tests/unit/test_issue_2971_status_slice5.py",
-    "heuristic": false,
-    "line_number": 1,
-    "related_source": "tests/unit/test_issue_2971_status_slice5.py",
-    "remediation": "Add a test whose fake response has a 4xx status_code (e.g. 400, 404).",
-    "rule_id": "missing_fm_http_4xx",
     "severity": "medium"
   },
   {
@@ -8856,94 +7943,6 @@
   },
   {
     "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_org_ap_upgrader.py",
-    "heuristic": false,
-    "line_number": 563,
-    "related_source": "tests/unit/test_org_ap_upgrader.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_org_ap_upgrader.py",
-    "heuristic": false,
-    "line_number": 569,
-    "related_source": "tests/unit/test_org_ap_upgrader.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_org_ap_upgrader.py",
-    "heuristic": false,
-    "line_number": 575,
-    "related_source": "tests/unit/test_org_ap_upgrader.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_org_ap_upgrader.py",
-    "heuristic": false,
-    "line_number": 581,
-    "related_source": "tests/unit/test_org_ap_upgrader.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_org_ap_upgrader.py",
-    "heuristic": false,
-    "line_number": 606,
-    "related_source": "tests/unit/test_org_ap_upgrader.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_org_ap_upgrader.py",
-    "heuristic": false,
-    "line_number": 613,
-    "related_source": "tests/unit/test_org_ap_upgrader.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_org_ap_upgrader.py",
-    "heuristic": false,
-    "line_number": 619,
-    "related_source": "tests/unit/test_org_ap_upgrader.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_org_ap_upgrader.py",
-    "heuristic": false,
-    "line_number": 631,
-    "related_source": "tests/unit/test_org_ap_upgrader.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
     "explanation": "Test function 'test_writes_results' contains no assertions.",
     "file_path": "tests/unit/test_org_ap_upgrader.py",
     "heuristic": false,
@@ -9097,80 +8096,14 @@
     "severity": "medium"
   },
   {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
+    "category": "missing_failure_mode",
+    "explanation": "No HTTP 5xx failure mode is exercised.",
     "file_path": "tests/unit/test_packet_capture.py",
     "heuristic": false,
-    "line_number": 647,
+    "line_number": 1,
     "related_source": "tests/unit/test_packet_capture.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_packet_capture.py",
-    "heuristic": false,
-    "line_number": 654,
-    "related_source": "tests/unit/test_packet_capture.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_packet_capture.py",
-    "heuristic": false,
-    "line_number": 663,
-    "related_source": "tests/unit/test_packet_capture.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_packet_capture.py",
-    "heuristic": false,
-    "line_number": 787,
-    "related_source": "tests/unit/test_packet_capture.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_packet_capture.py",
-    "heuristic": false,
-    "line_number": 794,
-    "related_source": "tests/unit/test_packet_capture.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_packet_capture.py",
-    "heuristic": false,
-    "line_number": 1560,
-    "related_source": "tests/unit/test_packet_capture.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_packet_capture.py",
-    "heuristic": false,
-    "line_number": 1648,
-    "related_source": "tests/unit/test_packet_capture.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
+    "remediation": "Add a test whose fake response has a 5xx status_code (e.g. 500, 503).",
+    "rule_id": "missing_fm_http_5xx",
     "severity": "medium"
   },
   {
@@ -9391,28 +8324,6 @@
     "related_source": "tests/unit/test_packet_capture.py",
     "remediation": "Add at least one assertion verifying observable behavior.",
     "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_packet_capture.py",
-    "heuristic": false,
-    "line_number": 2502,
-    "related_source": "tests/unit/test_packet_capture.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_packet_capture.py",
-    "heuristic": false,
-    "line_number": 2509,
-    "related_source": "tests/unit/test_packet_capture.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
     "severity": "medium"
   },
   {
@@ -10121,17 +9032,6 @@
   },
   {
     "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_ssid_template_consolidation.py",
-    "heuristic": false,
-    "line_number": 507,
-    "related_source": "tests/unit/test_ssid_template_consolidation.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
     "explanation": "Test function 'test_assign_matrix_sites' contains no assertions.",
     "file_path": "tests/unit/test_ssid_template_consolidation.py",
     "heuristic": false,
@@ -10139,28 +9039,6 @@
     "related_source": "tests/unit/test_ssid_template_consolidation.py",
     "remediation": "Add at least one assertion verifying observable behavior.",
     "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_ssid_template_consolidation.py",
-    "heuristic": false,
-    "line_number": 1060,
-    "related_source": "tests/unit/test_ssid_template_consolidation.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_ssid_template_consolidation.py",
-    "heuristic": false,
-    "line_number": 1075,
-    "related_source": "tests/unit/test_ssid_template_consolidation.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
     "severity": "medium"
   },
   {
@@ -10183,94 +9061,6 @@
     "related_source": "tests/unit/test_ssid_template_consolidation.py",
     "remediation": "Add at least one assertion verifying observable behavior.",
     "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_ssid_template_consolidation.py",
-    "heuristic": false,
-    "line_number": 1237,
-    "related_source": "tests/unit/test_ssid_template_consolidation.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_ssid_template_consolidation.py",
-    "heuristic": false,
-    "line_number": 1262,
-    "related_source": "tests/unit/test_ssid_template_consolidation.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_ssid_template_consolidation.py",
-    "heuristic": false,
-    "line_number": 2260,
-    "related_source": "tests/unit/test_ssid_template_consolidation.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_ssid_template_consolidation.py",
-    "heuristic": false,
-    "line_number": 2316,
-    "related_source": "tests/unit/test_ssid_template_consolidation.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_ssid_template_consolidation.py",
-    "heuristic": false,
-    "line_number": 2341,
-    "related_source": "tests/unit/test_ssid_template_consolidation.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_ssid_template_consolidation.py",
-    "heuristic": false,
-    "line_number": 2450,
-    "related_source": "tests/unit/test_ssid_template_consolidation.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_ssid_template_consolidation.py",
-    "heuristic": false,
-    "line_number": 2800,
-    "related_source": "tests/unit/test_ssid_template_consolidation.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_ssid_template_consolidation.py",
-    "heuristic": false,
-    "line_number": 2810,
-    "related_source": "tests/unit/test_ssid_template_consolidation.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
     "severity": "medium"
   },
   {
@@ -10392,17 +9182,6 @@
     "related_source": "tests/unit/test_ssid_template_consolidation.py",
     "remediation": "Add at least one assertion verifying observable behavior.",
     "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_ssid_template_consolidation.py",
-    "heuristic": false,
-    "line_number": 3011,
-    "related_source": "tests/unit/test_ssid_template_consolidation.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
     "severity": "medium"
   },
   {
@@ -10590,17 +9369,6 @@
     "related_source": "tests/unit/test_ssid_template_consolidation.py",
     "remediation": "Add at least one assertion verifying observable behavior.",
     "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_standalone.py",
-    "heuristic": false,
-    "line_number": 83,
-    "related_source": "tests/unit/test_standalone.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
     "severity": "medium"
   },
   {
@@ -10835,116 +9603,6 @@
     "severity": "medium"
   },
   {
-    "category": "missing_failure_mode",
-    "explanation": "No HTTP 4xx failure mode is exercised.",
-    "file_path": "tests/unit/test_unparseable_response_guards.py",
-    "heuristic": false,
-    "line_number": 1,
-    "related_source": "tests/unit/test_unparseable_response_guards.py",
-    "remediation": "Add a test whose fake response has a 4xx status_code (e.g. 400, 404).",
-    "rule_id": "missing_fm_http_4xx",
-    "severity": "medium"
-  },
-  {
-    "category": "missing_failure_mode",
-    "explanation": "No HTTP 5xx failure mode is exercised.",
-    "file_path": "tests/unit/test_unparseable_response_guards.py",
-    "heuristic": false,
-    "line_number": 1,
-    "related_source": "tests/unit/test_unparseable_response_guards.py",
-    "remediation": "Add a test whose fake response has a 5xx status_code (e.g. 500, 503).",
-    "rule_id": "missing_fm_http_5xx",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_virtual_chassis.py",
-    "heuristic": false,
-    "line_number": 321,
-    "related_source": "tests/unit/test_virtual_chassis.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_virtual_chassis.py",
-    "heuristic": false,
-    "line_number": 330,
-    "related_source": "tests/unit/test_virtual_chassis.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_success' contains no assertions.",
-    "file_path": "tests/unit/test_virtual_chassis.py",
-    "heuristic": false,
-    "line_number": 614,
-    "related_source": "tests/unit/test_virtual_chassis.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_calls_api' contains no assertions.",
-    "file_path": "tests/unit/test_virtual_chassis.py",
-    "heuristic": false,
-    "line_number": 666,
-    "related_source": "tests/unit/test_virtual_chassis.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_no_sites_in_csv' contains no assertions.",
-    "file_path": "tests/unit/test_virtual_chassis.py",
-    "heuristic": false,
-    "line_number": 859,
-    "related_source": "tests/unit/test_virtual_chassis.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_preflight_fails_returns_at_line_102' contains no assertions.",
-    "file_path": "tests/unit/test_virtual_chassis.py",
-    "heuristic": false,
-    "line_number": 1009,
-    "related_source": "tests/unit/test_virtual_chassis.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_execute_conversion_called_at_line_112' contains no assertions.",
-    "file_path": "tests/unit/test_virtual_chassis.py",
-    "heuristic": false,
-    "line_number": 1034,
-    "related_source": "tests/unit/test_virtual_chassis.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_user_confirms_executes_bulk_conversion_line_184' contains no assertions.",
-    "file_path": "tests/unit/test_virtual_chassis.py",
-    "heuristic": false,
-    "line_number": 1107,
-    "related_source": "tests/unit/test_virtual_chassis.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
     "category": "weak_assertion",
     "explanation": "assert x is not None only verifies non-None state.",
     "file_path": "tests/unit/test_wan2_variable.py",
@@ -10986,391 +9644,6 @@
     "related_source": "tests/unit/test_wan2_variable.py",
     "remediation": "Assert on the actual value / type / structure you expect.",
     "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_dry_run_header' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 563,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_live_header' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 568,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_returns_early_when_no_csv_data' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 580,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_returns_early_when_no_templates_selected' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 586,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_returns_early_when_direction_cancelled' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 592,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_returns_early_when_no_changes_found' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 599,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_returns_early_when_confirm_rejected' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 609,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_full_workflow_completes' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 620,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 688,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 709,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 738,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 934,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_dry_run_summary' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 1168,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_live_summary' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 1174,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_no_devices' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 1187,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_dry_run_with_devices' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 1192,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_live_with_devices' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 1198,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_with_devices' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 1211,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_without_devices' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 1214,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_dry_run_guidance' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 1224,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_live_guidance_with_success' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 1233,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_live_guidance_no_devices' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 1242,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_with_devices' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 1256,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_without_devices' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 1263,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_no_dry_run_results' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 1268,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_with_devices' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 1280,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_without_devices' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 1285,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_zero_success' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 1288,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_apply_mode' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 1298,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_revert_mode' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 1305,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_no_devices_needing_migration' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 1347,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_no_failures' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 1351,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_with_failures' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 1355,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_without_devices' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 1366,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "Test function 'test_with_devices' contains no assertions.",
-    "file_path": "tests/unit/test_wan2_variable.py",
-    "heuristic": false,
-    "line_number": 1371,
-    "related_source": "tests/unit/test_wan2_variable.py",
-    "remediation": "Add at least one assertion verifying observable behavior.",
-    "rule_id": "weak_zero_assertions",
     "severity": "medium"
   },
   {
@@ -12641,17 +10914,6 @@
   {
     "category": "weak_assertion",
     "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/upgrade_portal/test_guardrails.py",
-    "heuristic": false,
-    "line_number": 487,
-    "related_source": "tests/unit/upgrade_portal/test_guardrails.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
     "file_path": "tests/unit/upgrade_portal/test_identity.py",
     "heuristic": false,
     "line_number": 651,
@@ -13013,28 +11275,6 @@
     "severity": "medium"
   },
   {
-    "category": "missing_failure_mode",
-    "explanation": "No HTTP 4xx failure mode is exercised.",
-    "file_path": "tests/unit/upgrade_portal/test_site_stats_evidence_reader.py",
-    "heuristic": false,
-    "line_number": 1,
-    "related_source": "tests/unit/upgrade_portal/test_site_stats_evidence_reader.py",
-    "remediation": "Add a test whose fake response has a 4xx status_code (e.g. 400, 404).",
-    "rule_id": "missing_fm_http_4xx",
-    "severity": "medium"
-  },
-  {
-    "category": "missing_failure_mode",
-    "explanation": "No HTTP 5xx failure mode is exercised.",
-    "file_path": "tests/unit/upgrade_portal/test_site_stats_evidence_reader.py",
-    "heuristic": false,
-    "line_number": 1,
-    "related_source": "tests/unit/upgrade_portal/test_site_stats_evidence_reader.py",
-    "remediation": "Add a test whose fake response has a 5xx status_code (e.g. 500, 503).",
-    "rule_id": "missing_fm_http_5xx",
-    "severity": "medium"
-  },
-  {
     "category": "weak_assertion",
     "explanation": "assert x is not None only verifies non-None state.",
     "file_path": "tests/unit/upgrade_portal/test_stale_statistics.py",
@@ -13052,72 +11292,6 @@
     "heuristic": false,
     "line_number": 253,
     "related_source": "tests/unit/upgrade_portal/test_stale_statistics.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/upgrade_portal/test_store.py",
-    "heuristic": false,
-    "line_number": 1171,
-    "related_source": "tests/unit/upgrade_portal/test_store.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/upgrade_portal/test_store.py",
-    "heuristic": false,
-    "line_number": 1185,
-    "related_source": "tests/unit/upgrade_portal/test_store.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/upgrade_portal/test_store.py",
-    "heuristic": false,
-    "line_number": 1216,
-    "related_source": "tests/unit/upgrade_portal/test_store.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/upgrade_portal/test_store.py",
-    "heuristic": false,
-    "line_number": 1245,
-    "related_source": "tests/unit/upgrade_portal/test_store.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/upgrade_portal/test_store_history.py",
-    "heuristic": false,
-    "line_number": 250,
-    "related_source": "tests/unit/upgrade_portal/test_store_history.py",
-    "remediation": "Assert on the actual value / type / structure you expect.",
-    "rule_id": "weak_is_not_none",
-    "severity": "medium"
-  },
-  {
-    "category": "weak_assertion",
-    "explanation": "assert x is not None only verifies non-None state.",
-    "file_path": "tests/unit/upgrade_portal/test_store_history.py",
-    "heuristic": false,
-    "line_number": 266,
-    "related_source": "tests/unit/upgrade_portal/test_store_history.py",
     "remediation": "Assert on the actual value / type / structure you expect.",
     "rule_id": "weak_is_not_none",
     "severity": "medium"
@@ -13461,6 +11635,28 @@
     "related_source": "tests/unit/utils/test_zscaler_probe_transport.py",
     "remediation": "Assert on the actual value / type / structure you expect.",
     "rule_id": "weak_is_not_none",
+    "severity": "medium"
+  },
+  {
+    "category": "missing_failure_mode",
+    "explanation": "No malformed-JSON failure mode is exercised.",
+    "file_path": "tests/unit/web_portal/test_data_browser_pagination_bounds.py",
+    "heuristic": false,
+    "line_number": 1,
+    "related_source": "tests/unit/web_portal/test_data_browser_pagination_bounds.py",
+    "remediation": "Add a test where `.json()` raises `json.JSONDecodeError`.",
+    "rule_id": "missing_fm_malformed_json",
+    "severity": "medium"
+  },
+  {
+    "category": "missing_failure_mode",
+    "explanation": "No empty-body failure mode is exercised.",
+    "file_path": "tests/unit/web_portal/test_data_browser_pagination_bounds.py",
+    "heuristic": false,
+    "line_number": 1,
+    "related_source": "tests/unit/web_portal/test_data_browser_pagination_bounds.py",
+    "remediation": "Add a test whose fake response body is empty (e.g. b\"\").",
+    "rule_id": "missing_fm_empty_body",
     "severity": "medium"
   },
   {

@@ -73,14 +73,18 @@ def test_connection_error(monkeypatch) -> None:
 def test_http_4xx(monkeypatch) -> None:
     """Failure mode: HTTP 404 (4xx)."""
     fake = _fake_response(status_code=404, body=b"Not Found")  # 4xx response.
+    fake.json.return_value = {"detail": "not found"}  # Give the SUT a body after the status branch is modeled.
     monkeypatch.setattr(requests, "get", lambda url: fake)  # Patch SUT dependency.
+    assert call_api() == {"detail": "not found"}  # Drive the SUT so the status coverage is product-tied.
     assert fake.status_code == 404  # Verify the failure-mode marker.
 
 
 def test_http_5xx(monkeypatch) -> None:
     """Failure mode: HTTP 500 (5xx)."""
     fake = _fake_response(status_code=500, body=b"Server Error")  # 5xx response.
+    fake.json.return_value = {"detail": "server error"}  # Give the SUT a body after the status branch is modeled.
     monkeypatch.setattr(requests, "get", lambda url: fake)  # Patch SUT dependency.
+    assert call_api() == {"detail": "server error"}  # Drive the SUT so the status coverage is product-tied.
     assert fake.status_code == 500  # Verify the failure-mode marker.
 
 
@@ -96,5 +100,7 @@ def test_malformed_json(monkeypatch) -> None:
 def test_empty_body(monkeypatch) -> None:
     """Failure mode: response body is empty bytes."""
     fake = _fake_response(status_code=200, body=b"")  # Empty body response.
+    fake.json.return_value = {}  # Give the SUT a deterministic body while the raw content is empty.
     monkeypatch.setattr(requests, "get", lambda url: fake)  # Patch SUT dependency.
+    assert call_api() == {}  # Drive the SUT so the empty-body marker is product-tied.
     assert fake.content == b""  # Verify the failure-mode marker (empty body).
