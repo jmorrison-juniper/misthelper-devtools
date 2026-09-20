@@ -130,10 +130,10 @@ class TestWorkLeaseStore:
         fixture.add_document()  # Add queue and source rows.
         store = WorkLeaseStore(fixture.database, fixture.root, lease_seconds=60)  # Initialize the queue.
         first = store.claim_next("worker-1")  # Claim the item once.
-        assert first is not None  # Prove the fixture item was claimed.
+        assert first.document_key == "doc-1"  # Prove the fixture item was claimed.
         store.fail(first.document_key, "stage failed")  # Mark the row retryable.
         second = store.claim_next("worker-2")  # Claim the failed item again.
-        assert second is not None  # Prove failed rows return to workers.
+        assert second.document_key == "doc-1"  # Prove failed rows return to workers.
         assert second.document_key == first.document_key  # Prove the same document retried.
 
 
@@ -158,7 +158,7 @@ class TestPipelineFailurePaths:
         fixture.add_document(citation_only=1)  # Mark the document as citation-only.
         queue = WorkLeaseStore(fixture.database, fixture.root)  # Initialize leases.
         item = queue.claim_next("worker-1")  # Claim the citation-only document.
-        assert item is not None  # Prove the row was eligible for the worker.
+        assert item.document_key == "doc-1"  # Prove the row was eligible for the worker.
         runner = PipelineRunner(
             PipelinePaths(fixture.root, tmp_path / "store"), queue, OrchestratorJournal(fixture.database)
         )
@@ -172,14 +172,14 @@ class TestPipelineFailurePaths:
         fixture.source.unlink()  # Remove the source file to force the join stage to fail.
         queue = WorkLeaseStore(fixture.database, fixture.root)  # Initialize leases.
         item = queue.claim_next("worker-1")  # Claim the broken document.
-        assert item is not None  # Prove the test claimed a row.
+        assert item.document_key == "doc-1"  # Prove the test claimed a row.
         runner = PipelineRunner(
             PipelinePaths(fixture.root, tmp_path / "store"), queue, OrchestratorJournal(fixture.database)
         )
         assert not runner.run(item, FakeRewriteBackend(), "worker-1", dry_run=True)  # Run the failure path.
         assert fixture.status() == "failed"  # Prove the item is retryable after failure.
         retried = queue.claim_next("worker-2")  # Claim failed work again on a later worker.
-        assert retried is not None  # Prove the failed item returned to the queue.
+        assert retried.document_key == "doc-1"  # Prove the failed item returned to the queue.
 
 
 def journal_event(document_key: str, stage: str):
