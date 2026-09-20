@@ -113,7 +113,7 @@ def test_to_record_approved_keeps_meaning() -> None:
     """An approved word keeps its meaning and has no alternatives."""
     entry = RawEntry(keyword="ACTIVE", part_of_speech="adj", approved=True, page=0, column2_lines=["a state of action"])
     record = DictionaryExtractor()._to_record(entry)  # Build the record.
-    assert record is not None  # The record was built.
+    assert isinstance(record, dict)  # WHY: the extractor must build a dictionary record.
     assert record["approved"] is True  # The word is approved.
     assert record["alternatives"] == []  # An approved word has no alternatives.
     assert record["approved_meaning"] == "a state of action"  # The meaning is kept.
@@ -123,7 +123,7 @@ def test_to_record_not_approved_keeps_alternatives() -> None:
     """A not-approved word keeps its alternatives and no meaning."""
     entry = RawEntry(keyword="accuracy", part_of_speech="n", approved=False, page=0, column2_lines=["PRECISION (n)"])
     record = DictionaryExtractor()._to_record(entry)  # Build the record.
-    assert record is not None  # The record was built.
+    assert isinstance(record, dict)  # WHY: the extractor must build a dictionary record.
     assert record["approved"] is False  # The word is not approved.
     assert record["alternatives"] == ["precision"]  # The alternative is kept.
     assert record["approved_meaning"] == ""  # A not-approved word has no meaning.
