@@ -92,6 +92,7 @@ class HttpStatusCoverageInferer(ast.NodeVisitor):
         """Initialize an empty coverage result."""
         self.coverage = HttpStatusCoverage()  # Accumulate one result while visiting the tree.
         self._status_arg_positions: dict[str, tuple[int, ...]] = {}  # Map local functions to status arg positions.
+        self._integer_constants: dict[str, int] = {}  # Map module constants to status-code integers.
 
     @classmethod
     def from_source(cls, source: str) -> HttpStatusCoverage:
@@ -102,6 +103,7 @@ class HttpStatusCoverageInferer(ast.NodeVisitor):
             return HttpStatusCoverage()  # Keep malformed test text from fabricating status coverage.
         inferer = cls()  # Build a fresh visitor for one source file.
         inferer._status_arg_positions = inferer._collect_status_arg_positions(tree)  # Learn local helper signatures.
+        inferer._integer_constants = inferer._collect_integer_constants(tree)  # Learn named status constants.
         inferer.visit(tree)  # Visit every status-related expression.
         return inferer.coverage  # Return the accumulated status families.
 
@@ -186,6 +188,21 @@ class HttpStatusCoverageInferer(ast.NodeVisitor):
                     positions[node.name] = status_positions  # Save by function name for call-site lookup.
         return positions  # Return the complete local-helper map.
 
+    def _collect_integer_constants(self, tree: ast.Module) -> dict[str, int]:
+        """Return module constants that bind one integer value."""
+        constants: dict[str, int] = {}  # Build lookup for status constants such as HTTP_SERVER_ERROR.
+        for node in tree.body:  # Only module-level constants describe shared status values.
+            if not isinstance(node, ast.Assign):  # Keep annotated and computed values outside this narrow proof.
+                continue
+            if not isinstance(node.value, ast.Constant) or not isinstance(node.value.value, int):
+                continue
+            if isinstance(node.value.value, bool):  # Boolean constants are not status codes.
+                continue
+            for target in node.targets:  # One assignment can bind several names.
+                if isinstance(target, ast.Name):  # Only plain names are safe to resolve later.
+                    constants[target.id] = node.value.value  # Save the literal value for coverage inference.
+        return constants  # Return constants for this one test module.
+
     def _is_parametrize_call(self, node: ast.Call) -> bool:
         """Return True when a call is `pytest.mark.parametrize` or `.parametrize`."""
         func = node.func  # Keep the call target in a local for readable checks.
@@ -247,9 +264,13 @@ class HttpStatusCoverageInferer(ast.NodeVisitor):
     def _integer_literals(self, node: ast.AST) -> tuple[int, ...]:
         """Return all integer literals nested inside an AST node."""
         values: list[int] = []  # Accumulate status-code candidates.
+        if isinstance(node, ast.Name) and node.id in self._integer_constants:
+            values.append(self._integer_constants[node.id])  # Resolve shared status constants in status contexts.
         for child in ast.walk(node):  # Walk nested tuples, lists, and calls.
             if isinstance(child, ast.Constant) and isinstance(child.value, int) and not isinstance(child.value, bool):
                 values.append(child.value)  # Keep plain integer literals only.
+            if isinstance(child, ast.Name) and child.id in self._integer_constants:
+                values.append(self._integer_constants[child.id])  # Resolve constants inside tuples or calls.
         return tuple(values)  # Return an immutable sequence to callers.
 
     def _constant_string(self, node: ast.AST | None) -> str | None:

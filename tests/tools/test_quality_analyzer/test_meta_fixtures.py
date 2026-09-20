@@ -252,6 +252,28 @@ def test_missing_failure_mode_detector_accepts_real_status_contexts() -> None:
     assert detector.inspected_module_count() == 1  # The detector must report that it measured the fixture.
 
 
+def test_missing_failure_mode_detector_accepts_status_constants() -> None:
+    """MissingFailureModeDetector must accept named status constants in status contexts."""
+    from tools.test_quality_analyzer.detection.missing_failure_mode import (
+        HttpStatusCoverageInferer,
+    )  # Import the status inferer under the same path as the CLI.
+
+    source = "\n".join(
+        [
+            "HTTP_NOT_FOUND = 404",
+            "HTTP_SERVER_ERROR = 503",
+            "def test_status_constants(response):",
+            "    response.status_code = HTTP_NOT_FOUND",
+            "    assert response.status_code == HTTP_SERVER_ERROR",
+        ]
+    )  # Build a minimal test module that proves named constants.
+
+    coverage = HttpStatusCoverageInferer.from_source(source)  # Infer coverage from syntax, not comments.
+
+    assert coverage.http_4xx is True  # Prove a status assignment with a constant clears 4xx.
+    assert coverage.http_5xx is True  # Prove a status assertion with a constant clears 5xx.
+
+
 def test_missing_failure_mode_detector_rejects_pasted_helper_coverage() -> None:
     """MissingFailureModeDetector must reject status coverage that never calls the source."""
     from tools.test_quality_analyzer.detection.missing_failure_mode import (
