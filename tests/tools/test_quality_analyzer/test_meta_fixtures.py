@@ -36,7 +36,6 @@ _FIXTURE_BAD = _REPO_ROOT / "tools" / "test_quality_analyzer" / "fixtures" / "ba
 _FIXTURE_GOOD = _REPO_ROOT / "tools" / "test_quality_analyzer" / "fixtures" / "good"  # Good.
 _CONFIG_PATH = _REPO_ROOT / "tools" / "test_quality_analyzer" / "config.toml"  # CLI config.
 _FROZEN_TIMESTAMP = "2026-07-14T00:00:00+00:00"  # Deterministic envelope for meta runs.
-_PLATFORM_TESTS = _REPO_ROOT / "mist-ops-platform" / "tests" / "unit" / "mist"  # Nested project test root.
 
 
 def _parse(path: Path) -> tuple[ast.Module, str]:
@@ -305,22 +304,6 @@ def test_missing_failure_mode_detector_accepts_source_call_coverage() -> None:
 
     assert findings == []  # Real source calls with 4xx and 5xx statuses must clear HTTP status findings.
     assert detector.inspected_module_count() == 1  # The detector must report that it measured the fixture.
-
-
-def test_missing_failure_mode_detector_ignores_status_value_objects() -> None:
-    """MissingFailureModeDetector must not require network failures for a value object."""
-    from tools.test_quality_analyzer.detection.missing_failure_mode import (
-        MissingFailureModeDetector,
-    )  # Import the detector under the same path as the CLI.
-
-    path = _PLATFORM_TESTS / "test_api_result.py"  # This file tests ApiResult and performs no network operation.
-    tree, source = _parse(path)  # Parse the real test that only reads status_code behavior.
-    detector = MissingFailureModeDetector()  # Use a fresh detector so the inspection count is isolated.
-
-    findings = detector.detect(path, tree, source)  # Run the rule against the historical false positive.
-
-    assert findings == []  # A value object must not produce failure-mode debt.
-    assert detector.inspected_module_count() == 0  # The detector must not count an out-of-scope module.
 
 
 def test_missing_failure_mode_detector_excludes_unreachable_mistapi_exceptions() -> None:

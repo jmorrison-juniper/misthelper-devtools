@@ -1,0 +1,343 @@
+
+
+
+# Security - Never commit sensitive files
+.env
+# WHY: `.env` alone does not cover a copy such as `.env.backup-2059` or
+# `.env.2026-08-25`. A copy holds the same API token as the original, so the
+# pattern below covers every suffix an operator adds while editing.
+.env.*
+!.env.example
+!documentation/sample.env
+
+# Copyrighted standard - do not redistribute (ASD-STE100 license restricts sharing)
+# The distilled guide documentation/ASD-STE100_writing-guide.md is committed instead.
+documentation/ASD-STE100_ISSUE9.pdf
+
+# STE linter dictionary - generated locally from the licensed PDF, never committed
+data/ste_dictionary.json
+
+# Vendor reference corpus - do not redistribute (Juniper Networks copyright).
+# Holds the Session Smart Networking documentation and the Juniper Mist PDFs that
+# the NOC runbooks cite. The files are verbatim vendor text, so they follow the
+# same rule as data/ste_dictionary.json above: generated locally, never committed.
+# The distilled runbooks under documentation/noc-runbooks/ are committed instead.
+# Rebuild the corpus with:
+#   python scripts/fetch_ssr_docs.py
+#   python scripts/pdf_to_markdown.py <downloaded.pdf>
+documentation/references/
+
+# Juniper hardening corpus - do not redistribute (Juniper Networks copyright).
+# Issue #2754 staged 9,337 extracted PDF files and 4,006 converted Markdown files
+# below the corpus root. The corpus root is the JUNIPER_CORPUS_ROOT setting, and
+# it sits outside the worktree. The corpus measures 744 MB, so it never enters
+# the repository. The distilled skill at .github/skills/hardening-junos/ is
+# committed instead.
+# Rebuild the corpus with:
+#   python scripts/pdf_to_markdown.py <downloaded.pdf>
+# The rules below guard against a corpus copy inside the worktree. git applies an
+# ignore rule to an untracked path only. The one tracked PDF file therefore stays
+# tracked.
+juniper-doc-archives/
+**/markdown/
+**/extracted/
+*.pdf
+
+# A test fixture PDF is source, not a harvested artifact. Each one is under 4 KB
+# and a test reads it at collection time. Without this rule the broad `*.pdf`
+# rule above drops the fixture, and the test suite then fails on a fresh
+# checkout with FileNotFoundError.
+!tests/**/fixtures/*.pdf
+
+.env.local
+.env.production
+.env.staging
+*.log
+# WHY: a saved test run is a local artifact, not source. `e2e-baseline.txt` was
+# a pytest transcript that a `git add -A` swept into a commit twice.
+e2e-baseline.txt
+*-baseline.txt
+*.key
+*.pem
+*.p12
+*.pfx
+credentials.json
+secrets.json
+config.json
+
+# Customer Data - Never commit customer information
+*customer*
+*Customer*
+*CUSTOMER*
+*tmo*
+*TMO*
+*t-mobile*
+*T-Mobile*
+*T-MOBILE*
+site_*.csv
+Site*.csv
+SITE*.csv
+client_*.csv
+Client*.csv
+CLIENT*.csv
+device_*.csv
+Device*.csv
+DEVICE*.csv
+
+# Data Files - Exclude data output files
+*.csv
+# Allow specific sample CSV files
+!documentation/APUpgradeSiteListSample.CSV
+!documentation/VCConvertSample.CSV
+!documentation/GatewayTemplateRebootListSample.CSV
+# The skill index names Juniper document titles only. It holds no customer data,
+# so the rule above that blocks a Mist data export does not apply to it.
+!.github/skills/**/references/*.csv
+*.xlsx
+*.xls
+data/
+Data/
+DATA/
+!src/data/
+!src/data/**
+compliance_report.md
+output/
+Output/
+OUTPUT/
+exports/
+Exports/
+EXPORTS/
+/reports/
+/Reports/
+/REPORTS/
+
+# Database Files - Exclude database files
+*.db
+*.sqlite
+*.sqlite3
+*.db3
+database/
+Database/
+DATABASE/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Playwright MCP browser tool artifacts (snapshots, screenshots) from ad hoc E2E checks
+.playwright-mcp/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# PEP 582
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+
+# Caveman installer artifacts (universal skills format, unused by VS Code Copilot)
+.agents/
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Node.js (ops-portal frontend)
+node_modules/
+
+# Container
+.containerignore
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+tmp/
+*.bak
+*.backup
+backup/
+backups/
+
+# Network logs and traces
+*.pcap
+*.pcapng
+*.cap
+*.dmp
+*.trace
+
+# System files
+*.ini
+*.cfg
+# WHY: anchor each rule to the repository root. An unanchored "config/" rule matches
+# every nested directory of that name, so it hid the source package
+# mist-ops-platform/src/shared/config/ from git and from the scanners (issue #1778).
+/config/
+/configs/
+
+# Archives
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+# Large files
+*.iso
+*.img
+*.dmg
+*.exe
+*.msi
+*.deb
+*.rpm
+interrogate_badge.svg
+
+# SpaceX Enterprise API reference (upstream clone, not MistHelper code)
+starlink-api-reference/
+
+# Archived spec folders (local reference only, not for GitHub commits)
+finished-specs/
+abandoned-specs/
+
+# Auto-generated audit-menu SpecKit stubs (stale, replaced by numbered specs)
+specs/*-audit-menu-*/
+
+
+# Throwaway evidence snapshots from spec decomposition runs (CodeQL false positives)
+specs/**/evidence/.tmp_*
+
+# uv lockfile — project uses pip via hatchling, not uv
+uv.lock
+
+# SpecKit Companion extension (local dev tool, re-installable)
+# The payload holds 15 third-party Python scripts. The repo-wide gates
+# (black, bandit, CodeQL) do not exclude .specify, so the payload stays untracked.
+# To install, run: specify extension add companion --from <release-url>
+# The .github patterns are scoped, because both folders hold tracked spec-kit files.
+.specify/extensions/companion/
+.github/agents/speckit.companion.*
+.github/prompts/speckit.companion.*
+
+
+# Claude Code agent scratch. A worktree here was committed as a broken gitlink once (issue #1752).
+.claude/
+.github/skills/juniper-junos-fundamentals/

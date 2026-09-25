@@ -1,0 +1,33 @@
+{
+  "_comment": "Hand-verified ASD-STE100 entries for the extractor quality harness. Transcribed from Issue 9 Part 2 pages 155-158 (real entries) and the intro recurring-errors list. Facts only, not the full copyrighted dictionary. Keyed on keyword + part_of_speech because some words appear with several parts of speech.",
+  "entries": [
+    { "keyword": "active", "part_of_speech": "adj", "approved": true, "alternatives": [] },
+    { "keyword": "adapt", "part_of_speech": "v", "approved": true, "alternatives": [] },
+    { "keyword": "add", "part_of_speech": "v", "approved": true, "alternatives": [] },
+    { "keyword": "adjacent", "part_of_speech": "adj", "approved": true, "alternatives": [] },
+    { "keyword": "aft", "part_of_speech": "adj", "approved": true, "alternatives": [] },
+    { "keyword": "aft", "part_of_speech": "adv", "approved": true, "alternatives": [] },
+    { "keyword": "after", "part_of_speech": "conj", "approved": true, "alternatives": [] },
+    { "keyword": "after", "part_of_speech": "prep", "approved": true, "alternatives": [] },
+    { "keyword": "activity", "part_of_speech": "n", "approved": false, "alternatives": ["task", "procedure", "work"] },
+    { "keyword": "actuate", "part_of_speech": "v", "approved": false, "alternatives": ["start", "operate", "push"] },
+    { "keyword": "actuation", "part_of_speech": "n", "approved": false, "alternatives": ["operation"] },
+    { "keyword": "additional", "part_of_speech": "adj", "approved": false, "alternatives": ["more"] },
+    { "keyword": "adequate", "part_of_speech": "adj", "approved": false, "alternatives": ["sufficient"] },
+    { "keyword": "adhere", "part_of_speech": "v", "approved": false, "alternatives": ["bond", "obey"] },
+    { "keyword": "adhesion", "part_of_speech": "n", "approved": false, "alternatives": ["bond"] },
+    { "keyword": "admit", "part_of_speech": "v", "approved": false, "alternatives": ["let"] },
+    { "keyword": "adopt", "part_of_speech": "v", "approved": false, "alternatives": ["use"] },
+    { "keyword": "advance", "part_of_speech": "n", "approved": false, "alternatives": ["forward"] },
+    { "keyword": "advance", "part_of_speech": "v", "approved": false, "alternatives": ["set", "forward"] },
+    { "keyword": "adverse", "part_of_speech": "adj", "approved": false, "alternatives": ["bad"] },
+    { "keyword": "advisable", "part_of_speech": "adj", "approved": false, "alternatives": ["recommend"] },
+    { "keyword": "advise", "part_of_speech": "v", "approved": false, "alternatives": ["tell", "recommend"] },
+    { "keyword": "affect", "part_of_speech": "v", "approved": false, "alternatives": ["effect"] },
+    { "keyword": "accuracy", "part_of_speech": "n", "approved": false, "alternatives": ["precision"] },
+    { "keyword": "acceptable", "part_of_speech": "adj", "approved": false, "alternatives": ["permitted", "satisfactory", "serviceable"] },
+    { "keyword": "alternate", "part_of_speech": "adj", "approved": false, "alternatives": ["alternative"] },
+    { "keyword": "avoid", "part_of_speech": "v", "approved": false, "alternatives": ["prevent"] },
+    { "keyword": "maintain", "part_of_speech": "v", "approved": false, "alternatives": ["keep", "hold", "maintenance"] }
+  ]
+}

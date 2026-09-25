@@ -1,0 +1,177 @@
+[project]
+name = "misthelper-devtools"
+version = "0.1.0"
+description = "In-house testing and development tooling for the MistHelper project."
+readme = "README.md"
+requires-python = ">=3.13"
+license = { file = "LICENSE" }
+authors = [{ name = "Jeremy Morrison" }]
+keywords = ["linting", "static-analysis", "test-quality", "simplified-technical-english"]
+
+# These four packages carry the runtime imports of the analyzers and the skill
+# factory. Every other import in this repository comes from the standard library.
+dependencies = [
+    "libcst>=1.4",      # The codemod tools and the log baseline tool rewrite source with a CST.
+    "packaging>=24.0",  # The guard proof audit parses dependency specifiers.
+    "PyYAML>=6.0",      # The skill package emitter writes YAML front matter.
+    "requests>=2.32",   # The GitHub tracking client calls the REST API.
+]
+
+[project.optional-dependencies]
+# spaCy raises the grammar accuracy of the STE linter. The linter falls back to
+# the standard-library backend when spaCy or its model is absent, so this group
+# stays optional.
+grammar = ["spacy>=3.7"]
+dev = [
+    "black>=24.0",
+    "hypothesis>=6.100",
+    "mypy>=1.10",
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.5",
+    "types-PyYAML",
+    "types-requests",
+]
+
+[project.urls]
+Homepage = "https://github.com/jmorrison-juniper/misthelper-devtools"
+Product = "https://github.com/jmorrison-juniper/MistHelper"
+
+[project.scripts]
+ste-linter = "tools.ste_linter.__main__:main"
+test-quality-analyzer = "tools.test_quality_analyzer.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# `src` and `tools` stay top-level names. Every module in this repository imports
+# `tools.<area>` or `src.juniper_skills.<area>`, so a rename would touch every
+# import. The names match the layout that these files used inside MistHelper.
+packages = ["src", "tools"]
+
+[tool.ste_linter]
+# Default settings for the STE writing linter. See tools/ste_linter/README.md.
+min_score = 80
+dictionary = "data/ste_dictionary.json"
+prefer_spacy = true
+# Approved technical terms the dictionary rules must not flag. These are correct
+# programming and networking words that are not in the general ASD-STE100
+# vocabulary. The allowlist raises the signal so the linter flags real prose words,
+# not normal software terms. Keep the list sorted and lower case.
+allowlist = [
+    "api", "async", "attribute", "backend", "boolean", "buffer", "build", "cache",
+    "call", "callable", "checksum", "cli", "commit", "config", "csv", "daemon",
+    "debug", "decorator", "dispatch", "dns", "endpoint", "enum", "env", "exception",
+    "file", "firmware", "frontend", "getter", "gui", "hash", "http", "https", "id",
+    "int", "iterable", "json", "kwarg", "lan", "lint", "list", "log", "mac",
+    "metadata", "middleware", "mock", "module", "namespace", "org", "param",
+    "parser", "payload", "pip", "proxy", "query", "regex", "repo", "retry", "return",
+    "run", "schema", "session", "setter", "socket", "sql", "ssh", "stub", "tcp",
+    "thread", "timeout", "timestamp", "token", "trace", "traceback", "tui", "tuple",
+    "udp", "url", "uuid", "venv", "vpn", "wan", "wrapper",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-q --tb=short"
+# The analyzer fixtures are sample files that the detectors read as text. Pytest
+# must never collect them, because a bad fixture fails on purpose.
+norecursedirs = [
+    "tools/test_quality_analyzer/fixtures",
+    # The four entries below restore the pytest defaults. The option replaces
+    # the default list, so an omitted entry makes pytest walk that directory.
+    "*.egg",
+    ".*",
+    "build",
+    "dist",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+# The command-line entry points under `scripts/` hold thin argument parsing.
+# The original repository excluded them, so this repository excludes them too.
+extend-exclude = ["scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "G", "PLW1514", "RUF100"]
+# `preview` turns the preview rules on. `explicit-preview-rules` limits them to
+# the codes that `select` names, so no other preview rule reaches this gate.
+# PLW1514 reports an `open()` call in text mode without an explicit encoding.
+# Windows returns cp1252 and Linux returns utf-8, so a missing encoding
+# corrupts every character above code point 127.
+preview = true
+explicit-preview-rules = true
+ignore = []
+# The analyzer fixtures model the defects that the detectors find, so the linter
+# must not repair them.
+exclude = ["tools/test_quality_analyzer/fixtures"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src", "tools"]
+
+[tool.ruff.lint.per-file-ignores]
+# The `plan_wave_builder` module holds a literal prompt template. A reflow would
+# change the text that the tool sends to a model.
+"tools/plan_wave_builder.py" = ["E501"]
+# The reporting module writes literal Markdown. A reflow would break the table
+# structure of the generated report.
+"tools/refactor_analyzer/reporting.py" = ["E501"]
+# The analyzer uses percent formatting for a diagnostic message, and it uses a
+# string subclass enum so that a JSON dump writes the value.
+"tools/test_quality_analyzer/**" = ["UP031", "UP042"]
+"tests/tools/test_quality_analyzer/**" = ["UP031"]
+# The bad fixtures hold the defects that the analyzer finds. The linter must not
+# repair the material under test.
+"tools/test_quality_analyzer/fixtures/bad/**" = ["UP031", "UP042", "B017", "G", "F", "E"]
+# The command-line entry point sets the import path before it imports.
+"tools/test_quality_analyzer/__main__.py" = ["E402"]
+
+[tool.black]
+line-length = 120
+target-version = ["py313"]
+force-exclude = "tools/test_quality_analyzer/fixtures"
+
+[tool.mypy]
+python_version = "3.13"
+# The original repository runs these strict settings over `src/`. This
+# repository keeps the same settings, so the inherited annotations still hold.
+strict = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_calls = true
+disallow_any_generics = true
+warn_return_any = true
+ignore_missing_imports = true
+warn_unused_configs = true
+warn_unused_ignores = true
+# `tools` is a namespace package with no `__init__.py`. This setting maps each
+# file to one module name, so mypy does not report the same file twice.
+explicit_package_bases = true
+mypy_path = "."
+exclude = ["tools/test_quality_analyzer/fixtures"]
+
+[tool.coverage.run]
+source = ["src", "tools"]
+omit = [
+    "tests/*",
+    ".venv/*",
+    "tools/test_quality_analyzer/fixtures/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "@(abc\\.)?abstractmethod",
+]
