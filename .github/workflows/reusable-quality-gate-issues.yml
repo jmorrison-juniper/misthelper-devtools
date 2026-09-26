@@ -1,0 +1,298 @@
+# ================================================================
+# Quality gate issues -- one issue for each failed gate
+# ================================================================
+# A caller runs this workflow as the last job of its gate workflow. The job
+# reads the result of each gate job. It opens one issue for a failed gate, and
+# it closes that issue after the gate passes.
+#
+# The caller job:
+#
+#   quality-gate-issues:
+#     needs: [ruff, black, pytest]
+#     if: ${{ always() }}
+#     permissions:
+#       issues: write
+#       pull-requests: read
+#     uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-quality-gate-issues.yml@<commit>
+#     with:
+#       results: ${{ toJSON(needs) }}
+#
+# The needs list of the caller is the gate list. A new gate needs one edit only.
+#
+# Scope:
+#   main  A run on the default branch opens and closes the issues. A pull
+#         request run changes nothing. This is the default.
+#   all   A pull request run also opens an issue. The title of that issue names
+#         the pull request, and only a run of that pull request closes it.
+# ================================================================
+name: Quality gate issues (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      results:
+        description: The needs context of the caller as JSON. Pass toJSON(needs).
+        required: true
+        type: string
+      scope:
+        description: The runs that manage issues. Use main or all.
+        required: false
+        default: main
+        type: string
+      default-branch:
+        description: The branch whose runs are authoritative for the issue state.
+        required: false
+        default: main
+        type: string
+      labels:
+        description: The comma-separated labels for a new issue.
+        required: false
+        default: bug,ci,quality-gate
+        type: string
+      dry-run:
+        description: Log each change and make no change.
+        required: false
+        default: false
+        type: boolean
+      fail-on-error:
+        description: Fail the job when an issue call fails. The default keeps a green gate run green.
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  sync-issues:
+    name: Sync the quality gate issues
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # An issue API fault must not turn a green gate run red. The earlier copy in
+    # each repository used the same setting. The self-test sets fail-on-error.
+    continue-on-error: ${{ !inputs.fail-on-error }}
+    permissions:
+      # The job opens, comments on, and closes an issue.
+      issues: write
+      # The job reads the state of a pull request that an issue title names.
+      pull-requests: read
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RESULTS: ${{ inputs.results }}
+      SCOPE: ${{ inputs.scope }}
+      DEFAULT_BRANCH: ${{ inputs.default-branch }}
+      LABELS: ${{ inputs.labels }}
+      DRY_RUN: ${{ inputs.dry-run }}
+      EVENT_NAME: ${{ github.event_name }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_TITLE: ${{ github.event.pull_request.title }}
+      HEAD_REF: ${{ github.head_ref || github.ref_name }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Open or close one issue for each gate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Read each gate name and result. The needs context holds an object
+          # for each gate. A plain string value is also accepted.
+          if ! gates="$(jq -r 'to_entries[] | [.key, (.value | if type == "object" then (.result // "") else tostring end)] | @tsv' <<< "${RESULTS}")"; then
+            echo "::error::The results input is not a JSON object. Pass toJSON(needs)."
+            exit 1
+          fi
+          if [ -z "${gates}" ]; then
+            echo "The results input names no gate. No issue changes."
+            exit 0
+          fi
+
+          # A run on the default branch is authoritative. A pull request run
+          # manages issues only when the scope is all.
+          main_run=false
+          if [ "${GITHUB_REF}" = "refs/heads/${DEFAULT_BRANCH}" ] && [ "${EVENT_NAME}" != "pull_request" ]; then
+            main_run=true
+          fi
+          pr_run=false
+          if [ "${SCOPE}" = "all" ] && [ "${EVENT_NAME}" = "pull_request" ] && [ -n "${PR_NUMBER}" ]; then
+            pr_run=true
+          fi
+          if [ "${main_run}" != "true" ] && [ "${pr_run}" != "true" ]; then
+            echo "Scope '${SCOPE}' excludes this ${EVENT_NAME} run on ${GITHUB_REF}. No issue changes."
+            exit 0
+          fi
+
+          if [ "${pr_run}" = "true" ]; then
+            suffix=" (PR #${PR_NUMBER})"
+            scope_line="**PR**: #${PR_NUMBER} -- ${PR_TITLE}"
+          else
+            suffix=""
+            scope_line="**Run scope**: \`${HEAD_REF}\`"
+          fi
+
+          # Run a command that changes the repository. A dry run logs the
+          # command and skips it.
+          change() {
+            if [ "${DRY_RUN}" = "true" ]; then
+              printf 'Dry run. Skipped:'
+              printf ' %q' "$@"
+              printf '\n'
+              return 0
+            fi
+            "$@"
+          }
+
+          label_color() {
+            case "$1" in
+              bug) echo "d73a4a" ;;
+              ci) echo "0e8a16" ;;
+              quality-gate) echo "fbca04" ;;
+              *) echo "ededed" ;;
+            esac
+          }
+
+          label_text() {
+            case "$1" in
+              bug) echo "Something isn't working" ;;
+              ci) echo "CI/CD pipeline" ;;
+              quality-gate) echo "Quality gate failure" ;;
+              *) echo "" ;;
+            esac
+          }
+
+          labels_ready=false
+          ensure_labels() {
+            if [ "${labels_ready}" = "true" ]; then
+              return 0
+            fi
+            IFS=',' read -r -a names <<< "${LABELS}"
+            for name in "${names[@]}"; do
+              name="$(printf '%s' "${name}" | xargs)"
+              if [ -n "${name}" ]; then
+                # A label that exists already returns an error. That is normal.
+                change gh label create "${name}" --color "$(label_color "${name}")" --description "$(label_text "${name}")" 2> /dev/null || true
+              fi
+            done
+            labels_ready=true
+          }
+
+          # Print the number and title of each open issue for one gate. Mode
+          # exact matches the title of this scope. Mode any also matches a
+          # title that names a pull request. Both title forms match: the form
+          # with backticks around the gate name and the older form without.
+          find_issues() {
+            local gate="$1"
+            local mode="$2"
+            local found
+            if ! found="$(gh issue list --state open --search "in:title quality-gate ${gate} failed" --limit 100 --json number,title)"; then
+              echo "::warning::The issue search for gate ${gate} failed." >&2
+              return 1
+            fi
+            # The dollar names in the program are jq variables, not shell
+            # variables, so the program stays in single quotes.
+            # shellcheck disable=SC2016
+            jq -r \
+              --arg a "CI: quality-gate \`${gate}\` failed" \
+              --arg b "CI: quality-gate ${gate} failed" \
+              --arg s "${suffix}" \
+              --arg mode "${mode}" \
+              '.[]
+                | select(
+                    ($mode == "exact" and (.title == ($a + $s) or .title == ($b + $s)))
+                    or ($mode == "any" and (.title == $a or .title == $b
+                      or (.title | startswith($a + " (PR #")) or (.title | startswith($b + " (PR #"))))
+                  )
+                | "\(.number)\t\(.title)"' <<< "${found}"
+          }
+
+          opened=0
+          closed=0
+          errors=0
+          # The loops read from their own file descriptors, so a command in a
+          # loop cannot read the loop input.
+          while IFS=$'\t' read -r -u 3 gate result; do
+            if [ -z "${gate}" ]; then
+              continue
+            fi
+
+            if [ "${result}" = "failure" ]; then
+              title="CI: quality-gate \`${gate}\` failed${suffix}"
+              if ! existing="$(find_issues "${gate}" exact)"; then
+                errors=$((errors + 1))
+                continue
+              fi
+              # Keep the first line only.
+              existing="${existing%%$'\n'*}"
+              if [ -n "${existing}" ]; then
+                echo "Gate ${gate} failed. Issue #${existing%%$'\t'*} is open already."
+                continue
+              fi
+              ensure_labels
+              # The backticks are Markdown code marks, not command substitution.
+              # shellcheck disable=SC2016
+              body="$(printf '## Quality Gate Failure\n\n**Gate**: `%s`\n%s\n**Branch**: `%s`\n**Commit**: `%s`\n**Workflow run**: %s\n\n### Action Required\nReview the [workflow run](%s) for details and fix the failing gate.\n\n_Auto-generated by the shared quality gate workflow in jmorrison-juniper/misthelper-devtools._\n' \
+                "${gate}" "${scope_line}" "${HEAD_REF}" "${GITHUB_SHA}" "${RUN_URL}" "${RUN_URL}")"
+              if change gh issue create --title "${title}" --label "${LABELS}" --body "${body}"; then
+                echo "Gate ${gate} failed. Opened an issue."
+                opened=$((opened + 1))
+              else
+                echo "::warning::Gate ${gate} failed, and the issue create call failed."
+                errors=$((errors + 1))
+              fi
+              continue
+            fi
+
+            if [ "${result}" != "success" ]; then
+              echo "Gate ${gate} reports ${result}. No issue change."
+              continue
+            fi
+
+            mode="exact"
+            if [ "${main_run}" = "true" ]; then
+              mode="any"
+            fi
+            if ! matches="$(find_issues "${gate}" "${mode}")"; then
+              errors=$((errors + 1))
+              continue
+            fi
+            while IFS=$'\t' read -r -u 4 number issue_title; do
+              if [ -z "${number}" ]; then
+                continue
+              fi
+              # A run on the default branch speaks for that branch only. An
+              # issue that names an open pull request belongs to that pull
+              # request, and only a run of that pull request closes it.
+              if [ "${main_run}" = "true" ]; then
+                scoped_pr="$(printf '%s' "${issue_title}" | sed -n 's/.*(PR #\([0-9][0-9]*\)).*/\1/p')"
+                if [ -n "${scoped_pr}" ]; then
+                  pr_state="$(gh pr view "${scoped_pr}" --json state --jq '.state' 2> /dev/null || echo "")"
+                  if [ "${pr_state}" = "OPEN" ]; then
+                    echo "Kept issue #${number} open. Pull request #${scoped_pr} is still open."
+                    continue
+                  fi
+                fi
+              fi
+              if change gh issue close "${number}" --reason completed \
+                --comment "Auto-closed: \`${gate}\` gate now passing on \`${HEAD_REF}\` (commit \`${GITHUB_SHA}\`)."; then
+                echo "Gate ${gate} passed. Closed issue #${number}."
+                closed=$((closed + 1))
+              else
+                echo "::warning::Gate ${gate} passed, and the close call for issue #${number} failed."
+                errors=$((errors + 1))
+              fi
+            done 4<<< "${matches}"
+          done 3<<< "${gates}"
+
+          {
+            echo "## Quality gate issues"
+            echo ""
+            echo "- **Scope:** ${SCOPE} (main run: ${main_run}, pull request run: ${pr_run})"
+            echo "- **Opened:** ${opened}"
+            echo "- **Closed:** ${closed}"
+            echo "- **Failed calls:** ${errors}"
+            echo "- **Dry run:** ${DRY_RUN}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          # The caller keeps a green gate run green unless it sets
+          # fail-on-error. This exit makes a failed call visible on the job.
+          if [ "${errors}" -gt 0 ]; then
+            echo "::warning::${errors} issue call(s) failed. Read the log above."
+            exit 1
+          fi

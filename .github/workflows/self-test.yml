@@ -1,0 +1,99 @@
+name: Self-test
+
+# Each reusable workflow that a Mist repository calls runs here first. A
+# change to a reusable workflow must pass this test before a consumer pins the
+# new commit. Each run that could change the repository uses dry-run.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/reusable-*.yml'
+      - '.github/workflows/self-test.yml'
+      - 'tests/fixtures/container/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/reusable-*.yml'
+      - '.github/workflows/self-test.yml'
+      - 'tests/fixtures/container/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions: {}
+
+jobs:
+  container-image:
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/reusable-container-image.yml
+    with:
+      context: tests/fixtures/container
+      file: tests/fixtures/container/Dockerfile
+      push: false
+      version-tag: true
+      build-args: |
+        VERSION={version}
+      tags: |
+        type=ref,event=branch
+        type=ref,event=pr
+        type=sha,prefix=
+
+  check-container-image:
+    name: Check the container image outputs
+    needs: container-image
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    env:
+      VERSION: ${{ needs.container-image.outputs.version }}
+      IMAGE: ${{ needs.container-image.outputs.image }}
+      TAGS: ${{ needs.container-image.outputs.tags }}
+      REPOSITORY: ${{ github.repository }}
+    steps:
+      - name: Check the version, the image name, and the tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Version: ${VERSION}"
+          echo "Image: ${IMAGE}"
+          printf 'Tags:\n%s\n' "${TAGS}"
+
+          if ! [[ "${VERSION}" =~ ^[0-9]{2}\.[0-9]{2}\.[0-9]{2}\.[0-9]{2}\.[0-9]{2}$ ]]; then
+            echo "::error::The version '${VERSION}' does not have the YY.MM.DD.HH.MM form."
+            exit 1
+          fi
+          expected="ghcr.io/${REPOSITORY,,}"
+          if [ "${IMAGE}" != "${expected}" ]; then
+            echo "::error::The image is '${IMAGE}'. The expected image is '${expected}'."
+            exit 1
+          fi
+          if ! grep -qxF "${IMAGE}:${VERSION}" <<< "${TAGS}"; then
+            echo "::error::The tags do not include the version tag ${IMAGE}:${VERSION}."
+            exit 1
+          fi
+          echo "The container image outputs are correct."
+
+  quality-gate-issues:
+    permissions:
+      issues: write
+      pull-requests: read
+    uses: ./.github/workflows/reusable-quality-gate-issues.yml
+    with:
+      # One object result, one plain result, and one skipped gate.
+      results: '{"lint":{"result":"success","outputs":{}},"tests":{"result":"failure","outputs":{}},"docs":"skipped"}'
+      scope: all
+      dry-run: true
+      fail-on-error: true
+
+  close-linked-issues:
+    permissions:
+      issues: write
+      pull-requests: read
+    uses: ./.github/workflows/reusable-close-linked-issues.yml
+    with:
+      sweep: true
+      lookback-hours: '720'
+      dry-run: true
