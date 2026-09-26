@@ -14,6 +14,8 @@ import subprocess  # nosec B404 - The class queries git, and the call below uses
 from dataclasses import dataclass  # Builds the immutable per-file result record.
 from pathlib import Path  # Holds every path, so no code hardcodes a separator.
 
+from tools.repository_root import resolve_repository_root  # One root answer for every tool here.
+
 logger = logging.getLogger(__name__)  # Use a module logger so tests can identify this log source.
 
 # The statement types that define a module-level name through a name attribute.
@@ -21,11 +23,6 @@ logger = logging.getLogger(__name__)  # Use a module logger so tests can identif
 # matches ast.Assign alone misses every annotated global, which is the exact
 # defect that issue #1796 reports.
 _DEFINITION_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-
-# The repository root, derived from the location of this file. Every git call and
-# every relative path resolves against this directory. A pre-commit hook or a CI
-# step can then run the tool from any working directory and read the same files.
-_REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 # A held git index lock or a credential prompt blocks a git call with no bound.
 # This cap turns that stall into a clear message instead of a six-hour CI job.
@@ -43,6 +40,16 @@ class SymbolDelta:
 
 class SymbolTableComparator:
     """Compares the module-level symbol table of a base revision against the work tree."""
+
+    def __init__(self, repository_root: Path | str | None = None) -> None:
+        """Store the repository this comparator reads.
+
+        Args:
+            repository_root: The checkout to read. Omit it to search upward
+                from the working directory for the nearest ``.git`` entry.
+        """
+        self.repository_root = resolve_repository_root(repository_root)  # Every read joins this root.
+        logger.debug("The comparator reads the repository at %s", self.repository_root)  # Log the root.
 
     def collect_names(self, source: str, label: str) -> set[str] | None:
         """Return the module-level names in the source, or None when it does not parse."""
@@ -73,7 +80,7 @@ class SymbolTableComparator:
                 capture_output=True,  # Capture the file text from stdout.
                 text=True,  # Decode to str, because ast.parse reads text.
                 check=False,  # An unknown path returns 128, which this method reports itself.
-                cwd=_REPOSITORY_ROOT,  # Read the repository, not the caller working directory.
+                cwd=self.repository_root,  # Read the repository, not the caller working directory.
                 timeout=_GIT_TIMEOUT_SECONDS,  # A credential prompt must not stall the gate forever.
             )
         except subprocess.TimeoutExpired:  # git held the pipe past the bound.
@@ -94,7 +101,7 @@ class SymbolTableComparator:
 
     def _read_head_from_worktree(self, path: Path) -> str | None:
         """Return the work-tree text for a HEAD path when git cannot read it."""
-        worktree_path = _REPOSITORY_ROOT / path  # Resolve the repository path without trusting the current directory.
+        worktree_path = self.repository_root / path  # Resolve against the repository, not the working directory.
         if not worktree_path.is_file():  # A missing work-tree file must stay a failed read.
             return None  # Let the caller print the original git failure.
         logger.info("Reading %s from the work tree after a failed HEAD read", path)  # Log the fallback read.
@@ -144,7 +151,7 @@ class SymbolTableComparator:
     def _read_worktree(self, path: Path) -> str | None:
         """Return the work tree text of the path, or None when the read fails."""
         logger.debug("Reading %s from the work tree", path.as_posix())  # Log before the read.
-        absolute = path if path.is_absolute() else _REPOSITORY_ROOT / path  # Match the git side.
+        absolute = path if path.is_absolute() else self.repository_root / path  # Match the git side.
         try:
             return absolute.read_text(encoding="utf-8")  # UTF-8 matches the project source encoding.
         except OSError as error:  # A deleted path or a permission error reaches this branch.
