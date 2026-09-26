@@ -30,9 +30,7 @@ import json
 import pathlib
 import re
 
-REPO = pathlib.Path(__file__).resolve().parent.parent
-MENU_FILE = REPO / "MistHelper.py"
-SOURCE_ROOTS = (REPO / "src",)
+from tools.repository_root import resolve_repository_root  # One root answer for every tool here.
 
 # The helpers that stop and ask the operator for one answer. The value names
 # the parameter kind the portal must offer so that prompt never reaches a
@@ -54,18 +52,34 @@ RAW_INPUT_NAMES = {"input", "safe_input", "input_fn"}
 MAX_DEPTH = 4
 
 
+def menu_file_for(repository_root: pathlib.Path | str | None = None) -> pathlib.Path:
+    """Return the menu table file inside the repository this tool reads."""
+    return resolve_repository_root(repository_root) / "MistHelper.py"  # The menu table lives at the root.
+
+
+def source_roots_for(repository_root: pathlib.Path | str | None = None) -> tuple[pathlib.Path, ...]:
+    """Return every directory the function index parses."""
+    return (resolve_repository_root(repository_root) / "src",)  # Every handler lives under src.
+
+
 class FunctionIndex:
     """Find a function definition by its qualified or plain name."""
 
-    def __init__(self) -> None:
-        """Build the index across every source root."""
+    def __init__(self, repository_root: pathlib.Path | str | None = None) -> None:
+        """Build the index across every source root.
+
+        Args:
+            repository_root: The checkout to parse. Omit it to search upward
+                from the working directory for the nearest ``.git`` entry.
+        """
+        self.source_roots = source_roots_for(repository_root)  # Resolve once, so every read uses one root.
         self.by_qualname: dict[str, ast.FunctionDef] = {}  # "Class.method" to its node.
         self.by_name: dict[str, list[ast.FunctionDef]] = {}  # Plain name to every match.
         self._build()
 
     def _build(self) -> None:
         """Parse every source file once and record each function it defines."""
-        for root in SOURCE_ROOTS:
+        for root in self.source_roots:
             for path in root.rglob("*.py"):
                 try:
                     tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
@@ -167,9 +181,14 @@ class PromptWalker:
         return None
 
 
-def read_menu_handlers() -> dict[str, str]:
-    """Return the handler name of every menu row in MistHelper.py."""
-    text = MENU_FILE.read_text(encoding="utf-8", errors="replace")
+def read_menu_handlers(repository_root: pathlib.Path | str | None = None) -> dict[str, str]:
+    """Return the handler name of every menu row in MistHelper.py.
+
+    Args:
+        repository_root: The checkout to read. Omit it to search upward from
+            the working directory for the nearest ``.git`` entry.
+    """
+    text = menu_file_for(repository_root).read_text(encoding="utf-8", errors="replace")
     # Each row opens with its key and carries a handler on a later line.
     pattern = re.compile(r'"(?P<key>[\w.]+)":\s*GlobalImportManager\.MenuEntry\((?P<body>.*?)\n    \),', re.S)
     handlers: dict[str, str] = {}
