@@ -1,7 +1,7 @@
 [project]
 name = "misthelper-devtools"
-version = "0.1.0"
-description = "In-house testing and development tooling for the MistHelper project."
+version = "0.2.0"
+description = "In-house testing and development tooling for MistHelper and the related Mist repositories."
 readme = "README.md"
 requires-python = ">=3.13"
 license = { file = "LICENSE" }
@@ -38,8 +38,10 @@ Homepage = "https://github.com/jmorrison-juniper/misthelper-devtools"
 Product = "https://github.com/jmorrison-juniper/MistHelper"
 
 [project.scripts]
+complexity-gate = "tools.complexity_gate:main"
 ste-linter = "tools.ste_linter.__main__:main"
 test-quality-analyzer = "tools.test_quality_analyzer.__main__:main"
+wan-port-report = "tools.wan_port_report:main"
 
 [build-system]
 requires = ["hatchling"]

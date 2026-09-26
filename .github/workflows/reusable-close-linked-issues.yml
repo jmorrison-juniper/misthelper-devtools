@@ -1,0 +1,208 @@
+# ================================================================
+# Close linked issues -- close each issue that a merged pull request names
+# ================================================================
+# A pull request body names an issue with a closing keyword, for example
+# "Fixes #12". This workflow closes each open issue that a merged pull request
+# names in that way.
+#
+# GitHub starts no workflow from an event that GITHUB_TOKEN makes. A pull
+# request that the auto-merge label merges therefore starts no closed event.
+# The sweep path reads every pull request that merged in the look-back window,
+# so a caller schedule closes those issues too.
+#
+# The caller workflow:
+#
+#   on:
+#     pull_request:
+#       types: [closed]
+#     schedule:
+#       - cron: '43 */12 * * *'
+#     workflow_dispatch:
+#       inputs:
+#         lookback-hours:
+#           description: The hours of merged pull requests to sweep
+#           required: false
+#           default: '24'
+#   concurrency:
+#     group: close-linked-issues
+#     cancel-in-progress: false
+#   jobs:
+#     close-linked-issues:
+#       permissions:
+#         issues: write
+#         pull-requests: read
+#       uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-close-linked-issues.yml@<commit>
+#       with:
+#         lookback-hours: ${{ github.event.inputs.lookback-hours || '24' }}
+#
+# A person can reopen an issue after the merge. The sweep reads the issue
+# timeline, and it keeps that issue open.
+# ================================================================
+name: Close linked issues (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      lookback-hours:
+        description: The hours of merged pull requests that the sweep reads.
+        required: false
+        default: '24'
+        type: string
+      sweep:
+        description: Read the merged pull requests even on a pull request event.
+        required: false
+        default: false
+        type: boolean
+      dry-run:
+        description: Log each change and make no change.
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  close-linked-issues:
+    name: Close the linked issues
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # The job comments on and closes an issue.
+      issues: write
+      # The job reads the body of each merged pull request.
+      pull-requests: read
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      EVENT_NAME: ${{ github.event_name }}
+      FORCE_SWEEP: ${{ inputs.sweep }}
+      LOOKBACK_HOURS: ${{ inputs.lookback-hours }}
+      DRY_RUN: ${{ inputs.dry-run }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_MERGED: ${{ github.event.pull_request.merged }}
+      PR_MERGED_AT: ${{ github.event.pull_request.merged_at }}
+      PR_BODY: ${{ github.event.pull_request.body }}
+    steps:
+      - name: Close the issues that each merged pull request names
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Run a command that changes the repository. A dry run logs the
+          # command and skips it.
+          change() {
+            if [ "${DRY_RUN}" = "true" ]; then
+              printf 'Dry run. Skipped:'
+              printf ' %q' "$@"
+              printf '\n'
+              return 0
+            fi
+            "$@"
+          }
+
+          # Print each issue number that a closing keyword names, one per line.
+          linked_issues() {
+            printf '%s\n' "$1" \
+              | grep -oiE '\b(close[sd]?|fix(e[sd])?|resolve[sd]?):? +#[0-9]+' \
+              | grep -oE '[0-9]+' \
+              | sort -un || true
+          }
+
+          # Return 0 when a person reopened the issue after the merge, 1 when
+          # no person did, and 2 when the timeline did not load.
+          reopened_after_merge() {
+            local issue="$1"
+            local merged_at="$2"
+            local reopened
+            if ! reopened="$(gh api --paginate "repos/${GH_REPO}/issues/${issue}/timeline?per_page=100" \
+              --jq '.[] | select(.event == "reopened" and .created_at > "'"${merged_at}"'" and .actor.type == "User") | .created_at')"; then
+              echo "::warning::The timeline of issue ${issue} did not load."
+              return 2
+            fi
+            [ -n "${reopened}" ]
+          }
+
+          sweep=false
+          if [ "${FORCE_SWEEP}" = "true" ] || [ "${EVENT_NAME}" != "pull_request" ]; then
+            sweep=true
+          fi
+
+          # Each row holds the pull request number, the merge time, and the
+          # body in base64, so a body with a tab or a new line stays one row.
+          if [ "${sweep}" = "true" ]; then
+            if ! [[ "${LOOKBACK_HOURS}" =~ ^[0-9]+$ ]]; then
+              echo "::error::The lookback-hours input must be a whole number. It is '${LOOKBACK_HOURS}'."
+              exit 1
+            fi
+            since="$(date -u -d "${LOOKBACK_HOURS} hours ago" +%Y-%m-%dT%H:%M:%SZ)"
+            echo "Sweeping the pull requests that merged since ${since}."
+            rows="$(gh pr list --state merged --search "merged:>=${since}" --limit 100 \
+              --json number,body,mergedAt \
+              --jq ".[] | select(.mergedAt >= \"${since}\") | \"\(.number)\t\(.mergedAt)\t\(.body // \"\" | @base64)\"")"
+          else
+            if [ "${PR_MERGED}" != "true" ]; then
+              echo "Pull request #${PR_NUMBER} closed with no merge. Nothing to close."
+              exit 0
+            fi
+            rows="$(printf '%s\t%s\t%s' "${PR_NUMBER}" "${PR_MERGED_AT}" "$(printf '%s' "${PR_BODY}" | base64 -w 0)")"
+          fi
+
+          if [ -z "${rows}" ]; then
+            echo "No merged pull request is in scope. Nothing to close."
+            exit 0
+          fi
+
+          closed=0
+          failed=0
+          # The loop reads from its own file descriptor, so a command in the
+          # loop cannot read the loop input.
+          while IFS=$'\t' read -r -u 3 pull_request merged_at encoded; do
+            if [ -z "${pull_request}" ]; then
+              continue
+            fi
+            body="$(printf '%s' "${encoded}" | base64 -d)"
+            issues="$(linked_issues "${body}")"
+            if [ -z "${issues}" ]; then
+              continue
+            fi
+
+            for issue in ${issues}; do
+              # A number can name a pull request or a deleted issue. Both
+              # return no issue state, so the loop skips them.
+              state="$(gh issue view "${issue}" --json state --jq '.state' 2> /dev/null || echo "MISSING")"
+              if [ "${state}" != "OPEN" ]; then
+                echo "Issue #${issue} from pull request #${pull_request} is ${state}. Skipping."
+                continue
+              fi
+
+              if [ "${sweep}" = "true" ]; then
+                # The exit status carries the answer, so exit-on-error stops
+                # for this call only.
+                set +e
+                reopened_after_merge "${issue}" "${merged_at}"
+                reopen_status="$?"
+                set -e
+                if [ "${reopen_status}" -eq 0 ]; then
+                  echo "A person reopened issue #${issue} after pull request #${pull_request} merged. Keeping it open."
+                  continue
+                fi
+                if [ "${reopen_status}" -eq 2 ]; then
+                  failed=1
+                  continue
+                fi
+                comment="Automatically closed by the merge of PR #${pull_request}. The scheduled sweep found this link, because an auto-merged pull request starts no event."
+              else
+                comment="Automatically closed by PR #${pull_request} merge."
+              fi
+
+              if change gh issue close "${issue}" --reason completed --comment "${comment}"; then
+                echo "Closed issue #${issue} from pull request #${pull_request}."
+                closed=$((closed + 1))
+              else
+                echo "::error::The close call for issue #${issue} from pull request #${pull_request} failed."
+                failed=1
+              fi
+            done
+          done 3<<< "${rows}"
+
+          echo "Closed ${closed} issue(s). Dry run: ${DRY_RUN}."
+          exit "${failed}"

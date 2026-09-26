@@ -1,0 +1,256 @@
+# ================================================================
+# Container image -- build a multi-arch image and push it to a registry
+# ================================================================
+# The job builds one container image with Buildx for each platform, and it can
+# push the image to the registry. The caller keeps its own triggers, its own
+# tag rules, and its own jobs before and after the build.
+#
+# The caller job:
+#
+#   build-and-push:
+#     permissions:
+#       contents: read
+#       packages: write
+#     uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-container-image.yml@<commit>
+#     with:
+#       push: ${{ github.event_name != 'pull_request' }}
+#       tags: |
+#         type=ref,event=branch
+#         type=sha,prefix=
+#         type=raw,value=latest,enable={{is_default_branch}}
+#
+# The tags input holds docker/metadata-action tag rules. With version-tag set
+# to true, the job adds the rule type=raw,value=<version> before the caller
+# rules. The version is the version input, or YY.MM.DD.HH.MM in UTC when that
+# input is empty. The text {version} in build-args changes to the version.
+# ================================================================
+name: Container image (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      image-name:
+        description: The image name without the registry. An empty value uses the repository name.
+        required: false
+        default: ''
+        type: string
+      registry:
+        description: The container registry host.
+        required: false
+        default: ghcr.io
+        type: string
+      context:
+        description: The build context path.
+        required: false
+        default: .
+        type: string
+      file:
+        description: The Dockerfile or Containerfile path. An empty value uses the Dockerfile in the context.
+        required: false
+        default: ''
+        type: string
+      platforms:
+        description: The comma-separated target platforms.
+        required: false
+        default: linux/amd64,linux/arm64
+        type: string
+      push:
+        description: Log in to the registry and push the image.
+        required: false
+        default: true
+        type: boolean
+      tags:
+        description: The docker/metadata-action tag rules, one on each line.
+        required: false
+        default: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix=
+          type=raw,value=latest,enable={{is_default_branch}}
+        type: string
+      version-tag:
+        description: Add the version as an image tag.
+        required: false
+        default: false
+        type: boolean
+      version:
+        description: The image version. An empty value makes a YY.MM.DD.HH.MM version in UTC.
+        required: false
+        default: ''
+        type: string
+      build-args:
+        description: The build arguments, one NAME=value on each line. The text {version} changes to the version.
+        required: false
+        default: ''
+        type: string
+      summary:
+        description: Write the image details to the job summary.
+        required: false
+        default: true
+        type: boolean
+      timeout-minutes:
+        description: The time limit for the build job.
+        required: false
+        default: 60
+        type: number
+    outputs:
+      version:
+        description: The version that the build used.
+        value: ${{ jobs.build.outputs.version }}
+      image:
+        description: The full image name in lowercase, without a tag.
+        value: ${{ jobs.build.outputs.image }}
+      tags:
+        description: The image tags, one on each line.
+        value: ${{ jobs.build.outputs.tags }}
+      digest:
+        description: The image digest.
+        value: ${{ jobs.build.outputs.digest }}
+
+jobs:
+  build:
+    name: Build the container image
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      # The checkout reads the repository.
+      contents: read
+      # The push writes the image to the GitHub container registry.
+      packages: write
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      image: ${{ steps.plan.outputs.image }}
+      tags: ${{ steps.meta.outputs.tags }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Plan the version, the image name, and the tags
+        id: plan
+        shell: bash
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+          IMAGE_INPUT: ${{ inputs.image-name }}
+          REGISTRY: ${{ inputs.registry }}
+          TAG_RULES: ${{ inputs.tags }}
+          VERSION_TAG: ${{ inputs.version-tag }}
+          BUILD_ARGS: ${{ inputs.build-args }}
+        run: |
+          set -euo pipefail
+
+          version="${VERSION_INPUT}"
+          if [ -z "${version}" ]; then
+            version="$(date -u +%y.%m.%d.%H.%M)"
+          fi
+          # A container tag allows letters, digits, and the characters _ . -
+          # only, and it cannot start with . or -.
+          if ! [[ "${version}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "::error::The version '${version}' is not a valid container tag."
+            exit 1
+          fi
+
+          image="${IMAGE_INPUT:-${GITHUB_REPOSITORY}}"
+          image="${REGISTRY}/${image,,}"
+
+          # A random delimiter stops input text from closing the output early.
+          delimiter="EOF_$(openssl rand -hex 8)"
+          {
+            echo "version=${version}"
+            echo "image=${image}"
+            echo "tags<<${delimiter}"
+            if [ "${VERSION_TAG}" = "true" ]; then
+              # The version rule comes first, so it wins a tie with another raw
+              # rule for the image version label.
+              echo "type=raw,value=${version}"
+            fi
+            printf '%s\n' "${TAG_RULES}"
+            echo "${delimiter}"
+            echo "build-args<<${delimiter}"
+            printf '%s\n' "${BUILD_ARGS//'{version}'/${version}}"
+            echo "${delimiter}"
+          } >> "${GITHUB_OUTPUT}"
+
+          echo "Version: ${version}"
+          echo "Image: ${image}"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to the container registry
+        if: inputs.push
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Make the tags and labels
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.plan.outputs.image }}
+          tags: ${{ steps.plan.outputs.tags }}
+
+      - name: Build the image
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.file }}
+          platforms: ${{ inputs.platforms }}
+          push: ${{ inputs.push }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: ${{ steps.plan.outputs.build-args }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Write the summary
+        if: inputs.summary
+        shell: bash
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+          IMAGE: ${{ steps.plan.outputs.image }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          PUSHED: ${{ inputs.push }}
+          VERSION_TAG: ${{ inputs.version-tag }}
+        run: |
+          set -euo pipefail
+          {
+            if [ "${PUSHED}" = "true" ]; then
+              echo "## Container image published"
+            else
+              echo "## Container image built (no push)"
+            fi
+            echo ""
+            echo "**Version:** \`${VERSION}\`"
+            echo ""
+            echo "**Digest:** \`${DIGEST:-none}\`"
+            echo ""
+            echo "**Tags:**"
+            while IFS= read -r tag; do
+              if [ -n "${tag}" ]; then
+                echo "- \`${tag}\`"
+              fi
+            done <<< "${TAGS}"
+            if [ "${PUSHED}" = "true" ]; then
+              echo ""
+              echo "**Pull command:**"
+              echo '```'
+              if [ "${VERSION_TAG}" = "true" ]; then
+                echo "podman pull ${IMAGE}:${VERSION}"
+              else
+                echo "podman pull ${IMAGE}@${DIGEST}"
+              fi
+              echo '```'
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"

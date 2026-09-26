@@ -48,18 +48,35 @@ jobs:
       - name: Run the ${{ matrix.gate.name }} gate
         run: ${{ matrix.gate.command }}
 
+  # The Mist repositories call the reusable workflows in this repository, so a
+  # workflow defect reaches every consumer. actionlint reads each workflow file
+  # and runs shellcheck on each run block.
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download actionlint
+        id: get_actionlint
+        run: bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12
+
+      - name: Check the workflow files
+        run: ${{ steps.get_actionlint.outputs.executable }} -color
+
   # The aggregator always reports, so branch protection always receives a
   # status. It is the only check that a protection rule needs to require.
   ci-result:
     name: ci-result
     runs-on: ubuntu-latest
-    needs: [gates]
+    needs: [gates, actionlint]
     if: always()
     steps:
       - name: Report the combined result
         run: |
           echo "The gate result is '${{ needs.gates.result }}'."
-          if [ "${{ needs.gates.result }}" != "success" ]; then
+          echo "The actionlint result is '${{ needs.actionlint.result }}'."
+          if [ "${{ needs.gates.result }}" != "success" ] || [ "${{ needs.actionlint.result }}" != "success" ]; then
             echo "One gate failed or was skipped. Read the job list above."
             exit 1
           fi

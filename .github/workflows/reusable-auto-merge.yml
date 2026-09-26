@@ -1,0 +1,243 @@
+# ================================================================
+# Auto-merge -- merge a labeled pull request, then start the main workflows
+# ================================================================
+# A pull request with the auto-merge label merges after its required checks
+# pass. The merge uses GITHUB_TOKEN.
+#
+# GitHub starts no workflow run from an event that GITHUB_TOKEN makes. The
+# merge commit therefore starts no push run on the default branch, and the gate
+# result, the code scan, and the container image all go stale. A
+# workflow_dispatch call is the one exception that GitHub honors, so the second
+# job starts each main workflow with an explicit dispatch call.
+# jmorrison-juniper/MistHelper#1851 records the effect and the repair.
+#
+# The caller workflow:
+#
+#   on:
+#     pull_request:
+#       types: [labeled, synchronize, opened, reopened, closed]
+#     schedule:
+#       - cron: '37 */6 * * *'
+#     workflow_dispatch:
+#   permissions: {}
+#   jobs:
+#     auto-merge:
+#       permissions:
+#         actions: write
+#         contents: write
+#         pull-requests: write
+#       uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-auto-merge.yml@<commit>
+#       with:
+#         main-workflows: 'ci.yml codeql.yml container-build.yml'
+#
+# Each workflow in main-workflows must accept workflow_dispatch. The schedule
+# is the backstop for a merge that starts no closed event.
+# ================================================================
+name: Auto-merge (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      label:
+        description: The label that asks for auto-merge.
+        required: false
+        default: auto-merge
+        type: string
+      merge-method:
+        description: The merge method. Use squash, merge, or rebase.
+        required: false
+        default: squash
+        type: string
+      main-workflows:
+        description: The space-separated workflow files that a push to the default branch starts.
+        required: false
+        default: ''
+        type: string
+      default-branch:
+        description: The branch that the pull requests merge into.
+        required: false
+        default: main
+        type: string
+
+jobs:
+  enable-auto-merge:
+    name: Enable auto-merge
+    # A closed pull request cannot accept auto-merge, so the closed type stops
+    # here.
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.action != 'closed'
+      && contains(github.event.pull_request.labels.*.name, inputs.label)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # The merge writes to the base branch.
+      contents: write
+      # The job sets the auto-merge state and writes one notice comment.
+      pull-requests: write
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      # GITHUB_TOKEN has no workflow scope, so GitHub refuses a merge that
+      # writes a file under .github/workflows/. The refusal happens inside the
+      # merge call, and the pull request shows no reason.
+      # jmorrison-juniper/MistHelper#1954 records the silent failure.
+      - name: Check whether the pull request edits a workflow file
+        id: workflow_guard
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if ! files="$(gh pr view "${PR_NUMBER}" --json files --jq '.files[].path')"; then
+            echo "::error::The file list of pull request ${PR_NUMBER} did not load."
+            exit 1
+          fi
+
+          if printf '%s\n' "${files}" | grep -q '^\.github/workflows/'; then
+            echo "Pull request ${PR_NUMBER} edits a workflow file."
+            echo "blocked=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "Pull request ${PR_NUMBER} edits no workflow file."
+            echo "blocked=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Ask for a manual merge when a workflow file changed
+        if: steps.workflow_guard.outputs.blocked == 'true'
+        shell: bash
+        env:
+          # The marker keeps the comment unique. This job runs again on each
+          # label event and on each push.
+          MARKER: '<!-- auto-merge:workflow-scope-block -->'
+          MERGE_METHOD: ${{ inputs.merge-method }}
+        run: |
+          set -euo pipefail
+
+          if ! bodies="$(gh pr view "${PR_NUMBER}" --json comments --jq '.comments[].body')"; then
+            echo "::error::The comment list of pull request ${PR_NUMBER} did not load."
+            exit 1
+          fi
+
+          if printf '%s\n' "${bodies}" | grep -qF "${MARKER}"; then
+            echo "The pull request already has the notice. Nothing to add."
+            exit 0
+          fi
+
+          # Each line stays flush left after YAML removes the block indent, so
+          # Markdown reads the body as prose and not as a code block.
+          cat > "${RUNNER_TEMP}/workflow-block.md" <<EOF
+          ${MARKER}
+          **Auto-merge stopped. This pull request needs a manual merge.**
+
+          This pull request edits a file under \`.github/workflows/\`. The
+          auto-merge job merges with \`GITHUB_TOKEN\`. GitHub refuses to let that
+          token write a workflow file, so the merge call fails.
+
+          The refusal is a GitHub platform rule. No change to the
+          \`permissions:\` block can clear it, because \`workflow\` is not a key
+          that the block accepts.
+
+          To merge this pull request, run the command below from an account that
+          has the \`workflow\` scope.
+
+          \`\`\`
+          gh pr merge -R ${GH_REPO} --${MERGE_METHOD} ${PR_NUMBER}
+          \`\`\`
+
+          jmorrison-juniper/MistHelper#1954 records this constraint.
+          EOF
+
+          gh pr comment "${PR_NUMBER}" --body-file "${RUNNER_TEMP}/workflow-block.md"
+          echo "Added the manual merge notice to pull request ${PR_NUMBER}."
+
+      - name: Enable auto-merge
+        # A blocked pull request skips the merge call. The call would fail and
+        # would show the reason only in this run log.
+        if: steps.workflow_guard.outputs.blocked == 'false'
+        uses: peter-evans/enable-pull-request-automerge@v3
+        with:
+          token: ${{ github.token }}
+          pull-request-number: ${{ github.event.pull_request.number }}
+          merge-method: ${{ inputs.merge-method }}
+
+  dispatch-main-workflows:
+    name: Start the main workflows that missed the tip
+    # A merge into the default branch repairs the branch in seconds. The
+    # schedule and a manual start repair it when no merge event arrives.
+    if: >-
+      inputs.main-workflows != ''
+      && (github.event_name == 'schedule'
+      || github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'pull_request'
+      && github.event.action == 'closed'
+      && github.event.pull_request.merged == true
+      && github.event.pull_request.base.ref == inputs.default-branch))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # A dispatch call makes a workflow run.
+      actions: write
+      # The tip lookup reads one commit.
+      contents: read
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      MAIN_WORKFLOWS: ${{ inputs.main-workflows }}
+      DEFAULT_BRANCH: ${{ inputs.default-branch }}
+    steps:
+      - name: Start each main workflow that missed the tip
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          # A comparison with the tip stops a duplicate run when a person merged
+          # and the push already started the workflows.
+          if ! tip="$(gh api "repos/${GH_REPO}/commits/${DEFAULT_BRANCH}" --jq '.sha')"; then
+            echo "::error::The lookup of the tip of ${DEFAULT_BRANCH} failed. No workflow started."
+            exit 1
+          fi
+          echo "The tip of ${DEFAULT_BRANCH} is ${tip}."
+
+          started=''
+          current=''
+          failed=''
+          read -r -a workflows <<< "${MAIN_WORKFLOWS}"
+          for workflow in "${workflows[@]}"; do
+            # The list also holds a queued run, so a dispatch from a moment ago
+            # counts as coverage of the tip.
+            newest="$(gh run list --workflow "${workflow}" --branch "${DEFAULT_BRANCH}" --limit 1 --json headSha --jq '.[0].headSha // "none"')" || newest='unknown'
+            if [ "${newest}" = "${tip}" ]; then
+              echo "${workflow} already covers the tip."
+              current="${current}${workflow} "
+              continue
+            fi
+            echo "${workflow} reports ${newest}, so the workflow missed the tip."
+            # One failed call must not stop the other calls.
+            if gh workflow run "${workflow}" --ref "${DEFAULT_BRANCH}"; then
+              echo "Started ${workflow} on ${DEFAULT_BRANCH}."
+              started="${started}${workflow} "
+            else
+              echo "::error::The dispatch call for ${workflow} on ${DEFAULT_BRANCH} failed."
+              failed="${failed}${workflow} "
+            fi
+          done
+
+          {
+            echo "## Post-merge dispatch"
+            echo ""
+            echo "**Tip of ${DEFAULT_BRANCH}:** \`${tip}\`"
+            echo ""
+            echo "- **Started:** ${started:-none}"
+            echo "- **Already current:** ${current:-none}"
+            echo "- **Failed:** ${failed:-none}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          # The merge is complete. A dispatch failure is a separate fault.
+          if [ -n "${failed}" ]; then
+            echo "::error::The merge is complete. These workflows did not start: ${failed}"
+            exit 1
+          fi
+          echo "Each main workflow now covers the tip of ${DEFAULT_BRANCH}."
