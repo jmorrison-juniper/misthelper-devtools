@@ -9,7 +9,7 @@ import sys  # Name the current interpreter for the parity run.
 from pathlib import Path  # Write a saved report for the --input option.
 from typing import Any  # Type the sample radon reports.
 
-from tools.complexity_gate import PASS_MESSAGE, ComplexityGate, main
+from misthelper_devtools.complexity_gate import PASS_MESSAGE, ComplexityGate, main
 
 # The inline script that MistCircuitStats ran before this tool. The parity test
 # runs it and compares its output with the output of the tool.

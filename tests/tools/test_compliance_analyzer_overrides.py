@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ast
 
-from tools.compliance_analyzer.analyzers import StructuralComplexityAnalyzer as Analyzer
+from misthelper_devtools.compliance_analyzer.analyzers import StructuralComplexityAnalyzer as Analyzer
 
 
 def _tree(source: str) -> ast.Module:

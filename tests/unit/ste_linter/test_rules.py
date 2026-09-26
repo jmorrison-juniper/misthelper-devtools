@@ -2,21 +2,21 @@
 
 from __future__ import annotations  # Postponed annotations keep the type hints light.
 
-from tools.ste_linter.dictionary import Dictionary, DictionaryEntry  # Types for the dictionary rule test.
-from tools.ste_linter.rules.dictionary import UnapprovedWordRule  # The dictionary rule under test.
-from tools.ste_linter.rules.sentences import (  # The sentence rules under test.
+from misthelper_devtools.ste_linter.dictionary import Dictionary, DictionaryEntry  # Types for the dictionary rule test.
+from misthelper_devtools.ste_linter.rules.dictionary import UnapprovedWordRule  # The dictionary rule under test.
+from misthelper_devtools.ste_linter.rules.sentences import (  # The sentence rules under test.
     ComplexTenseRule,
     ContractionRule,
     PassiveVoiceRule,
     SentenceLengthRule,
 )
-from tools.ste_linter.rules.structure import (  # The structure rules under test.
+from misthelper_devtools.ste_linter.rules.structure import (  # The structure rules under test.
     NounClusterRule,
     ParagraphLengthRule,
     SemicolonRule,
     WarningSignalRule,
 )
-from tools.ste_linter.rules.words import (  # The word rules under test.
+from misthelper_devtools.ste_linter.rules.words import (  # The word rules under test.
     GenderedPronounRule,
     LatinAbbreviationRule,
     PhrasalVerbRule,

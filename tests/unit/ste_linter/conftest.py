@@ -12,13 +12,13 @@ from collections.abc import Callable  # Types the factory fixtures.
 
 import pytest  # The test framework.
 
-from tools.ste_linter.analysis import Backend, GrammarAnalyzer, get_backend  # The analysis parts.
-from tools.ste_linter.config import LinterConfig  # The configuration.
-from tools.ste_linter.dictionary import Dictionary  # The optional dictionary.
-from tools.ste_linter.models import Document, Score  # The document and score types.
-from tools.ste_linter.parsing import DocumentBuilder  # The document builder.
-from tools.ste_linter.rules import RuleContext, load_rules  # The rule context and registry.
-from tools.ste_linter.scoring import ScoringModel  # The scoring model.
+from misthelper_devtools.ste_linter.analysis import Backend, GrammarAnalyzer, get_backend  # The analysis parts.
+from misthelper_devtools.ste_linter.config import LinterConfig  # The configuration.
+from misthelper_devtools.ste_linter.dictionary import Dictionary  # The optional dictionary.
+from misthelper_devtools.ste_linter.models import Document, Score  # The document and score types.
+from misthelper_devtools.ste_linter.parsing import DocumentBuilder  # The document builder.
+from misthelper_devtools.ste_linter.rules import RuleContext, load_rules  # The rule context and registry.
+from misthelper_devtools.ste_linter.scoring import ScoringModel  # The scoring model.
 
 # The folder that holds the shared fixture files.
 _FIXTURES = pathlib.Path(__file__).parents[2] / "fixtures" / "ste_linter"

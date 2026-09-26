@@ -4,8 +4,8 @@ from __future__ import annotations  # Keep annotations light for pytest.
 
 from pathlib import Path  # Build fixture paths safely.
 
-from tools.refactor_analyzer.analysis import RefactorAnalyzer  # Analyzer under test.
-from tools.refactor_analyzer.reporting import MarkdownReportGenerator  # Report renderer under test.
+from misthelper_devtools.refactor_analyzer.analysis import RefactorAnalyzer  # Analyzer under test.
+from misthelper_devtools.refactor_analyzer.reporting import MarkdownReportGenerator  # Report renderer under test.
 
 
 def test_refactor_reports_graph_reads_and_unresolved_imports(tmp_path: Path) -> None:

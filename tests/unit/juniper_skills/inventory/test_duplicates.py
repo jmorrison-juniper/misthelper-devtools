@@ -2,8 +2,15 @@
 
 from pathlib import Path  # Use Path to create realistic part locations.
 
-from src.juniper_skills.inventory.engine import DuplicateResolver, PriorityScorer  # Test the production rules.
-from src.juniper_skills.inventory.models import DocumentGroup, MarkdownPart, SourceRoot  # Build inventory records.
+from misthelper_devtools.juniper_skills.inventory.engine import (  # Test the production rules.
+    DuplicateResolver,
+    PriorityScorer,
+)
+from misthelper_devtools.juniper_skills.inventory.models import (  # Build inventory records.
+    DocumentGroup,
+    MarkdownPart,
+    SourceRoot,
+)
 
 
 class TestDuplicateResolver:

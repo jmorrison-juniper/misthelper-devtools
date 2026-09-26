@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]  # Resolve the repository root before package imports.
-sys.path.insert(0, str(REPO_ROOT))  # Let direct script execution import the local src package.
+sys.path.insert(0, str(REPO_ROOT / "src"))  # Let direct script execution import the local package.
 
 
 class RunFactoryCommand:
@@ -21,7 +21,9 @@ class RunFactoryCommand:
         logging.basicConfig(
             level=getattr(logging, args.log_level), format="%(levelname)s %(message)s"
         )  # Configure logs.
-        module = importlib.import_module("src.juniper_skills.orchestrate")  # Import after sys.path is ready.
+        module = importlib.import_module(
+            "misthelper_devtools.juniper_skills.orchestrate"
+        )  # Import after sys.path is ready.
         config = self._config(args, module.FactoryRunConfig)  # Convert raw arguments into typed options.
         report = module.FactoryRunner(config).run()  # Run the long-lived factory loop.
         print(json.dumps(report, indent=2, sort_keys=True, default=str))  # Emit a structured progress report.

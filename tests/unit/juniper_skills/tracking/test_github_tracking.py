@@ -6,11 +6,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-from src.juniper_skills.tracking.comment_codec import StageCommentCodec
-from src.juniper_skills.tracking.github_cli import GitHubCommandResult, GitHubRateLimitManager
-from src.juniper_skills.tracking.github_tracker import SkillIssueTracker
-from src.juniper_skills.tracking.measurements import StageMeasurementInputs, StageMeasurementReader
-from src.juniper_skills.tracking.models import DocumentRecord, StageEvent, StageName
+from misthelper_devtools.juniper_skills.tracking.comment_codec import StageCommentCodec
+from misthelper_devtools.juniper_skills.tracking.github_cli import GitHubCommandResult, GitHubRateLimitManager
+from misthelper_devtools.juniper_skills.tracking.github_tracker import SkillIssueTracker
+from misthelper_devtools.juniper_skills.tracking.measurements import StageMeasurementInputs, StageMeasurementReader
+from misthelper_devtools.juniper_skills.tracking.models import DocumentRecord, StageEvent, StageName
 
 
 class FakeGitHubRunner:
@@ -283,8 +283,12 @@ class TestGitHubRateLimitManager:
         waits: list[int] = []  # Capture sleep calls without delaying the test.
         runner = LowLimitRunner()  # Return a low rate limit to trigger backoff.
         manager = GitHubRateLimitManager(runner, minimum_remaining=10)  # Require more calls than remain.
-        monkeypatch.setattr("src.juniper_skills.tracking.github_cli.time.time", lambda: 1000)  # Freeze current time.
-        monkeypatch.setattr("src.juniper_skills.tracking.github_cli.time.sleep", waits.append)  # Capture sleep seconds.
+        monkeypatch.setattr(
+            "misthelper_devtools.juniper_skills.tracking.github_cli.time.time", lambda: 1000
+        )  # Freeze current time.
+        monkeypatch.setattr(
+            "misthelper_devtools.juniper_skills.tracking.github_cli.time.sleep", waits.append
+        )  # Capture sleep seconds.
         manager.wait_if_needed()  # Exercise the backoff path.
         assert waits == [6]  # Confirm reset minus current time plus one guard second.
 

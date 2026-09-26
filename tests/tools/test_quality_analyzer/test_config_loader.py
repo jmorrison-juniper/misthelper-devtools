@@ -15,8 +15,8 @@ from pathlib import Path  # Path type used by ConfigLoader.load().
 
 import pytest  # pytest.raises for ConfigError assertions.
 
-from tools.test_quality_analyzer.config import ConfigError, ConfigLoader  # SUT.
-from tools.test_quality_analyzer.detection import Severity  # For override assertions.
+from misthelper_devtools.test_quality_analyzer.config import ConfigError, ConfigLoader  # SUT.
+from misthelper_devtools.test_quality_analyzer.detection import Severity  # For override assertions.
 
 
 def _write(tmp_path: Path, text: str) -> Path:

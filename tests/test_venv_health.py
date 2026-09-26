@@ -4,7 +4,9 @@ from __future__ import annotations  # Keep annotations stable across supported P
 
 from pathlib import Path  # Build fake site-packages directories without string path separators.
 
-from tools.venv_health import VirtualEnvironmentHealthCheck  # Exercise the same module that bootstrap imports.
+from misthelper_devtools.venv_health import (
+    VirtualEnvironmentHealthCheck,  # Exercise the same module that bootstrap imports.
+)
 
 
 def test_inspect_site_packages_reports_one_corrupt_package(tmp_path: Path) -> None:

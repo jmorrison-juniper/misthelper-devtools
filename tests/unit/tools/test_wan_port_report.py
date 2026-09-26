@@ -12,7 +12,7 @@ from typing import Any  # Type the sample port records.
 
 import pytest  # Set the TEMP variable for one test.
 
-from tools.wan_port_report import WanPortReport, default_input_path, main
+from misthelper_devtools.wan_port_report import WanPortReport, default_input_path, main
 
 # The script that MistWANPerformance held as check_ports.py (commit ddbf849).
 # The parity test runs it and compares its output with the output of the tool.

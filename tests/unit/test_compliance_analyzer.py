@@ -10,12 +10,12 @@ import pytest  # MonkeyPatch fixture for changing the working directory in a tes
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # Add repo root to sys.path.
 
-from tools.compliance_analyzer import engine  # Module under test for patched parallel constants.
-from tools.compliance_analyzer.__main__ import ComplianceCLI  # CLI under test for argument forwarding.
-from tools.compliance_analyzer.engine import ComplianceAnalyzer  # System under test: engine.
-from tools.compliance_analyzer.models import FileReport  # Report type for test helper annotations.
-from tools.compliance_analyzer.reporting import MarkdownReportGenerator  # Report renderer under test.
-from tools.compliance_analyzer.scoring import ComplianceScorer  # Scorer under test.
+from misthelper_devtools.compliance_analyzer import engine  # Module under test for patched parallel constants.
+from misthelper_devtools.compliance_analyzer.__main__ import ComplianceCLI  # CLI under test for argument forwarding.
+from misthelper_devtools.compliance_analyzer.engine import ComplianceAnalyzer  # System under test: engine.
+from misthelper_devtools.compliance_analyzer.models import FileReport  # Report type for test helper annotations.
+from misthelper_devtools.compliance_analyzer.reporting import MarkdownReportGenerator  # Report renderer under test.
+from misthelper_devtools.compliance_analyzer.scoring import ComplianceScorer  # Scorer under test.
 
 # A deliberately non-compliant sample: a pass-through wrapper plus an alias.
 WRAPPER_SOURCE = """

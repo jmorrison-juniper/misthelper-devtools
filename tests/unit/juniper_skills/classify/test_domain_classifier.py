@@ -6,7 +6,11 @@ import sqlite3  # Build a local populated database for migration tests.
 from pathlib import Path  # Use portable paths for the test database.
 from time import sleep  # Wait briefly for Windows to release SQLite handles.
 
-from src.juniper_skills.classify import DomainClassifier, DomainDocument, DomainLookup  # Test the public interface.
+from misthelper_devtools.juniper_skills.classify import (  # Test the public interface.
+    DomainClassifier,
+    DomainDocument,
+    DomainLookup,
+)
 
 TEST_DATABASE = Path("tests") / "unit" / "juniper_skills" / "classify" / "factory-test.db"  # Keep test files in repo.
 

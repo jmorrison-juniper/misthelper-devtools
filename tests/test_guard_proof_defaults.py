@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from tools.guard_proof_audit import GuardProofAuditor, GuardProofCli
+from misthelper_devtools.guard_proof_audit import GuardProofAuditor, GuardProofCli
 
 _ANALYZER_REPORT = Path("test_quality_analyzer_output/report.json")
 

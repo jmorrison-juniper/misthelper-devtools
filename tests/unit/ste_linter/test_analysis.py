@@ -2,8 +2,8 @@
 
 from __future__ import annotations  # Postponed annotations keep the type hints light.
 
-from tools.ste_linter.analysis import GrammarAnalyzer, get_backend  # The analysis parts under test.
-from tools.ste_linter.analysis.backend import AUX  # The tag used to check the backend.
+from misthelper_devtools.ste_linter.analysis import GrammarAnalyzer, get_backend  # The analysis parts under test.
+from misthelper_devtools.ste_linter.analysis.backend import AUX  # The tag used to check the backend.
 
 
 def test_factory_returns_heuristic() -> None:

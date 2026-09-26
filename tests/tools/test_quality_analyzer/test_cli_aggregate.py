@@ -8,7 +8,7 @@ and the good-fixture corpus once each. Asserts:
 
 Report and summary outputs are written under pytest's `tmp_path` to keep the
 test hermetic (the CLI's default report path would otherwise clobber the
-committed `tools/test_quality_analyzer/output/report.json`).
+committed `src/misthelper_devtools/test_quality_analyzer/output/report.json`).
 """
 
 from __future__ import annotations  # Postponed annotations for cleaner typing.
@@ -18,7 +18,7 @@ from pathlib import Path  # Path arithmetic for repo-root anchoring.
 
 import pytest  # Fixture primitives (tmp_path, monkeypatch, capsys).
 
-from tools.test_quality_analyzer.__main__ import main  # CLI entrypoint under test.
+from misthelper_devtools.test_quality_analyzer.__main__ import main  # CLI entrypoint under test.
 
 # Categories every detector emits; expected to appear in the bad-fixtures report.
 _EXPECTED_CATEGORIES = {  # Frozen set of category enum values.
@@ -41,7 +41,7 @@ def _run_cli(
 ) -> dict:
     """Invoke the CLI against one fixture pool and return the parsed report JSON."""
     # Point the CLI at the requested fixture pool (bad/ or good/).
-    fixtures_root = repo_root / "tools" / "test_quality_analyzer" / "fixtures" / fixture_subdir
+    fixtures_root = repo_root / "src" / "misthelper_devtools" / "test_quality_analyzer" / "fixtures" / fixture_subdir
     # Sanity-check the fixture directory before attempting the run.
     assert fixtures_root.is_dir(), "Fixture pool missing: %s" % fixtures_root
     # Anchor the run at repo root so relative paths in the config resolve correctly.
@@ -54,7 +54,7 @@ def _run_cli(
         "--roots",
         str(fixtures_root),  # Only scan this fixture pool.
         "--config",
-        str(repo_root / "tools" / "test_quality_analyzer" / "config.toml"),
+        str(repo_root / "src" / "misthelper_devtools" / "test_quality_analyzer" / "config.toml"),
         "--report",
         str(report_path),  # Hermetic JSON output path.
         "--summary",

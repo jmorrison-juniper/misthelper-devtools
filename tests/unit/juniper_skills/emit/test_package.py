@@ -6,7 +6,7 @@ import re
 import shutil
 from pathlib import Path
 
-from src.juniper_skills.emit.package import (
+from misthelper_devtools.juniper_skills.emit.package import (
     CitationKeyAllocator,
     CollectionSkillPackageAssembler,
     DocumentPackageInput,

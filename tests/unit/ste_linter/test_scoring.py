@@ -2,10 +2,10 @@
 
 from __future__ import annotations  # Postponed annotations keep the type hints light.
 
-from tools.ste_linter.config import LinterConfig  # The configuration for scoring.
-from tools.ste_linter.parsing import DocumentBuilder  # Builds documents to score.
-from tools.ste_linter.rules import RuleContext, load_rules  # The rules and context.
-from tools.ste_linter.scoring import ScoringModel  # The scoring model under test.
+from misthelper_devtools.ste_linter.config import LinterConfig  # The configuration for scoring.
+from misthelper_devtools.ste_linter.parsing import DocumentBuilder  # Builds documents to score.
+from misthelper_devtools.ste_linter.rules import RuleContext, load_rules  # The rules and context.
+from misthelper_devtools.ste_linter.scoring import ScoringModel  # The scoring model under test.
 
 
 def _score(text, backend, grammar, config):

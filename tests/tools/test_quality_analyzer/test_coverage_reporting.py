@@ -8,7 +8,7 @@ from pathlib import Path  # Build paths without hardcoded separators.
 
 import pytest  # Use monkeypatch and capture fixtures.
 
-from tools.test_quality_analyzer.__main__ import TestQualityCLI, main  # CLI under test.
+from misthelper_devtools.test_quality_analyzer.__main__ import TestQualityCLI, main  # CLI under test.
 
 _FROZEN_TIMESTAMP = "2026-07-14T00:00:00+00:00"  # Freeze envelope for deterministic assertions.
 
@@ -20,7 +20,9 @@ def test_quality_report_lists_analyzed_files(
 ) -> None:
     """The JSON report must list files that detectors read."""
     monkeypatch.chdir(repo_root)  # Resolve relative config paths from the repository root.
-    fixtures_root = repo_root / "tools" / "test_quality_analyzer" / "fixtures" / "bad"  # Use known fixtures.
+    fixtures_root = (
+        repo_root / "src" / "misthelper_devtools" / "test_quality_analyzer" / "fixtures" / "bad"
+    )  # Use known fixtures.
     report_path = tmp_path / "report.json"  # Keep generated JSON outside tracked files.
     summary_path = tmp_path / "summary.md"  # Keep generated Markdown outside tracked files.
     code = main(  # Run the analyzer on the fixture corpus.
@@ -28,7 +30,7 @@ def test_quality_report_lists_analyzed_files(
             "--roots",
             str(fixtures_root),
             "--config",
-            str(repo_root / "tools" / "test_quality_analyzer" / "config.toml"),
+            str(repo_root / "src" / "misthelper_devtools" / "test_quality_analyzer" / "config.toml"),
             "--report",
             str(report_path),
             "--summary",
@@ -80,7 +82,9 @@ def test_quality_report_none_argv_reads_process_arguments(
 ) -> None:
     """A None argument list must read process arguments and produce coverage output."""
     monkeypatch.chdir(repo_root)  # Resolve repository-relative config paths.
-    fixtures_root = repo_root / "tools" / "test_quality_analyzer" / "fixtures" / "bad"  # Use stable fixtures.
+    fixtures_root = (
+        repo_root / "src" / "misthelper_devtools" / "test_quality_analyzer" / "fixtures" / "bad"
+    )  # Use stable fixtures.
     report_path = tmp_path / "process-report.json"  # Keep generated JSON outside tracked files.
     summary_path = tmp_path / "process-summary.md"  # Keep generated Markdown outside tracked files.
     monkeypatch.setattr(  # Replace process argv so the None path uses hermetic arguments.
@@ -91,7 +95,7 @@ def test_quality_report_none_argv_reads_process_arguments(
             "--roots",
             str(fixtures_root),
             "--config",
-            str(repo_root / "tools" / "test_quality_analyzer" / "config.toml"),
+            str(repo_root / "src" / "misthelper_devtools" / "test_quality_analyzer" / "config.toml"),
             "--report",
             str(report_path),
             "--summary",

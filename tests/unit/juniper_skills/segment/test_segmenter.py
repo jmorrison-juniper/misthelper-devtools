@@ -5,7 +5,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from src.juniper_skills.segment import (  # Import the public segmenter surface under test.
+from misthelper_devtools.juniper_skills.segment import (  # Import the public segmenter surface under test.
     CommandBlockDetector,  # Test command re-fencing.
     DocumentSegmenter,  # Test topic segmentation.
     LifecycleClassifier,  # Test life cycle signal classification.

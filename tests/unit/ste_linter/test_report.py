@@ -4,8 +4,8 @@ from __future__ import annotations  # Postponed annotations keep the type hints 
 
 import json  # Parses the JSON report in the test.
 
-from tools.ste_linter.models import Score, SectionScore, Severity, Violation  # The types to render.
-from tools.ste_linter.report import JsonReporter, TextReporter  # The reporters under test.
+from misthelper_devtools.ste_linter.models import Score, SectionScore, Severity, Violation  # The types to render.
+from misthelper_devtools.ste_linter.report import JsonReporter, TextReporter  # The reporters under test.
 
 
 def _sample_score() -> Score:

@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from misthelper_devtools.juniper_skills.install import SkillInstaller
 from scripts.juniper_skills.install_skills import InstallSkillsCli
-from src.juniper_skills.install import SkillInstaller
 
 
 class TestSkillInstaller:

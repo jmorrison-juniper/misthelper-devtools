@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass  # Create a small card fixture.
 
-from src.juniper_skills.quality import (  # Test built-store cleanup tools.  # Test repair measurement.
+from misthelper_devtools.juniper_skills.quality import (  # Test built-store cleanup tools.  # Test repair measurement.
     CardDeduplicator,
     CommandFenceCleaner,
     SourceTextRepairer,

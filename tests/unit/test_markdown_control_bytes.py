@@ -5,7 +5,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from tools.markdown_control_bytes import MarkdownControlByteScanner
+from misthelper_devtools.markdown_control_bytes import MarkdownControlByteScanner
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]  # Anchor scans at the checkout, not the pytest cwd.
 

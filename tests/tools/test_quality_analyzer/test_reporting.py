@@ -20,7 +20,7 @@ from types import MappingProxyType  # Freeze mappings before ConfigSnapshot cons
 
 import pytest  # pytest.raises for validator failure cases.
 
-from tools.test_quality_analyzer.detection import (  # SUT collaborators (types).
+from misthelper_devtools.test_quality_analyzer.detection import (  # SUT collaborators (types).
     Category,
     ConfigSnapshot,
     Finding,
@@ -29,7 +29,7 @@ from tools.test_quality_analyzer.detection import (  # SUT collaborators (types)
     Severity,
     SkippedFile,
 )
-from tools.test_quality_analyzer.reporting import (  # SUTs.
+from misthelper_devtools.test_quality_analyzer.reporting import (  # SUTs.
     MarkdownRenderer,
     ReportBuilder,
 )
@@ -37,7 +37,8 @@ from tools.test_quality_analyzer.reporting import (  # SUTs.
 # Anchor path to the schema file so tests are robust to cwd shifts.
 _SCHEMA_PATH = (  # Repo-relative POSIX path resolved from this test file location.
     Path(__file__).resolve().parents[3]  # tests/tools/test_quality_analyzer -> repo root.
-    / "tools"
+    / "src"
+    / "misthelper_devtools"
     / "test_quality_analyzer"
     / "report.schema.json"
 )

@@ -14,8 +14,8 @@ from __future__ import annotations  # Postponed annotations for cleaner typing.
 import json  # Read the on-disk baseline back for byte-level assertions.
 from pathlib import Path  # Filesystem primitives for tmp_path assertions.
 
-from tools.test_quality_analyzer.baseline import BaselineDiffer  # SUT.
-from tools.test_quality_analyzer.detection import (  # Shared type layer.
+from misthelper_devtools.test_quality_analyzer.baseline import BaselineDiffer  # SUT.
+from misthelper_devtools.test_quality_analyzer.detection import (  # Shared type layer.
     Baseline,
     Category,
     Finding,

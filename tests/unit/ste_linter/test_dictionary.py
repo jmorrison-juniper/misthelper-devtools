@@ -5,7 +5,7 @@ from __future__ import annotations  # Postponed annotations keep the type hints 
 import json  # Writes a temporary dictionary file.
 import pathlib  # Builds the temporary path.
 
-from tools.ste_linter.dictionary.loader import Dictionary  # The loader under test.
+from misthelper_devtools.ste_linter.dictionary.loader import Dictionary  # The loader under test.
 
 
 def test_load_missing_returns_none() -> None:

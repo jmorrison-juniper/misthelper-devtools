@@ -12,7 +12,7 @@ from pathlib import Path  # Filesystem primitives.
 
 import pytest  # Fixture primitives.
 
-from tools.test_quality_analyzer.__main__ import main  # CLI entrypoint under test.
+from misthelper_devtools.test_quality_analyzer.__main__ import main  # CLI entrypoint under test.
 
 _FROZEN_TIMESTAMP = "2026-07-14T00:00:00+00:00"  # Anchor the envelope timestamp.
 
@@ -22,12 +22,12 @@ def _run_once(repo_root: Path, out_dir: Path) -> bytes:
     out_dir.mkdir(parents=True, exist_ok=True)  # Ensure hermetic dir exists.
     report_path = out_dir / "report.json"  # Report artefact for this run.
     summary_path = out_dir / "summary.md"  # Summary artefact for this run.
-    fixtures_root = repo_root / "tools" / "test_quality_analyzer" / "fixtures"
+    fixtures_root = repo_root / "src" / "misthelper_devtools" / "test_quality_analyzer" / "fixtures"
     argv = [
         "--roots",
         str(fixtures_root),  # Fixed corpus for repeatable comparison.
         "--config",
-        str(repo_root / "tools" / "test_quality_analyzer" / "config.toml"),
+        str(repo_root / "src" / "misthelper_devtools" / "test_quality_analyzer" / "config.toml"),
         "--report",
         str(report_path),  # Hermetic path.
         "--summary",
