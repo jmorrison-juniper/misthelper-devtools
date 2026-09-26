@@ -104,7 +104,9 @@ jobs:
       # The assignment request uses the assign-token secret, not this token.
       issues: write
     outputs:
-      result: ${{ steps.assign.outputs.result }}
+      # github-script writes its own result output from the return value of the
+      # script, so the step uses the name assign-result.
+      result: ${{ steps.assign.outputs.assign-result }}
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
     steps:
@@ -129,7 +131,7 @@ jobs:
             const dryRun = process.env.DRY_RUN === 'true';
             const say = (text) => core.info(dryRun ? `[dry run] ${text}` : text);
             const finish = (result) => {
-              core.setOutput('result', result);
+              core.setOutput('assign-result', result);
               say(`Result: ${result}.`);
             };
             // The REST request uses copilot-swe-agent[bot]. The issue shows the agent as Copilot.
@@ -137,7 +139,7 @@ jobs:
 
             const raw = (process.env.ISSUE_NUMBER || '').trim();
             if (!/^[0-9]+$/.test(raw)) {
-              core.setOutput('result', 'error');
+              core.setOutput('assign-result', 'error');
               core.setFailed(`The issue number must be a whole number. It is '${raw}'.`);
               return;
             }
