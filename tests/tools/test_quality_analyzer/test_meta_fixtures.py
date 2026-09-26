@@ -1,7 +1,7 @@
 """Fixture-based meta-tests for detectors (T023, T027, T031, T035, T039, T042, T052, T053).
 
 Each detector has a paired bad + good fixture under
-`tools/test_quality_analyzer/fixtures/{bad,good}/`, and this file's tests
+`src/misthelper_devtools/test_quality_analyzer/fixtures/{bad,good}/`, and this file's tests
 assert:
 
     - The detector emits the expected findings against the bad fixture.
@@ -27,14 +27,16 @@ from pathlib import Path  # File paths for fixture lookup.
 
 import pytest  # Test framework primitives.
 
-from tools.test_quality_analyzer.__main__ import main  # CLI entrypoint (whole-corpus meta).
+from misthelper_devtools.test_quality_analyzer.__main__ import main  # CLI entrypoint (whole-corpus meta).
 
 # Resolve the fixture directories once at import time (POSIX-normalized paths).
 _HERE = Path(__file__).resolve()  # Absolute path of this test module.
 _REPO_ROOT = _HERE.parents[3]  # tests/tools/test_quality_analyzer -> repo root is parents[3].
-_FIXTURE_BAD = _REPO_ROOT / "tools" / "test_quality_analyzer" / "fixtures" / "bad"  # Bad fixtures.
-_FIXTURE_GOOD = _REPO_ROOT / "tools" / "test_quality_analyzer" / "fixtures" / "good"  # Good.
-_CONFIG_PATH = _REPO_ROOT / "tools" / "test_quality_analyzer" / "config.toml"  # CLI config.
+_FIXTURE_BAD = (
+    _REPO_ROOT / "src" / "misthelper_devtools" / "test_quality_analyzer" / "fixtures" / "bad"
+)  # Bad fixtures.
+_FIXTURE_GOOD = _REPO_ROOT / "src" / "misthelper_devtools" / "test_quality_analyzer" / "fixtures" / "good"  # Good.
+_CONFIG_PATH = _REPO_ROOT / "src" / "misthelper_devtools" / "test_quality_analyzer" / "config.toml"  # CLI config.
 _FROZEN_TIMESTAMP = "2026-07-14T00:00:00+00:00"  # Deterministic envelope for meta runs.
 
 
@@ -49,7 +51,7 @@ def _parse(path: Path) -> tuple[ast.Module, str]:
 def test_untested_detector() -> None:
     """UntestedDetector: bad fixture yields 3 findings; good fixture yields zero."""
     # Import inside the test so a missing module surfaces as a clean test failure.
-    from tools.test_quality_analyzer.detection.untested import UntestedDetector
+    from misthelper_devtools.test_quality_analyzer.detection.untested import UntestedDetector
 
     # Locate the bad-fixture SUT (three untested public functions expected).
     bad_sut = _FIXTURE_BAD / "test_untested_source_module_source.py"  # Bad-scenario SUT.
@@ -85,7 +87,7 @@ def test_untested_detector() -> None:
 def test_weak_assertion_detector() -> None:
     """WeakAssertionDetector: bad fixture yields 6 findings; good fixture yields zero."""
     # Import inside the test so a missing module surfaces as a clean test failure.
-    from tools.test_quality_analyzer.detection.weak_assertion import WeakAssertionDetector
+    from misthelper_devtools.test_quality_analyzer.detection.weak_assertion import WeakAssertionDetector
 
     # Locate the bad fixture with one function per weak sub-rule.
     bad_path = _FIXTURE_BAD / "test_weak_assertion_bad.py"  # Six weak-assertion cases.
@@ -131,7 +133,7 @@ def test_weak_assertion_detector() -> None:
 def test_tautological_detector() -> None:
     """TautologicalTestDetector: bad fixture yields 4 findings; good fixture yields zero."""
     # Import inside the test so a missing module surfaces as a clean failure.
-    from tools.test_quality_analyzer.detection.tautological import TautologicalTestDetector
+    from misthelper_devtools.test_quality_analyzer.detection.tautological import TautologicalTestDetector
 
     # Locate the tautology fixtures (bad = 4 cases, good = zero findings).
     bad_path = _FIXTURE_BAD / "test_tautological_bad.py"  # Four tautology cases.
@@ -172,7 +174,7 @@ def test_tautological_detector() -> None:
 def test_missing_failure_mode_detector() -> None:
     """MissingFailureModeDetector: bad fixture yields 6 findings; good fixture yields zero."""
     # Import inside the test so a missing module surfaces as a clean failure.
-    from tools.test_quality_analyzer.detection.missing_failure_mode import (
+    from misthelper_devtools.test_quality_analyzer.detection.missing_failure_mode import (
         MissingFailureModeDetector,
     )
 
@@ -215,7 +217,7 @@ def test_missing_failure_mode_detector() -> None:
 
 def test_missing_failure_mode_detector_reports_comment_and_string_decoys() -> None:
     """MissingFailureModeDetector must ignore comment and string status decoys."""
-    from tools.test_quality_analyzer.detection.missing_failure_mode import (
+    from misthelper_devtools.test_quality_analyzer.detection.missing_failure_mode import (
         MissingFailureModeDetector,
     )  # Import the detector under the same path as the CLI.
 
@@ -237,7 +239,7 @@ def test_missing_failure_mode_detector_reports_comment_and_string_decoys() -> No
 
 def test_missing_failure_mode_detector_accepts_real_status_contexts() -> None:
     """MissingFailureModeDetector must keep accepting real status-code assertions."""
-    from tools.test_quality_analyzer.detection.missing_failure_mode import (
+    from misthelper_devtools.test_quality_analyzer.detection.missing_failure_mode import (
         MissingFailureModeDetector,
     )  # Import the detector under the same path as the CLI.
 
@@ -253,7 +255,7 @@ def test_missing_failure_mode_detector_accepts_real_status_contexts() -> None:
 
 def test_missing_failure_mode_detector_accepts_status_constants() -> None:
     """MissingFailureModeDetector must accept named status constants in status contexts."""
-    from tools.test_quality_analyzer.detection.missing_failure_mode import (
+    from misthelper_devtools.test_quality_analyzer.detection.missing_failure_mode import (
         HttpStatusCoverageInferer,
     )  # Import the status inferer under the same path as the CLI.
 
@@ -275,7 +277,7 @@ def test_missing_failure_mode_detector_accepts_status_constants() -> None:
 
 def test_missing_failure_mode_detector_rejects_pasted_helper_coverage() -> None:
     """MissingFailureModeDetector must reject status coverage that never calls the source."""
-    from tools.test_quality_analyzer.detection.missing_failure_mode import (
+    from misthelper_devtools.test_quality_analyzer.detection.missing_failure_mode import (
         MissingFailureModeDetector,
     )  # Import the detector under the same path as the CLI.
 
@@ -292,7 +294,7 @@ def test_missing_failure_mode_detector_rejects_pasted_helper_coverage() -> None:
 
 def test_missing_failure_mode_detector_accepts_source_call_coverage() -> None:
     """MissingFailureModeDetector must accept status coverage that calls the source."""
-    from tools.test_quality_analyzer.detection.missing_failure_mode import (
+    from misthelper_devtools.test_quality_analyzer.detection.missing_failure_mode import (
         MissingFailureModeDetector,
     )  # Import the detector under the same path as the CLI.
 
@@ -308,7 +310,7 @@ def test_missing_failure_mode_detector_accepts_source_call_coverage() -> None:
 
 def test_missing_failure_mode_detector_excludes_unreachable_mistapi_exceptions() -> None:
     """MissingFailureModeDetector must not require exceptions that mistapi swallows."""
-    from tools.test_quality_analyzer.detection.missing_failure_mode import (
+    from misthelper_devtools.test_quality_analyzer.detection.missing_failure_mode import (
         MissingFailureModeDetector,
     )  # Import the detector under the same path as the CLI.
 
@@ -336,7 +338,7 @@ def test_missing_failure_mode_detector_excludes_unreachable_mistapi_exceptions()
 
 def test_missing_failure_mode_detector_separates_network_from_json_parse() -> None:
     """MissingFailureModeDetector must require a parser before malformed-JSON debt."""
-    from tools.test_quality_analyzer.detection.missing_failure_mode import (  # Import the detector under test.
+    from misthelper_devtools.test_quality_analyzer.detection.missing_failure_mode import (  # The detector under test.
         MissingFailureModeDetector,  # Use the real detector so this guard proves rule behavior.
     )
 
@@ -363,7 +365,7 @@ def test_missing_failure_mode_detector_separates_network_from_json_parse() -> No
 def test_missing_edge_case_detector() -> None:
     """MissingEdgeCaseDetector: bad fixture yields numeric findings; good yields zero."""
     # Import inside the test so a missing module surfaces as a clean failure.
-    from tools.test_quality_analyzer.detection.missing_edge_case import MissingEdgeCaseDetector
+    from misthelper_devtools.test_quality_analyzer.detection.missing_edge_case import MissingEdgeCaseDetector
 
     # Locate the edge-case fixtures.
     bad_path = _FIXTURE_BAD / "test_missing_edge_case_bad.py"  # Positive-int only.
@@ -404,7 +406,7 @@ def test_missing_edge_case_detector() -> None:
 
 def test_missing_edge_case_detector_ignores_support_calls() -> None:
     """MissingEdgeCaseDetector must ignore mock assertions and response helpers."""
-    from tools.test_quality_analyzer.detection.missing_edge_case import MissingEdgeCaseDetector
+    from misthelper_devtools.test_quality_analyzer.detection.missing_edge_case import MissingEdgeCaseDetector
 
     source = (  # Keep the synthetic fixture local so this test proves the repaired rule directly.
         "def test_support_calls(emitter):\n"
@@ -419,7 +421,7 @@ def test_missing_edge_case_detector_ignores_support_calls() -> None:
 
 def test_missing_edge_case_detector_flags_empty_collection_gap() -> None:
     """MissingEdgeCaseDetector must keep valid empty-input findings."""
-    from tools.test_quality_analyzer.detection.missing_edge_case import MissingEdgeCaseDetector
+    from misthelper_devtools.test_quality_analyzer.detection.missing_edge_case import MissingEdgeCaseDetector
 
     source = (  # Keep the synthetic fixture local so the collection obligation is clear.
         "def process_items(items):\n"
@@ -438,7 +440,7 @@ def test_missing_edge_case_detector_flags_empty_collection_gap() -> None:
 
 def test_missing_edge_case_detector_infers_optional_annotation() -> None:
     """MissingEdgeCaseDetector must require None only for optional source inputs."""
-    from tools.test_quality_analyzer.detection.missing_edge_case import MissingEdgeCaseDetector
+    from misthelper_devtools.test_quality_analyzer.detection.missing_edge_case import MissingEdgeCaseDetector
 
     source = (  # Keep a local SUT so annotation inference is the measured behavior.
         "def process_name(name: str | None):\n"
@@ -457,7 +459,7 @@ def test_missing_edge_case_detector_infers_optional_annotation() -> None:
 
 def test_missing_edge_case_detector_trusts_string_annotation_over_value_name() -> None:
     """MissingEdgeCaseDetector must not infer a numeric domain from typed text."""
-    from tools.test_quality_analyzer.detection.missing_edge_case import MissingEdgeCaseDetector
+    from misthelper_devtools.test_quality_analyzer.detection.missing_edge_case import MissingEdgeCaseDetector
 
     source = (  # Keep a local SUT so source annotation applicability is measured directly.
         "def redact_value(value: str):\n"
@@ -474,7 +476,7 @@ def test_missing_edge_case_detector_trusts_string_annotation_over_value_name() -
 
 def test_missing_edge_case_detector_counts_float_edge_literals() -> None:
     """MissingEdgeCaseDetector must count float literals as numeric edge tests."""
-    from tools.test_quality_analyzer.detection.missing_edge_case import MissingEdgeCaseDetector
+    from misthelper_devtools.test_quality_analyzer.detection.missing_edge_case import MissingEdgeCaseDetector
 
     source = (  # Keep a local SUT so float edge coverage is measured directly.
         "def render_value(value: float):\n"
@@ -493,7 +495,7 @@ def test_missing_edge_case_detector_counts_float_edge_literals() -> None:
 
 def test_missing_edge_case_detector_ignores_status_code_numbers() -> None:
     """MissingEdgeCaseDetector must keep HTTP status codes outside numeric scope."""
-    from tools.test_quality_analyzer.detection.missing_edge_case import MissingEdgeCaseDetector
+    from misthelper_devtools.test_quality_analyzer.detection.missing_edge_case import MissingEdgeCaseDetector
 
     source = (  # Keep a local response builder so status-code inference is measured.
         "def build_response(status_code: int):\n"

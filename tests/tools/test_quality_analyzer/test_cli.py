@@ -18,7 +18,7 @@ from pathlib import Path  # Filesystem primitives for hermetic paths.
 
 import pytest  # Fixture primitives.
 
-from tools.test_quality_analyzer.__main__ import TestQualityCLI, main  # CLI entrypoint under test.
+from misthelper_devtools.test_quality_analyzer.__main__ import TestQualityCLI, main  # CLI entrypoint under test.
 
 _FROZEN_TIMESTAMP = "2026-07-14T00:00:00+00:00"  # Freeze envelope for deterministic assertions.
 
@@ -50,7 +50,7 @@ def _base_argv(
         "--roots",
         str(fixtures_root),  # Scan a specific fixture pool.
         "--config",
-        str(repo_root / "tools" / "test_quality_analyzer" / "config.toml"),
+        str(repo_root / "src" / "misthelper_devtools" / "test_quality_analyzer" / "config.toml"),
         "--report",
         str(tmp_path / "report.json"),  # Hermetic report path.
         "--summary",
@@ -73,7 +73,7 @@ def test_gate_clean_exits_zero(
 ) -> None:
     """Gate mode against a baseline matching current findings must exit 0."""
     monkeypatch.chdir(repo_root)  # Config paths resolve relative to repo root.
-    fixtures_root = repo_root / "tools" / "test_quality_analyzer" / "fixtures" / "bad"
+    fixtures_root = repo_root / "src" / "misthelper_devtools" / "test_quality_analyzer" / "fixtures" / "bad"
     baseline_path = tmp_path / "baseline.json"
     # First: seed the baseline with the current findings via --write-baseline.
     seed_rc = main(_base_argv(repo_root, fixtures_root, tmp_path, str(baseline_path)) + ["--write-baseline"])
@@ -94,7 +94,7 @@ def test_gate_new_finding_exits_one(
 ) -> None:
     """A current-run finding absent from the baseline must trigger exit 1."""
     monkeypatch.chdir(repo_root)  # Config paths anchored at repo root.
-    fixtures_root = repo_root / "tools" / "test_quality_analyzer" / "fixtures" / "bad"
+    fixtures_root = repo_root / "src" / "misthelper_devtools" / "test_quality_analyzer" / "fixtures" / "bad"
     baseline_path = tmp_path / "empty_baseline.json"
     # Seed an EMPTY baseline (JSON array). Every current finding is now new.
     baseline_path.write_text("[]\n", encoding="utf-8")
@@ -126,7 +126,7 @@ def test_gate_parse_error_exits_two(
         "--roots",
         str(bad_root),
         "--config",
-        str(repo_root / "tools" / "test_quality_analyzer" / "config.toml"),
+        str(repo_root / "src" / "misthelper_devtools" / "test_quality_analyzer" / "config.toml"),
         "--report",
         str(tmp_path / "report.json"),
         "--summary",
@@ -151,7 +151,7 @@ def test_write_baseline_produces_canonical_json_array(
 ) -> None:
     """--write-baseline writes a JSON array (no envelope) and exits 0."""
     monkeypatch.chdir(repo_root)
-    fixtures_root = repo_root / "tools" / "test_quality_analyzer" / "fixtures" / "bad"
+    fixtures_root = repo_root / "src" / "misthelper_devtools" / "test_quality_analyzer" / "fixtures" / "bad"
     baseline_path = tmp_path / "baseline.json"
     rc = main(_base_argv(repo_root, fixtures_root, tmp_path, str(baseline_path)) + ["--write-baseline"])
     assert rc == 0, "--write-baseline must exit 0; got %d" % rc
@@ -174,7 +174,7 @@ def test_empty_baseline_flag_disables_baseline_logic(
 ) -> None:
     """`--baseline ""` must skip baseline load/diff and complete without error."""
     monkeypatch.chdir(repo_root)
-    fixtures_root = repo_root / "tools" / "test_quality_analyzer" / "fixtures" / "bad"
+    fixtures_root = repo_root / "src" / "misthelper_devtools" / "test_quality_analyzer" / "fixtures" / "bad"
     rc = main(_base_argv(repo_root, fixtures_root, tmp_path, ""))  # No gate/write-baseline flag.
     assert rc == 0, "Non-gate run with disabled baseline must exit 0; got %d" % rc
     report_path = tmp_path / "report.json"
@@ -206,7 +206,9 @@ def test_none_argv_uses_process_arguments(
     monkeypatch.chdir(repo_root)  # Resolve the config path from the repository root.
     report_path = tmp_path / "none-argv-report.json"  # Keep the generated report outside tracked files.
     summary_path = tmp_path / "none-argv-summary.md"  # Keep the generated summary outside tracked files.
-    fixtures_root = repo_root / "tools" / "test_quality_analyzer" / "fixtures" / "bad"  # Use stable fixtures.
+    fixtures_root = (
+        repo_root / "src" / "misthelper_devtools" / "test_quality_analyzer" / "fixtures" / "bad"
+    )  # Use stable fixtures.
     monkeypatch.setattr(  # Replace process arguments so the None path stays deterministic.
         sys,
         "argv",
@@ -215,7 +217,7 @@ def test_none_argv_uses_process_arguments(
             "--roots",
             str(fixtures_root),
             "--config",
-            str(repo_root / "tools" / "test_quality_analyzer" / "config.toml"),
+            str(repo_root / "src" / "misthelper_devtools" / "test_quality_analyzer" / "config.toml"),
             "--report",
             str(report_path),
             "--summary",
@@ -280,7 +282,7 @@ def test_gate_and_write_baseline_are_mutually_exclusive(
 ) -> None:
     """Passing both --gate and --write-baseline must exit 2 (invalid usage)."""
     monkeypatch.chdir(repo_root)
-    fixtures_root = repo_root / "tools" / "test_quality_analyzer" / "fixtures" / "bad"
+    fixtures_root = repo_root / "src" / "misthelper_devtools" / "test_quality_analyzer" / "fixtures" / "bad"
     baseline_path = tmp_path / "baseline.json"
     baseline_path.write_text("[]\n", encoding="utf-8")
     argv = _base_argv(repo_root, fixtures_root, tmp_path, str(baseline_path)) + ["--gate", "--write-baseline"]

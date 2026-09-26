@@ -2,11 +2,11 @@
 
 from __future__ import annotations  # Postponed annotations keep the type hints light.
 
-from tools.ste_linter.config import LinterConfig  # The parser configuration under test.
-from tools.ste_linter.parsing.markdown import MarkdownParser  # The Markdown parser under test.
-from tools.ste_linter.parsing.python_source import PythonSourceParser  # The Python parser under test.
-from tools.ste_linter.parsing.segmentation import Segmenter  # The segmenter under test.
-from tools.ste_linter.parsing.wordcount import WordCounter  # The word counter under test.
+from misthelper_devtools.ste_linter.config import LinterConfig  # The parser configuration under test.
+from misthelper_devtools.ste_linter.parsing.markdown import MarkdownParser  # The Markdown parser under test.
+from misthelper_devtools.ste_linter.parsing.python_source import PythonSourceParser  # The Python parser under test.
+from misthelper_devtools.ste_linter.parsing.segmentation import Segmenter  # The segmenter under test.
+from misthelper_devtools.ste_linter.parsing.wordcount import WordCounter  # The word counter under test.
 
 
 def test_wordcount_basic() -> None:

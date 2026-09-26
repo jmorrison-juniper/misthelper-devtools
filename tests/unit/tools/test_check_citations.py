@@ -1,4 +1,4 @@
-"""Unit tests for ``tools/check_citations.py``.
+"""Unit tests for ``src/misthelper_devtools/check_citations.py``.
 
 Why:
     The checker guards every ``path:line`` citation of the live code. A checker
@@ -19,7 +19,7 @@ import os
 from collections.abc import Iterator
 from typing import Any
 
-from tools import check_citations
+from misthelper_devtools import check_citations
 
 # The checker scans this file too, so a sample citation written as one literal
 # would report itself as a broken citation. Each test builds its sample from two

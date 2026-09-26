@@ -8,7 +8,7 @@ from pathlib import Path  # Use Path to create isolated corpus roots for each te
 
 import pytest  # Skip the real-corpus proof when the local corpus is absent.
 
-from src.juniper_skills.watch import CorpusWatcher, WatcherConfig  # Exercise the production watcher.
+from misthelper_devtools.juniper_skills.watch import CorpusWatcher, WatcherConfig  # Exercise the production watcher.
 
 
 class TestCorpusWatcher:

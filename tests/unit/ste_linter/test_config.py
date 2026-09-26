@@ -4,7 +4,7 @@ from __future__ import annotations  # Postponed annotations keep the type hints 
 
 import pathlib  # Writes a temporary configuration file.
 
-from tools.ste_linter.config import LinterConfig  # The configuration under test.
+from misthelper_devtools.ste_linter.config import LinterConfig  # The configuration under test.
 
 
 def test_defaults() -> None:

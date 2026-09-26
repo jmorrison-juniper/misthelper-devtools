@@ -9,7 +9,10 @@ from pathlib import Path  # Resolve repository paths safely on Windows.
 
 sys.path.insert(0, str(Path.cwd()))  # Let direct script execution import the project package.
 
-from src.juniper_skills.watch import CorpusWatcher, WatcherConfig  # Run the watcher through its public API.
+from misthelper_devtools.juniper_skills.watch import (
+    CorpusWatcher,
+    WatcherConfig,
+)  # Run the watcher through its public API.
 
 
 class WatchCorpusCommand:

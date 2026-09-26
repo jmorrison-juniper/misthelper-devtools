@@ -4,7 +4,10 @@ from __future__ import annotations  # Keep annotations light for pytest.
 
 from pathlib import Path  # Build paths with platform-safe separators.
 
-from tools.analyzer_coverage import AnalyzerCoverageRenderer, AnalyzerCoverageTracker  # Coverage under test.
+from misthelper_devtools.analyzer_coverage import (  # Coverage under test.
+    AnalyzerCoverageRenderer,
+    AnalyzerCoverageTracker,
+)
 
 
 def test_coverage_renderer_reports_reads_and_skips() -> None:

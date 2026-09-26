@@ -4,7 +4,7 @@ from __future__ import annotations  # Keep annotations cheap during test collect
 
 from pathlib import Path  # Build test file paths with portable path objects.
 
-from src.juniper_skills.rewrite import (  # Import the public rewrite API used by orchestrator agents.
+from misthelper_devtools.juniper_skills.rewrite import (  # Import the public rewrite API used by orchestrator agents.
     CardClassMark,
     CardExtractor,
     KnowledgeCard,

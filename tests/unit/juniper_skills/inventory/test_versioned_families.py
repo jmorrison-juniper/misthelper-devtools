@@ -5,12 +5,16 @@ from pathlib import Path  # Use Path to create realistic source roots.
 
 import pytest  # Verify validator failures without touching the live database.
 
-from src.juniper_skills.inventory.engine import (  # Test the production version resolver.
+from misthelper_devtools.juniper_skills.inventory.engine import (  # Test the production version resolver.
     SourceDocumentVersionUpdater,
     VersionedFamilyResolver,
     VersionFamilyInvariantValidator,
 )
-from src.juniper_skills.inventory.models import DocumentGroup, MarkdownPart, SourceRoot  # Build inventory records.
+from misthelper_devtools.juniper_skills.inventory.models import (  # Build inventory records.
+    DocumentGroup,
+    MarkdownPart,
+    SourceRoot,
+)
 
 
 class TestVersionedFamilyResolver:

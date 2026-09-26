@@ -7,14 +7,18 @@ import pathlib  # Builds temporary paths.
 
 import pytest  # Provides the monkeypatch and capture fixtures.
 
-from tools.ste_linter.dictionary import extract as extract_module  # The extractor module for the glue tests.
-from tools.ste_linter.dictionary import quality as quality_module  # The harness module for the glue tests.
-from tools.ste_linter.dictionary.extract import (  # The extractor parts under test.
+from misthelper_devtools.ste_linter.dictionary import (
+    extract as extract_module,  # The extractor module for the glue tests.
+)
+from misthelper_devtools.ste_linter.dictionary import (
+    quality as quality_module,  # The harness module for the glue tests.
+)
+from misthelper_devtools.ste_linter.dictionary.extract import (  # The extractor parts under test.
     DictionaryExtractor,
     PositionedWord,
     RawEntry,
 )
-from tools.ste_linter.dictionary.quality import QualityHarness  # The harness under test.
+from misthelper_devtools.ste_linter.dictionary.quality import QualityHarness  # The harness under test.
 
 
 def _word(text: str, x0: float, top: float) -> PositionedWord:

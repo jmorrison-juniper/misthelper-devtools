@@ -6,9 +6,15 @@ import sqlite3  # Build isolated queue databases for lease tests.
 import threading  # Create real concurrent claim calls for the race test.
 from pathlib import Path  # Use portable paths for pytest temporary folders.
 
-from src.juniper_skills.orchestrate import OrchestratorJournal, PipelineRunner, WorkLeaseStore
-from src.juniper_skills.orchestrate.pipeline import PipelinePaths
-from src.juniper_skills.rewrite import CardClassMark, KnowledgeCard, RewriteBackend, RewriteResult, RewriteWorkPacket
+from misthelper_devtools.juniper_skills.orchestrate import OrchestratorJournal, PipelineRunner, WorkLeaseStore
+from misthelper_devtools.juniper_skills.orchestrate.pipeline import PipelinePaths
+from misthelper_devtools.juniper_skills.rewrite import (
+    CardClassMark,
+    KnowledgeCard,
+    RewriteBackend,
+    RewriteResult,
+    RewriteWorkPacket,
+)
 
 
 class FakeRewriteBackend(RewriteBackend):
@@ -183,6 +189,8 @@ class TestPipelineFailurePaths:
 
 
 def journal_event(document_key: str, stage: str):
-    from src.juniper_skills.orchestrate.models import StageOutcome  # Import locally to keep the fixture small.
+    from misthelper_devtools.juniper_skills.orchestrate.models import (
+        StageOutcome,  # Import locally to keep the fixture small.
+    )
 
     return StageOutcome(document_key, stage, "completed", "stage complete", "worker-1")  # Return one completed event.

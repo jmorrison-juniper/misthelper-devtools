@@ -12,9 +12,9 @@ from pathlib import Path
 
 import pytest
 
-from tools.prompt_audit import FunctionIndex, menu_file_for, read_menu_handlers, source_roots_for
-from tools.repository_root import resolve_repository_root
-from tools.symbol_diff.comparator import SymbolTableComparator
+from misthelper_devtools.prompt_audit import FunctionIndex, menu_file_for, read_menu_handlers, source_roots_for
+from misthelper_devtools.repository_root import resolve_repository_root
+from misthelper_devtools.symbol_diff.comparator import SymbolTableComparator
 
 _MENU_TABLE = """"1": GlobalImportManager.MenuEntry(
         label="List sites",
@@ -77,7 +77,7 @@ def test_prompt_audit_no_longer_reads_its_own_install_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The default root must follow the working directory, not the install directory."""
-    package_directory = Path(sys.modules["tools.prompt_audit"].__file__ or "").resolve().parent
+    package_directory = Path(sys.modules["misthelper_devtools.prompt_audit"].__file__ or "").resolve().parent
     repository = _build_repository(tmp_path / "repo")
     monkeypatch.chdir(repository)
 

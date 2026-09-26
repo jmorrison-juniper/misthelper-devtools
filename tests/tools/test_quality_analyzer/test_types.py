@@ -13,7 +13,7 @@ from pathlib import PurePosixPath  # POSIX-path invariant test.
 
 import pytest  # pytest.raises for frozen-ness assertions.
 
-from tools.test_quality_analyzer.detection import (  # Import from public surface.
+from misthelper_devtools.test_quality_analyzer.detection import (  # Import from public surface.
     Category,
     Finding,
     Severity,

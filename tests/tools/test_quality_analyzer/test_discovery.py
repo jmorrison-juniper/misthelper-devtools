@@ -15,7 +15,7 @@ from __future__ import annotations  # Postponed annotations for consistency.
 import ast  # Used to build synthetic ASTs from string source.
 from pathlib import Path  # Path arg for classify() and discover().
 
-from tools.test_quality_analyzer.discovery import (  # SUTs.
+from misthelper_devtools.test_quality_analyzer.discovery import (  # SUTs.
     MistApiExcluder,
     TestFileDiscoverer,
 )

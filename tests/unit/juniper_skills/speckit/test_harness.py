@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from src.juniper_skills.speckit import SkillDocument, SpecKitAnalyzer, SpecKitHarness, SpecKitPaths
+from misthelper_devtools.juniper_skills.speckit import SkillDocument, SpecKitAnalyzer, SpecKitHarness, SpecKitPaths
 
 
 class TestSpecKitHarness:

@@ -1,1 +1,1 @@
-"""Test package for tools.test_quality_analyzer."""
+"""Test package for misthelper_devtools.test_quality_analyzer."""

@@ -13,7 +13,7 @@ from pathlib import Path  # Builds the temporary file path for the syntax error 
 
 import pytest  # Supplies the tmp_path fixture and the parametrize marker.
 
-from tools.symbol_diff.comparator import SymbolDelta, SymbolTableComparator  # The code under test.
+from misthelper_devtools.symbol_diff.comparator import SymbolDelta, SymbolTableComparator  # The code under test.
 
 
 @pytest.fixture(name="comparator")
@@ -122,7 +122,7 @@ def test_run_reports_a_clean_tree_for_an_unchanged_file(
     comparator: SymbolTableComparator, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A tracked file that the work tree did not change holds the same names, so the run exits 0."""
-    exit_code = comparator.run("HEAD", ["tools/ste_linter/scoring.py"])  # A tracked, unchanged file.
+    exit_code = comparator.run("HEAD", ["src/misthelper_devtools/ste_linter/scoring.py"])  # A tracked, unchanged file.
     captured = capsys.readouterr().out  # Read the printed report.
     assert exit_code == 0  # An unchanged file changes no module-level name.
     assert "no module-level name changed" in captured  # The run compared the file rather than skipping it.

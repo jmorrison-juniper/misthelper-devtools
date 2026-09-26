@@ -1,6 +1,10 @@
 from pathlib import Path  # Build isolated repository trees for the audit tests.
 
-from tools.speckit_task_audit import AllowList, SpecTaskAudit, TaskFileScanner  # Import the tool under test.
+from misthelper_devtools.speckit_task_audit import (  # Import the tool under test.
+    AllowList,
+    SpecTaskAudit,
+    TaskFileScanner,
+)
 
 
 class TestSpecTaskAudit:

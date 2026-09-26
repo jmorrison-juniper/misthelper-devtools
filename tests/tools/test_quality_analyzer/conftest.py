@@ -1,4 +1,4 @@
-"""Pytest fixtures for tools.test_quality_analyzer tests.
+"""Pytest fixtures for misthelper_devtools.test_quality_analyzer tests.
 
 Provides:
     repo_root: absolute Path of the repository top-level directory.

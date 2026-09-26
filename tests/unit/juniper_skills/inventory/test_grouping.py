@@ -2,8 +2,11 @@
 
 from pathlib import Path  # Use Path so tests match the production path contract.
 
-from src.juniper_skills.inventory.engine import PartSetGrouper  # Exercise the real grouping rule.
-from src.juniper_skills.inventory.models import MarkdownPart, SourceRoot  # Build realistic part records.
+from misthelper_devtools.juniper_skills.inventory.engine import PartSetGrouper  # Exercise the real grouping rule.
+from misthelper_devtools.juniper_skills.inventory.models import (  # Build realistic part records.
+    MarkdownPart,
+    SourceRoot,
+)
 
 
 class TestPartSetGrouper:

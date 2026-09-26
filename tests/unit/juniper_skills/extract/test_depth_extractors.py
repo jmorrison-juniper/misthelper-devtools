@@ -4,7 +4,7 @@ from __future__ import annotations  # Keep annotations cheap during test collect
 
 from pathlib import Path  # Build guard files with platform-safe paths.
 
-from src.juniper_skills.extract import (  # Import the public depth extraction API.
+from misthelper_devtools.juniper_skills.extract import (  # Import the public depth extraction API.
     CachedSourceSimilarityGuard,
     CommandFactExtractor,
     ConfigurationFactExtractor,
@@ -21,8 +21,12 @@ from src.juniper_skills.extract import (  # Import the public depth extraction A
     PrerequisiteFactExtractor,
     TableRowFactExtractor,
 )
-from src.juniper_skills.extract.parser import SourcePageParser  # Parse test source pages.
-from src.juniper_skills.rewrite import CardClassMark, SimilarityCheckInput, VerbatimSimilarityGuard  # Verify contracts.
+from misthelper_devtools.juniper_skills.extract.parser import SourcePageParser  # Parse test source pages.
+from misthelper_devtools.juniper_skills.rewrite import (  # Verify contracts.
+    CardClassMark,
+    SimilarityCheckInput,
+    VerbatimSimilarityGuard,
+)
 
 
 class TestDepthExtractors:

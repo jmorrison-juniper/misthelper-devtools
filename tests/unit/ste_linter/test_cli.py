@@ -8,7 +8,7 @@ import sys  # Test CLI defaults without inheriting the pytest command line.
 
 import pytest  # Catches the SystemExit from the version flag.
 
-from tools.ste_linter.cli import main  # The entry function under test.
+from misthelper_devtools.ste_linter.cli import main  # The entry function under test.
 
 # The folder that holds the shared fixture files.
 _FIXTURES = pathlib.Path(__file__).parents[2] / "fixtures" / "ste_linter"

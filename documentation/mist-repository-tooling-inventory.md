@@ -23,7 +23,7 @@ Mist code. It did not read a repository of another owner, for example
 | MistGuestAuthorizations | Container build, release | Calls the shared container workflow. | The release image uses the shared container workflow. Dependabot updates the actions. Pins `v0.3.0`. |
 | MistOrgLicensingComparison | Container build | Calls the shared container workflow. | Dependabot updates the actions. Pins `v0.3.0`. |
 | MistCircuitStats-Redis | Container build | Calls the shared container workflow. | Dependabot updates the actions. Pins `v0.3.0`. |
-| MistWANPerformance | `check_ports.py`, a debug script | The script moved here as `tools/wan_port_report.py`. | The agent notes install `v0.3.0`. |
+| MistWANPerformance | `check_ports.py`, a debug script | The script moved here as the `wan-port-report` command. | The agent notes install `v0.3.0`. |
 | MistCiscoConfigConverter | No workflow. The image copies the whole repository. | The image ignore file drops the development files and the local data files. | The ignore file is now `.dockerignore`, so Docker also reads it. |
 | MistDSW | Spec Kit files and product scripts only | No change. | No change. |
 | starlink-dashboard | Local ruff and pytest settings only | No change. | No change. |
@@ -153,24 +153,21 @@ owner. So the agent cannot take an issue, even with a token.
 
 ### Package layout
 
-The wheel installs the `src` package and the `tools` package at the top level.
-The `src` package of this repository holds only `src.juniper_skills`. The four
-commands import only `tools`, so they work next to the `src` package of a
-consumer. The MistHelper CI runs `complexity-gate` and `test-quality-analyzer`
-that way.
+Release 0.3.0 installed the `src` package and the `tools` package at the top
+level. For each package name, Python loads the first package that it finds, so
+a consumer with its own `src` or `tools` package could import the wrong code.
+The MistHelper CI ran `python -m tools.check_citations` that way.
 
-Three modules in `tools/` import modules of the MistHelper product.
-`performance_memory.py` and `bench_performance_overhead.py` import
-`src.utils.performance`, and `e2e_store_reset.py` imports `src.upgrade_portal`.
-These modules run only in a MistHelper checkout. There, the `src` package of
-MistHelper comes first on the import path. The MistHelper test
-`tests/test_performance_memory.py` imports `tools.performance_memory` from this
-package.
+The package now installs one top-level name, `misthelper_devtools`. The skill
+factory is `misthelper_devtools.juniper_skills`. Eleven commands install with
+the package. The README gives the old and the new name of each import and each
+command.
 
-For each package name, Python loads the first package that it finds. If a
-consumer adds its own `tools` package, a `python -m tools.<name>` command in
-that consumer finds the wrong package. The MistHelper CI runs
-`tools.check_citations` and `tools.speckit_task_audit` that way.
+Four modules imported modules of the MistHelper product:
+`performance_memory.py`, `bench_performance_overhead.py`,
+`bench_e2e_hook_overhead.py`, and `e2e_store_reset.py`. They ran only in a
+MistHelper checkout. MistHelper keeps its own copies under `scripts/`
+(jmorrison-juniper/MistHelper#3466), and the package no longer holds them.
 
 ## What moved
 
@@ -264,16 +261,6 @@ MistHelper also keeps these files and jobs:
 
 - A shared STE lint workflow, when a second repository adopts the STE rules.
   At this time, MistHelper grades the text of one file with `ste-lint.yml`.
-
-- Move the three modules that import modules of the MistHelper product to
-  MistHelper, for example to `scripts/`. See [Package layout](#package-layout).
-  A `tools` package in MistHelper would hide the `tools` package of this
-  repository.
-
-- A unique name for the two top-level packages, for example
-  `misthelper_devtools`. The change touches 255 import lines in this
-  repository, and it changes each `python -m tools.<name>` command of a
-  consumer.
 
 - Remove `baseline.json` from the package. MistHelper keeps its own baseline
   now, and no other consumer runs `test-quality-analyzer`. The default of the

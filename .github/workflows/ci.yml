@@ -29,11 +29,12 @@ jobs:
             command: python -m black --check .
           - name: types
             # The scope matches the original repository, which type-checked
-            # `src/` only. `tools/` holds 60 known annotation defects. A
-            # separate change repairs them and widens this scope.
-            command: python -m mypy src --config-file pyproject.toml
+            # its `src/` tree only. That tree is now the `juniper_skills`
+            # sub-package. The other modules hold 60 known annotation defects.
+            # A separate change repairs them and widens this scope.
+            command: python -m mypy -p misthelper_devtools.juniper_skills --config-file pyproject.toml
           - name: tests
-            command: python -m pytest --cov=src --cov=tools --cov-report=term-missing
+            command: python -m pytest --cov=misthelper_devtools --cov-report=term-missing
     steps:
       - uses: actions/checkout@v7
 

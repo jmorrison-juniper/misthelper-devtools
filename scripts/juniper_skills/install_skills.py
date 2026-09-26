@@ -8,9 +8,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[2]  # Find the repository root when the script runs by file path.
-if str(REPO_ROOT) not in sys.path:  # Ensure the local src package wins over any installed package.
-    sys.path.insert(0, str(REPO_ROOT))  # Add the worktree root for imports without changing the current directory.
+SOURCE_ROOT = Path(__file__).resolve().parents[2] / "src"  # Find the package source when the script runs by path.
+if str(SOURCE_ROOT) not in sys.path:  # Ensure the local package wins over any installed package.
+    sys.path.insert(0, str(SOURCE_ROOT))  # Add the source root for imports without changing the current directory.
 
 
 class InstallSkillsCli:
@@ -57,7 +57,7 @@ class InstallSkillsCli:
         return parser  # Return the complete parser to the CLI runner.
 
     def _installer_class(self) -> Any:
-        from src.juniper_skills.install import SkillInstaller  # Import after sys.path is prepared.
+        from misthelper_devtools.juniper_skills.install import SkillInstaller  # Import after sys.path is prepared.
 
         return SkillInstaller  # Return the installer type for testable construction.
 
@@ -95,7 +95,9 @@ class InstallSkillsCli:
         return self._run_registration(installer.install_all_packages(args.force, args.dry_run))  # Default to packages.
 
     def _run_registration(self, result: tuple[Any, list[Any]]) -> list[Any]:
-        from src.juniper_skills.install import InstallOutcome  # Import only when a refused outcome is needed.
+        from misthelper_devtools.juniper_skills.install import (
+            InstallOutcome,
+        )  # Import only when a refused outcome is needed.
 
         report, outcomes = result  # Split the measured projection from the install actions.
         self._print_cost_report(report)  # Print the projection before any install outcome.

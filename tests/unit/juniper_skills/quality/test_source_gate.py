@@ -3,7 +3,10 @@
 import gc  # Release SQLite handles before Windows cleanup.
 from pathlib import Path  # Build platform-safe fixture paths.
 
-from src.juniper_skills.quality import SourceQualityDatabase, SourceQualityGate  # Test source gate contracts.
+from misthelper_devtools.juniper_skills.quality import (  # Test source gate contracts.
+    SourceQualityDatabase,
+    SourceQualityGate,
+)
 
 
 def test_space_stripping_failure_returns_specific_reason() -> None:

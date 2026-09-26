@@ -6,7 +6,7 @@ from pathlib import Path  # Build output paths safely.
 
 import pytest  # Capture stdout and provide tmp_path.
 
-from tools.compliance_analyzer.__main__ import ComplianceCLI  # CLI under test.
+from misthelper_devtools.compliance_analyzer.__main__ import ComplianceCLI  # CLI under test.
 
 
 def test_compliance_reports_read_files(
@@ -17,11 +17,13 @@ def test_compliance_reports_read_files(
     """A valid compliance run must print the files it read."""
     monkeypatch.chdir(Path(__file__).parents[2])  # Anchor relative CLI paths at the repository root.
     output = tmp_path / "compliance.md"  # Keep the generated report outside tracked files.
-    code = ComplianceCLI().run(["tools/analyzer_coverage.py", "--output", str(output)])  # Run one file.
+    code = ComplianceCLI().run(
+        ["src/misthelper_devtools/analyzer_coverage.py", "--output", str(output)]
+    )  # Run one file.
     stdout = capsys.readouterr().out  # Capture the CLI report summary.
     assert code == 0  # A valid file should not fail the analyzer.
     assert "Analyzer coverage: compliance_analyzer" in stdout  # The coverage block must be visible.
-    assert "Read: tools/analyzer_coverage.py" in stdout  # The read file must be listed.
+    assert "Read: src/misthelper_devtools/analyzer_coverage.py" in stdout  # The read file must be listed.
     assert "## Analyzer Coverage" in output.read_text(encoding="utf-8")  # Markdown must include coverage.
 
 
@@ -34,8 +36,10 @@ def test_compliance_fails_explicit_excluded_target(
     monkeypatch.chdir(Path(__file__).parents[2])  # Anchor relative CLI paths at the repository root.
     output = tmp_path / "compliance.md"  # Keep the generated report outside tracked files.
     code = ComplianceCLI().run(  # Run with a target that the exclusion removes.
-        ["tools/analyzer_coverage.py", "--exclude", "analyzer_coverage.py", "--output", str(output)]
+        ["src/misthelper_devtools/analyzer_coverage.py", "--exclude", "analyzer_coverage.py", "--output", str(output)]
     )
     stdout = capsys.readouterr().out  # Capture the visible skip reason.
     assert code == 2  # Explicit skipped targets make the run invalid.
-    assert "Skipped: tools/analyzer_coverage.py (excluded_target)" in stdout  # The reason must be visible.
+    assert (
+        "Skipped: src/misthelper_devtools/analyzer_coverage.py (excluded_target)" in stdout
+    )  # The reason must be visible.

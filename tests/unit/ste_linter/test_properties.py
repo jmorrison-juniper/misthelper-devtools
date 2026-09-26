@@ -9,7 +9,7 @@ pytest.importorskip("hypothesis")  # Skip these tests when Hypothesis is absent.
 from hypothesis import given, settings  # The decorator that drives the property tests.
 from hypothesis import strategies as st  # Builds the input strategies.
 
-from tools.ste_linter.parsing.wordcount import WordCounter  # The counter under test.
+from misthelper_devtools.ste_linter.parsing.wordcount import WordCounter  # The counter under test.
 
 # A strategy that builds a simple lower-case word with no special characters.
 _WORD = st.from_regex(r"[a-z]{1,10}", fullmatch=True)
