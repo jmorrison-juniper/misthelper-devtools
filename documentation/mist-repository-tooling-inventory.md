@@ -52,10 +52,14 @@ Note: in MistHelper-Go, the govulncheck gate failed before this wave.
 jmorrison-juniper/MistHelper-Go#38 records the fault. The shared job for gate
 issues found that issue and opened no second issue.
 
-Note: no consumer ran `reusable-copilot-assign.yml` yet, and `self-test.yml`
-does not run it. A real run assigns the Copilot coding agent to an issue. The
-next MistHelper-Go issue that gets the `copilot` label or the checkbox is the
-first real run.
+Note: release `v0.2.0` of `reusable-copilot-assign.yml` sent the assignment
+with `GITHUB_TOKEN` and the login `copilot`. GitHub ignored that login and
+returned no error, so the job added the in-progress label to an issue that had
+no assignee. The old MistHelper copy has the same fault: issue
+jmorrison-juniper/MistHelper#2295 has the `copilot` and `in-progress` labels
+and no assignee. Release `v0.3.0` sends the login `copilot-swe-agent[bot]`
+with the `assign-token` secret, reads the assignees in the response, and
+writes the cause on the issue. `self-test.yml` runs it with dry-run.
 
 Note: in MistCircuitStats and MistHelper-Go, the dispatch job of
 `reusable-auto-merge.yml` ran after each merge. The merge job runs only for a

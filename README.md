@@ -88,7 +88,7 @@ file holds a full caller example and the permissions that the caller must give.
 | `reusable-quality-gate-issues.yml` | Opens one issue for each failed gate and closes it after the gate passes. |
 | `reusable-auto-merge.yml` | Enables auto-merge for a labeled pull request. After the merge, it starts the main workflows that the merge did not start. |
 | `reusable-close-linked-issues.yml` | Closes each issue that a merged pull request names with a closing keyword. A sweep finds the auto-merged pull requests. |
-| `reusable-copilot-assign.yml` | Assigns the Copilot coding agent to an issue, and writes the cause on the issue when the assignment fails. |
+| `reusable-copilot-assign.yml` | Assigns the Copilot cloud agent to an issue with a user token. It adds the in-progress label only when the agent is an assignee, and otherwise writes the cause on the issue. |
 
 A caller pins the full commit SHA of a release and writes the release tag in a
 comment:
@@ -99,7 +99,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-container-image.yml@<commit-sha> # v0.2.0
+    uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-container-image.yml@<commit-sha> # v0.3.0
 ```
 
 To upgrade a consumer, read the release notes, then change the SHA and the
@@ -120,6 +120,14 @@ starts. The auto-merge workflow runs after each merge and on a schedule. Each
 run starts each workflow in `main-workflows` whose newest run is not on the tip
 of the default branch. Thus a merge that changes only the documentation can
 start a container build that its `paths` filter skipped.
+
+Note: GitHub assigns the Copilot cloud agent only for a user token, for
+example a fine-grained personal access token. For `GITHUB_TOKEN`, GitHub
+ignores the agent login and returns no error. Put the token in a repository
+secret, and pass that secret to `reusable-copilot-assign.yml` as
+`assign-token`. Without the secret, the job writes one comment on the issue
+that tells how to set it up. The header of the workflow gives the token
+permissions.
 
 ## Run the tests
 
