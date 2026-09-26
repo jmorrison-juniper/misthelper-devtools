@@ -1,0 +1,16 @@
+version: 2
+updates:
+  # Keeps the actions in `ci.yml` and in the shared workflows up to date. The
+  # consumers call the shared workflows at a pinned commit, so the Dependabot
+  # of a consumer cannot see these actions. A consumer gets an update after
+  # the next release of this repository.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
