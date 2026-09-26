@@ -159,7 +159,7 @@ class GuardProofAuditor:
 
     def _analyzer_report_finding(self, reason: str) -> GuardProofFinding:
         """Return a guard finding that names the analyzer report scope failure."""
-        path = self._analyzer_report or Path("tools/test_quality_analyzer/output/report.json")  # Default path.
+        path = self._analyzer_report or Path("test_quality_analyzer_output/report.json")  # Default path.
         try:
             relative = path if not path.is_absolute() else path.relative_to(self._root)  # Prefer repository path.
         except ValueError:
@@ -400,7 +400,7 @@ class GuardProofCli:
         parser.add_argument(  # Analyzer report path used to reject detector rules with empty real scope.
             "--analyzer-report",
             type=Path,
-            default=Path("tools/test_quality_analyzer/output/report.json"),
+            default=Path("test_quality_analyzer_output/report.json"),
             help="Analyzer JSON report to audit for detector scope metrics.",
         )
         parser.add_argument("--include-known", action="store_true", help="Print known findings.")  # Show baseline debt.
