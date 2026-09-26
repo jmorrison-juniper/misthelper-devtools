@@ -73,6 +73,7 @@ from misthelper_devtools.test_quality_analyzer.reporting import (  # Report + Ma
 )
 
 _LOGGER = logging.getLogger(__name__)  # Module-scoped logger (name matches the CLI).
+DEFAULT_BASELINE = ".github/test-quality-baseline.json"  # Each repository commits its own accepted findings.
 
 
 class TestQualityCLI:
@@ -127,11 +128,11 @@ class TestQualityCLI:
             default=str(Path(__file__).resolve().parent / "config.toml"),
             help="Analyzer config TOML (default: the installed package config).",
         )
-        # --baseline: path to baseline JSON, or empty string to disable (US2 wires this).
+        # --baseline: path to baseline JSON, or empty string to disable. The package ships no baseline.
         parser.add_argument(
             "--baseline",
-            default=str(Path(__file__).resolve().parent / "baseline.json"),
-            help='Baseline JSON path; "" disables baseline comparison (default: installed package baseline).',
+            default=DEFAULT_BASELINE,
+            help='Baseline JSON path; "" disables baseline comparison (default: %s).' % DEFAULT_BASELINE,
         )
         # --report: path to write the JSON report to.
         parser.add_argument(

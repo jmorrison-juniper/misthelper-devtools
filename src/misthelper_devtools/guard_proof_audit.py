@@ -131,21 +131,32 @@ class GuardProofAuditor:
             TestQualityCLI,  # Reuse the analyzer without a shell command.
         )
 
+        arguments = self._analyzer_arguments(report_path)  # Build the command once so tests can read it.
+        return_code = TestQualityCLI().run(arguments)  # Run the analyzer in the current Python process.
+        logger.debug("Analyzer report generation exit code: %s", return_code)  # Keep the result visible.
+
+    def _analyzer_arguments(self, report_path: Path) -> list[str]:
+        """Return the analyzer arguments that write detector scope metrics for this checkout."""
         summary_path = report_path.with_name("summary.md")  # Keep the analyzer summary beside the JSON report.
-        arguments = [  # Keep each argument separate so paths with spaces work on Windows.
+        return [  # Keep each argument separate so paths with spaces work on Windows.
             "--roots",
             str(self._root / "tests"),
             "--config",
-            str(self._root / "src" / "misthelper_devtools" / "test_quality_analyzer" / "config.toml"),
+            str(self._analyzer_config_path()),
             "--baseline",
-            str(self._root / "src" / "misthelper_devtools" / "test_quality_analyzer" / "baseline.json"),
+            "",  # Detector metrics do not depend on a baseline, so the audit needs none.
             "--report",
             str(report_path),
             "--summary",
             str(summary_path),
         ]
-        return_code = TestQualityCLI().run(arguments)  # Run the analyzer in the current Python process.
-        logger.debug("Analyzer report generation exit code: %s", return_code)  # Keep the result visible.
+
+    def _analyzer_config_path(self) -> Path:
+        """Return the analyzer settings of the checkout, or the settings in the package."""
+        local_config = self._root / ".github" / "test-quality-config.toml"  # A repository can own its rules.
+        if local_config.is_file():  # The checkout settings match what its own CI gate runs.
+            return local_config  # Measure the rules that the repository enables.
+        return Path(__file__).resolve().parent / "test_quality_analyzer" / "config.toml"  # Package default.
 
     def _analyzer_scope_findings(self, payload: Mapping[str, object]) -> tuple[GuardProofFinding, ...]:
         """Return one finding for each analyzer metric that measured zero real files."""
