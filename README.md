@@ -172,12 +172,18 @@ reaches every consumer.
 
 MistHelper and the related Mist repositories depend on this repository for
 their quality gates and their shared workflows. This repository depends on no
-Mist repository. No module here imports `MistHelper`, `mistapi`, or any other
-product module.
+Mist repository. No module here imports `MistHelper` or `mistapi`, except as
+sample text in the analyzer fixtures.
 
-Warning: never add a product import to this repository. The dependency runs in
-one direction only. A reverse import would put development tooling back into
-the shipped product.
+Three older modules in `tools/` import modules of the MistHelper product.
+`performance_memory.py` and `bench_performance_overhead.py` import
+`src.utils.performance`, and `e2e_store_reset.py` imports `src.upgrade_portal`.
+These modules run only in a MistHelper checkout. The inventory lists them as a
+candidate to move back to MistHelper.
+
+Warning: do not add a product import here, because the module can then fail
+outside the product repository. The dependency runs in one direction only. A
+reverse import would put development tooling back into the shipped product.
 
 The [inventory](documentation/mist-repository-tooling-inventory.md) gives the
 consumers of each shared workflow and tool.
