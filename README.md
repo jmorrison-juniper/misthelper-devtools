@@ -54,7 +54,7 @@ python -m spacy download en_core_web_sm
 
 ```powershell
 python -m misthelper_devtools.ste_linter path\to\file.md
-python -m misthelper_devtools.test_quality_analyzer tests\
+python -m misthelper_devtools.test_quality_analyzer --roots tests
 python -m misthelper_devtools.compliance_analyzer src\
 python -m misthelper_devtools.symbol_diff --base main path\to\file.py
 ```
@@ -77,7 +77,7 @@ Eleven tools also install as a command.
 
 ```powershell
 ste-linter path\to\file.md
-test-quality-analyzer tests\
+test-quality-analyzer --roots tests
 radon cc . -j | complexity-gate --max 15
 check-citations src tests
 ```
@@ -97,8 +97,15 @@ each `python -m` command of a consumer.
 | `python -m tools.venv_health` | `venv-health` |
 | `from src.juniper_skills.install import SkillInstaller` | `from misthelper_devtools.juniper_skills.install import SkillInstaller` |
 
-The console scripts `ste-linter`, `test-quality-analyzer`, `complexity-gate`,
-and `wan-port-report` did not change.
+The names of the console scripts `ste-linter`, `test-quality-analyzer`,
+`complexity-gate`, and `wan-port-report` did not change.
+
+The package no longer holds a test quality baseline. By default,
+`test-quality-analyzer` reads `.github/test-quality-baseline.json` in the
+current directory. Before a consumer runs `test-quality-analyzer --gate`, it must
+commit its own baseline file. The
+[analyzer README](src/misthelper_devtools/test_quality_analyzer/README.md#baseline)
+gives the procedure.
 
 ## Use a tool from another repository
 

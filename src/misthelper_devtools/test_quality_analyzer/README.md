@@ -8,15 +8,29 @@ Static-analysis auditor for the MistHelper test suite. Flags weak, tautological,
 # Full audit run against tests/
 test-quality-analyzer --roots tests --report test_quality_analyzer_output/report.json
 
-# Gate mode (CI): exit 1 if any new finding vs the committed baseline
+# Gate mode (CI): exit 1 if any new finding vs .github/test-quality-baseline.json
 test-quality-analyzer --gate
 
-# Overwrite the baseline after intentionally accepting new findings
+# Write the baseline after you accept new findings
 test-quality-analyzer --write-baseline
 
 # Drop baseline entries whose file left the scan set, and keep every other entry
 test-quality-analyzer --prune-baseline
 ```
+
+## Baseline
+
+The package holds no baseline. Each repository commits its own baseline file,
+`.github/test-quality-baseline.json`. The `--baseline` option reads that path
+from the current directory by default, so run the command from the root of the
+repository.
+
+- If the file does not exist, `--gate` exits 2, because the gate has no data to
+  compare.
+- If the file does not exist, a run with no mode option reports each finding as
+  new.
+- `--write-baseline` makes the file and its directory.
+- `--baseline ""` disables the baseline for one run.
 
 ## Stale baseline entries
 
@@ -62,7 +76,13 @@ Five module-level detectors register themselves with `DetectorRegistry` on impor
 
 ## Configuration
 
-`config.toml` holds the effective config. Overrides via CLI flags:
+`config.toml` in the package holds the default rules. A repository can keep
+its own copy, for example `.github/test-quality-config.toml`, and give its path
+with `--config`. Then the repository can change a rule without a new release of
+this package. The `guard-proof-audit` command reads
+`.github/test-quality-config.toml` when the file exists.
+
+Other options change one run:
 
 - `--disable-rule RULE_ID` — repeatable; skips one rule at runtime.
 - `--include-mist-api` — bypass the `src/api/` + `mistapi` exclusion predicate.
@@ -72,11 +92,12 @@ Five module-level detectors register themselves with `DetectorRegistry` on impor
 
 ## Outputs
 
-- `output/report.json` — machine-readable envelope validated against `report.schema.json`.
-- `output/summary.md` — human-readable Markdown summary.
+- `test_quality_analyzer_output/report.json` — machine-readable envelope validated against `report.schema.json`.
+- `test_quality_analyzer_output/summary.md` — human-readable Markdown summary.
 - One-line stdout summary: `test_quality_analyzer: N findings (C/H/M/L), K skipped, P parse errors`.
 
-`output/` is gitignored; the committed `baseline.json` records the accepted findings.
+Add `test_quality_analyzer_output/` to `.gitignore`. The committed baseline
+file records the accepted findings.
 
 ## Running the analyzer's own tests
 

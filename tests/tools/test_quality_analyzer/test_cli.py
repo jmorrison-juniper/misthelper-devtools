@@ -23,18 +23,17 @@ from misthelper_devtools.test_quality_analyzer.__main__ import TestQualityCLI, m
 _FROZEN_TIMESTAMP = "2026-07-14T00:00:00+00:00"  # Freeze envelope for deterministic assertions.
 
 
-def test_default_paths_use_packaged_data_and_workspace_outputs(
+def test_default_paths_use_packaged_config_and_workspace_files(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Installed defaults read package data and write artifacts in the caller's workspace."""
+    """Installed defaults read the package config and keep the baseline and outputs in the caller's workspace."""
     monkeypatch.chdir(tmp_path)
     args = TestQualityCLI()._parse_args([])
     config_path = Path(args.config)
-    baseline_path = Path(args.baseline)
     assert config_path.is_file(), "Default config must ship with the installed package."
-    assert baseline_path.is_file(), "Default baseline must ship with the installed package."
-    assert config_path.parent == baseline_path.parent, "Default data files must come from one package directory."
+    assert not (config_path.parent / "baseline.json").exists(), "The package must ship no baseline."
+    assert Path(args.baseline) == Path(".github/test-quality-baseline.json")
     assert Path(args.report) == Path("test_quality_analyzer_output/report.json")
     assert Path(args.summary) == Path("test_quality_analyzer_output/summary.md")
 
@@ -63,6 +62,47 @@ def _base_argv(
         "--log-level",
         "WARNING",  # Reduce noise in captured output.
     ]
+
+
+def _default_baseline_argv(repo_root: Path, fixtures_root: Path, tmp_path: Path) -> list[str]:
+    """Build an argv list that leaves --baseline at its default workspace path."""
+    argv = _base_argv(repo_root, fixtures_root, tmp_path, baseline="")
+    index = argv.index("--baseline")  # Drop the flag and its value together.
+    del argv[index : index + 2]
+    return argv
+
+
+def test_gate_without_repository_baseline_exits_two(
+    repo_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Gate mode must fail closed when the workspace holds no committed baseline."""
+    monkeypatch.chdir(tmp_path)  # The default baseline path is relative to the workspace.
+    fixtures_root = repo_root / "src" / "misthelper_devtools" / "test_quality_analyzer" / "fixtures" / "bad"
+    rc = main(_default_baseline_argv(repo_root, fixtures_root, tmp_path) + ["--gate"])
+    err = capsys.readouterr().err
+    assert rc == 2, "Gate mode without a baseline file must exit 2; got %d" % rc
+    assert "test-quality-baseline.json does not exist" in err, "The error must name the missing baseline."
+
+
+def test_default_baseline_round_trip_uses_workspace_file(
+    repo_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """--write-baseline and --gate must share the default .github/test-quality-baseline.json file."""
+    monkeypatch.chdir(tmp_path)  # The default baseline path is relative to the workspace.
+    fixtures_root = repo_root / "src" / "misthelper_devtools" / "test_quality_analyzer" / "fixtures" / "bad"
+    seed_rc = main(_default_baseline_argv(repo_root, fixtures_root, tmp_path) + ["--write-baseline"])
+    baseline_path = tmp_path / ".github" / "test-quality-baseline.json"
+    assert seed_rc == 0, "--write-baseline must exit 0; got %d" % seed_rc
+    assert json.loads(baseline_path.read_text(encoding="utf-8")), "The seeded baseline must hold the findings."
+    gate_rc = main(_default_baseline_argv(repo_root, fixtures_root, tmp_path) + ["--gate"])
+    assert gate_rc == 0, "Gate mode against the seeded default baseline must exit 0; got %d" % gate_rc
+    assert "gate: 0 new findings vs baseline" in capsys.readouterr().out
 
 
 def test_gate_clean_exits_zero(

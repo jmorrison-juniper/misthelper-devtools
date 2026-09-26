@@ -169,6 +169,10 @@ Four modules imported modules of the MistHelper product:
 MistHelper checkout. MistHelper keeps its own copies under `scripts/`
 (jmorrison-juniper/MistHelper#3466), and the package no longer holds them.
 
+The package also holds no test quality baseline now. By default,
+`test-quality-analyzer` reads the `.github/test-quality-baseline.json` file of
+the repository that runs it.
+
 ## What moved
 
 ### Shared workflows
@@ -261,10 +265,6 @@ MistHelper also keeps these files and jobs:
 
 - A shared STE lint workflow, when a second repository adopts the STE rules.
   At this time, MistHelper grades the text of one file with `ste-lint.yml`.
-
-- Remove `baseline.json` from the package. MistHelper keeps its own baseline
-  now, and no other consumer runs `test-quality-analyzer`. The default of the
-  `--baseline` option must then change.
 
 - A MistHelper copy of the analyzer settings. The analyzer reads the
   `config.toml` file of the package when a run gives no `--config` option.
