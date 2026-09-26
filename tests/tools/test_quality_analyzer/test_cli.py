@@ -18,9 +18,25 @@ from pathlib import Path  # Filesystem primitives for hermetic paths.
 
 import pytest  # Fixture primitives.
 
-from tools.test_quality_analyzer.__main__ import main  # CLI entrypoint under test.
+from tools.test_quality_analyzer.__main__ import TestQualityCLI, main  # CLI entrypoint under test.
 
 _FROZEN_TIMESTAMP = "2026-07-14T00:00:00+00:00"  # Freeze envelope for deterministic assertions.
+
+
+def test_default_paths_use_packaged_data_and_workspace_outputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Installed defaults read package data and write artifacts in the caller's workspace."""
+    monkeypatch.chdir(tmp_path)
+    args = TestQualityCLI()._parse_args([])
+    config_path = Path(args.config)
+    baseline_path = Path(args.baseline)
+    assert config_path.is_file(), "Default config must ship with the installed package."
+    assert baseline_path.is_file(), "Default baseline must ship with the installed package."
+    assert config_path.parent == baseline_path.parent, "Default data files must come from one package directory."
+    assert Path(args.report) == Path("test_quality_analyzer_output/report.json")
+    assert Path(args.summary) == Path("test_quality_analyzer_output/summary.md")
 
 
 def _base_argv(

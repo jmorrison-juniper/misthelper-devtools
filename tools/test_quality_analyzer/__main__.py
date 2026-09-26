@@ -121,26 +121,26 @@ class TestQualityCLI:
         # --config: path to the TOML config file.
         parser.add_argument(
             "--config",
-            default="tools/test_quality_analyzer/config.toml",
-            help="Analyzer config TOML (default: tools/test_quality_analyzer/config.toml).",
+            default=str(Path(__file__).resolve().parent / "config.toml"),
+            help="Analyzer config TOML (default: the installed package config).",
         )
         # --baseline: path to baseline JSON, or empty string to disable (US2 wires this).
         parser.add_argument(
             "--baseline",
-            default="tools/test_quality_analyzer/baseline.json",
-            help='Baseline JSON path; "" disables baseline comparison (default enabled path).',
+            default=str(Path(__file__).resolve().parent / "baseline.json"),
+            help='Baseline JSON path; "" disables baseline comparison (default: installed package baseline).',
         )
         # --report: path to write the JSON report to.
         parser.add_argument(
             "--report",
-            default="tools/test_quality_analyzer/output/report.json",
-            help="Where to write the JSON report (default: output/report.json).",
+            default="test_quality_analyzer_output/report.json",
+            help="Where to write the JSON report (default: test_quality_analyzer_output/report.json).",
         )
         # --summary: path to write the Markdown summary to.
         parser.add_argument(
             "--summary",
-            default="tools/test_quality_analyzer/output/summary.md",
-            help="Where to write the Markdown summary (default: output/summary.md).",
+            default="test_quality_analyzer_output/summary.md",
+            help="Where to write the Markdown summary (default: test_quality_analyzer_output/summary.md).",
         )
         # --gate: US2 -- exit 1 on new findings vs baseline. Mutually exclusive with --write-baseline.
         parser.add_argument(
