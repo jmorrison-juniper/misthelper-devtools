@@ -115,6 +115,12 @@ fail with no reason on the pull request. Merge that pull request by hand. The
 cause is that `GITHUB_TOKEN` cannot write a workflow file. The auto-merge
 workflow writes a notice on that pull request.
 
+Note: a dispatch call does not use the `paths` filter of the workflow that it
+starts. The auto-merge workflow runs after each merge and on a schedule. Each
+run starts each workflow in `main-workflows` whose newest run is not on the tip
+of the default branch. Thus a merge that changes only the documentation can
+start a container build that its `paths` filter skipped.
+
 ## Run the tests
 
 ```powershell
