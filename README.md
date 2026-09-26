@@ -106,6 +106,17 @@ To upgrade a consumer, read the release notes, then change the SHA and the
 comment together. The `self-test.yml` workflow runs each shared workflow in
 this repository before a release.
 
+Dependabot can make the upgrade. A consumer with a `github-actions` entry in
+`.github/dependabot.yml` gets a pull request that changes the SHA and the
+comment together. Dependabot waits 3 days after a release before it opens that
+pull request. Dependabot does not change the pin in `requirements-dev.txt`, so
+change that pin by hand.
+
+Dependabot also updates the actions that the shared workflows use. The
+Dependabot of a consumer cannot see these actions, so the configuration in
+this repository updates them. A consumer gets such an update after the next
+release.
+
 Warning: a missing permission on the caller job can cause GitHub to stop the
 run before it starts. Give the caller job each permission that the shared job
 asks for.
