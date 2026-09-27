@@ -14,19 +14,19 @@ The scan read each repository of the `jmorrison-juniper` account that holds
 Mist code. It did not read a repository of another owner, for example
 `tmunzer/mistmcp`, and it did not read a repository that holds no Mist code.
 
-| Repository | Tooling found | Wave 1 result | Wave 2 result |
-| - | - | - | - |
-| MistHelper | The source of most shared workflows and tools. | Not changed here. | Calls the shared Copilot, linked issue, and container workflows. Runs `complexity-gate`. Keeps its own test quality baseline. |
-| MistCircuitStats | Quality gates with an inline radon script, gate issues, auto-merge, linked issue close, container build | Calls the shared workflows. Uses `complexity-gate`. | Pins `v0.3.0`. |
-| MistHelper-Go | Quality gates, gate issues, auto-merge, linked issue close, Copilot assign, container build | Calls the shared workflows. | Go 1.27.1, so the govulncheck gate passes. The release image uses the shared container workflow. Pins `v0.3.0`. |
-| MistSiteDashboard | Two container build workflows | Calls the shared container workflow. | One build workflow. Dependabot updates the actions. Pins `v0.3.0`. |
-| MistGuestAuthorizations | Container build, release | Calls the shared container workflow. | The release image uses the shared container workflow. Dependabot updates the actions. Pins `v0.3.0`. |
-| MistOrgLicensingComparison | Container build | Calls the shared container workflow. | Dependabot updates the actions. Pins `v0.3.0`. |
-| MistCircuitStats-Redis | Container build | Calls the shared container workflow. | Dependabot updates the actions. Pins `v0.3.0`. |
-| MistWANPerformance | `check_ports.py`, a debug script | The script moved here as the `wan-port-report` command. | The agent notes install `v0.3.0`. |
-| MistCiscoConfigConverter | No workflow. The image copies the whole repository. | The image ignore file drops the development files and the local data files. | The ignore file is now `.dockerignore`, so Docker also reads it. |
-| MistDSW | Spec Kit files and product scripts only | No change. | No change. |
-| starlink-dashboard | Local ruff and pytest settings only | No change. | No change. |
+| Repository | Tooling found | Wave 1 result | Wave 2 result | Wave 3 result |
+| - | - | - | - | - |
+| MistHelper | The source of most shared workflows and tools. | Not changed here. | Calls the shared Copilot, linked issue, and container workflows. Runs `complexity-gate`. Keeps its own test quality baseline. | Pins `v0.4.0`. Calls the shared auto-merge, gate issue, stranded branch, and STE lint workflows. Keeps its own analyzer settings and benchmarks. |
+| MistCircuitStats | Quality gates with an inline radon script, gate issues, auto-merge, linked issue close, container build | Calls the shared workflows. Uses `complexity-gate`. | Pins `v0.3.0`. | Pins `v0.4.0`. Dependabot keeps Python 3.13 and the CodeQL `v4` tag. |
+| MistHelper-Go | Quality gates, gate issues, auto-merge, linked issue close, Copilot assign, container build | Calls the shared workflows. | Go 1.27.1, so the govulncheck gate passes. The release image uses the shared container workflow. Pins `v0.3.0`. | Pins `v0.4.0`. Dependabot keeps the CodeQL `v4` tag. |
+| MistSiteDashboard | Two container build workflows | Calls the shared container workflow. | One build workflow. Dependabot updates the actions. Pins `v0.3.0`. | Python 3.13. Pins `v0.4.0`. |
+| MistGuestAuthorizations | Container build, release | Calls the shared container workflow. | The release image uses the shared container workflow. Dependabot updates the actions. Pins `v0.3.0`. | Python 3.13. Pins `v0.4.0`. |
+| MistOrgLicensingComparison | Container build | Calls the shared container workflow. | Dependabot updates the actions. Pins `v0.3.0`. | Pins `v0.4.0`. |
+| MistCircuitStats-Redis | Container build | Calls the shared container workflow. | Dependabot updates the actions. Pins `v0.3.0`. | Pins `v0.4.0`. |
+| MistWANPerformance | `check_ports.py`, a debug script | The script moved here as the `wan-port-report` command. | The agent notes install `v0.3.0`. | Python 3.13. The agent notes install `v0.4.0`. |
+| MistCiscoConfigConverter | No workflow. The image copies the whole repository. | The image ignore file drops the development files and the local data files. | The ignore file is now `.dockerignore`, so Docker also reads it. | No change. |
+| MistDSW | Spec Kit files and product scripts only | No change. | No change. | No change. |
+| starlink-dashboard | Local ruff and pytest settings only | No change. | No change. | No change. |
 
 ## Wave 1 pull requests
 
@@ -130,7 +130,8 @@ Dependabot updates the actions of each consumer that has a workflow.
 Dependabot reads the `# vX.Y.Z` comment after each SHA pin, and it proposes the
 pin of the next devtools release. It waits 3 days after a release. On the day
 of release `v0.3.0`, the Dependabot log reported that all versions were in the
-cooldown period. So Wave 2 changed the pins by hand.
+cooldown period. So Wave 2 changed the pins by hand. Wave 3 also changed the
+pins by hand, on the day of release `v0.4.0`.
 
 Dependabot does not change a pip requirement that points to a Git commit.
 MistCircuitStats and MistHelper pin this package that way in
@@ -140,16 +141,76 @@ the workflow pins.
 For MistHelper-Go, Dependabot also updates the base image. Dependabot reads a
 file with the name `Containerfile`.
 
+## Wave 3 pull requests
+
+Wave 3 moved each consumer to release `v0.4.0`, commit
+`bf1ba8a29ee9bab27b721db6e613fd5cd83d82fa`. It also moved the last MistHelper
+workflows to the shared copies, and it kept each Python project on Python 3.13.
+
+| Repository | Pull request | Merge commit | Change and check |
+| - | - | - | - |
+| misthelper-devtools | #10 | `938f747` | The package installs one top-level name, `misthelper_devtools`. See [Package layout](#package-layout). |
+| misthelper-devtools | #11 | `bc03b89` | The package holds no test quality baseline. The analyzer reads the baseline of the repository that runs it. |
+| misthelper-devtools | #12 | `0300169` | The MistHelper tests of the tools run here. |
+| misthelper-devtools | #13 | `9fc1de2` | Adds the `stranded-branch-report` command and `reusable-stranded-branch-report.yml`. |
+| misthelper-devtools | #14 | `6690fbd` | The auto-merge workflow can report a push that arrives after the merge. The linked issue workflow reads the issue links that GitHub keeps for each pull request. |
+| misthelper-devtools | #15 | `f0d3e74` | Adds `reusable-ste-lint.yml`. The CI workflow of this repository grades its documents with it. |
+| misthelper-devtools | #16 | `c705bf3` | Adds tests for the rules that the shared workflows took from MistHelper. |
+| misthelper-devtools | #17 | `c5ec756` | mypy checks the full package. |
+| misthelper-devtools | #18 | `bf1ba8a` | Release `v0.4.0` is this commit. |
+| MistHelper | jmorrison-juniper/MistHelper#3468 | `052d563` | The four modules that import product code move to `scripts/`. MistHelper keeps its own analyzer settings in `.github/test-quality-config.toml`. |
+| MistHelper | jmorrison-juniper/MistHelper#3470 | `fc6a93a` | The container check job uses Python 3.13. Dependabot keeps the CodeQL `v4` tag. |
+| MistHelper | jmorrison-juniper/MistHelper#3489 | `df6027b` | Pins `v0.4.0`. Calls the shared auto-merge, gate issue, stranded branch, and STE lint workflows. Removes the old copies of the tool tests. |
+| MistCircuitStats | jmorrison-juniper/MistCircuitStats#42 | `2384867` | A Dependabot update of `radon`. |
+| MistCircuitStats | jmorrison-juniper/MistCircuitStats#43 | `05351bc` | Dependabot keeps Python 3.13 and the CodeQL `v4` tag. This change replaced jmorrison-juniper/MistCircuitStats#37 and jmorrison-juniper/MistCircuitStats#39, and both closed with no merge. |
+| MistCircuitStats | jmorrison-juniper/MistCircuitStats#44 | `ee7c6ef` | Pins `v0.4.0` in the workflows and in `requirements-dev.txt`. |
+| MistHelper-Go | jmorrison-juniper/MistHelper-Go#50 | `0c2db87` | Pins `v0.4.0`. Dependabot keeps the CodeQL `v4` tag. |
+| MistSiteDashboard | jmorrison-juniper/MistSiteDashboard#10 | `af67394` | Python 3.13 in the image and in the check job. |
+| MistSiteDashboard | jmorrison-juniper/MistSiteDashboard#11 | `a4ae13a` | Pins `v0.4.0`. |
+| MistGuestAuthorizations | jmorrison-juniper/MistGuestAuthorizations#7 | `764a879` | Python 3.13 in the image. |
+| MistGuestAuthorizations | jmorrison-juniper/MistGuestAuthorizations#8 | `689f11f` | Pins `v0.4.0`. |
+| MistOrgLicensingComparison | jmorrison-juniper/MistOrgLicensingComparison#8 | `45b12bc` | Pins `v0.4.0`. |
+| MistCircuitStats-Redis | jmorrison-juniper/MistCircuitStats-Redis#9 | `cb51655` | Pins `v0.4.0`. The workflow runs only for a push to `main` or for a tag, so the check ran after the merge. |
+| MistWANPerformance | jmorrison-juniper/MistWANPerformance#7 | `fb0db89` | Python 3.13 in the image and in the project settings. |
+| MistWANPerformance | jmorrison-juniper/MistWANPerformance#8 | `3c8ebd2` | The agent notes install `v0.4.0`. |
+
+After each merge, the main runs passed, and each container workflow pushed a
+new image to GHCR. In MistHelper, the job for gate issues ran on `main`. The
+orphaned-push report ran for each push to a branch with an open pull request,
+and it wrote no notice. A manual run of the stranded branch report opened
+jmorrison-juniper/MistHelper#3490 with two branches. The old MistHelper script
+opened no issue. See [Defects that the shared workflows
+repair](#defects-that-the-shared-workflows-repair).
+
+### Python and CodeQL versions
+
+Python 3.13 is the version in the image, the workflows, and the project
+settings of each project that holds Python code. The owner keeps Python 3.13
+for now.
+
+Dependabot updates a base image only in MistCircuitStats and MistHelper-Go. In
+MistCircuitStats, an ignore rule stops each update of the `python` image to
+version 3.14 or later. The MistHelper-Go image holds no Python. To move to a
+newer Python, remove the rule. Then change each image, workflow, and project
+file in the same wave.
+
+The CodeQL workflows of MistHelper, MistCircuitStats, and MistHelper-Go use the
+floating `v4` tag. GitHub moves that tag to each new CodeQL release, so each
+scan gets the fixes with no pull request. In the three repositories, an ignore
+rule stops the minor and patch updates of `github/codeql-action`. Dependabot
+still proposes a new major version.
+
 ### Copilot assignment
 
-GitHub assigns the Copilot cloud agent only for a user token. Release `v0.3.0`
-sends the token from the `assign-token` secret, and it reads the assignees in
-the response. Without the secret, the workflow adds no label, and it writes the
-cause in one comment on the issue.
+GitHub assigns the Copilot cloud agent only for a user token. Since release
+`v0.3.0`, the workflow sends the token from the `assign-token` secret, and it
+reads the assignees in the response. Without the secret, the workflow adds no
+label, and it writes the cause in one comment on the issue.
 
-The agent is not enabled for the account now. For MistHelper, MistHelper-Go,
-and this repository, the list of actors that can take an issue holds only the
-owner. So the agent cannot take an issue, even with a token.
+The account has the Copilot Free plan, and the cloud agent needs a paid plan.
+For MistHelper, MistHelper-Go, and this repository, the list of actors that can
+take an issue holds only the owner. So the agent cannot take an issue, even
+with a token.
 
 ### Package layout
 
@@ -158,10 +219,10 @@ level. For each package name, Python loads the first package that it finds, so
 a consumer with its own `src` or `tools` package could import the wrong code.
 The MistHelper CI ran `python -m tools.check_citations` that way.
 
-The package now installs one top-level name, `misthelper_devtools`. The skill
-factory is `misthelper_devtools.juniper_skills`. Eleven commands install with
-the package. The README gives the old and the new name of each import and each
-command.
+Since release `v0.4.0`, one name installs at the top level,
+`misthelper_devtools`. The skill factory is
+`misthelper_devtools.juniper_skills`. Twelve commands install with the package.
+The README gives the old and the new name of each import and each command.
 
 Four modules imported modules of the MistHelper product:
 `performance_memory.py`, `bench_performance_overhead.py`,
@@ -169,7 +230,7 @@ Four modules imported modules of the MistHelper product:
 MistHelper checkout. MistHelper keeps its own copies under `scripts/`
 (jmorrison-juniper/MistHelper#3466), and the package no longer holds them.
 
-The package also holds no test quality baseline now. By default,
+The package holds no baseline for the test quality analyzer. By default,
 `test-quality-analyzer` reads the `.github/test-quality-baseline.json` file of
 the repository that runs it.
 
@@ -180,13 +241,16 @@ the repository that runs it.
 | Shared workflow | Replaces | Consumers |
 | - | - | - |
 | `reusable-container-image.yml` | The build and push job of each container workflow, and the image job of each release workflow | MistHelper, MistCircuitStats, MistCircuitStats-Redis, MistHelper-Go, MistSiteDashboard, MistGuestAuthorizations, MistOrgLicensingComparison |
-| `reusable-quality-gate-issues.yml` | The `create_failure_issues` and `close_resolved_issues` jobs | MistCircuitStats, MistHelper-Go |
-| `reusable-auto-merge.yml` | The old copy of the MistHelper `auto-merge.yml` | MistCircuitStats, MistHelper-Go |
+| `reusable-quality-gate-issues.yml` | The `create_failure_issues` and `close_resolved_issues` jobs | MistHelper, MistCircuitStats, MistHelper-Go |
+| `reusable-auto-merge.yml` | The jobs of the MistHelper `auto-merge.yml`, with its orphaned-push report | MistHelper, MistCircuitStats, MistHelper-Go |
 | `reusable-close-linked-issues.yml` | The old copy of the MistHelper `close-linked-issues.yml` | MistHelper, MistCircuitStats, MistHelper-Go |
 | `reusable-copilot-assign.yml` | `copilot-auto-assign.yml` and `copilot-label-checkbox.yml` | MistHelper, MistHelper-Go |
+| `reusable-stranded-branch-report.yml` | The job of the MistHelper `stranded-branch-report.yml` | MistHelper |
+| `reusable-ste-lint.yml` | The job of the MistHelper `ste-lint.yml` | MistHelper, misthelper-devtools |
 
 Each consumer keeps its triggers, its tag rules, its test jobs, and the job that
-makes each release.
+makes each release. Only MistHelper sets `report-orphaned-push`, so only
+MistHelper gets the orphaned-push report.
 
 ### Defects that the shared workflows repair
 
@@ -214,12 +278,29 @@ makes each release.
   any open issue that holds the same words. The shared workflow compares the
   exact title.
 
+- The old MistHelper stranded branch job opened no tracking issue. Its `grep`
+  pattern held `` \` ``, and GNU grep reads that pair as a buffer anchor. One
+  failed compare also stopped the full report, for example MistHelper run
+  34849396592. The shared command lists that branch with `unknown` values and
+  continues. It also reads each page of branches, not only the first 100.
+
+- In the old MistHelper copy, the orphaned-push report wrote a notice when a
+  compare failed. It also wrote a notice for the head of a squash merge. The
+  shared job fails when a call fails, and it writes no notice for a commit that
+  the merged pull request holds.
+
+- Release `v0.3.0` of the linked issue workflow read only the keywords in the
+  text of the pull request. So a link from the Development panel closed no
+  issue. Release `v0.4.0` reads the issue links that GitHub keeps for each pull
+  request, as the old MistHelper copy did.
+
 ### Tools
 
 | Tool | Replaces | Consumer |
 | - | - | - |
 | `complexity-gate` | The inline radon script of the quality gate workflow | MistCircuitStats (limit 15), MistHelper (limit 10) |
 | `wan-port-report` | `check_ports.py` (MistWANPerformance commit ddbf849) | MistWANPerformance |
+| `stranded-branch-report` | The MistHelper `scripts/report_stranded_branches.py` | MistHelper, through `reusable-stranded-branch-report.yml` |
 
 The other MistHelper tools, for example `test-quality-analyzer` and
 `ste-linter`, moved here in an earlier migration, issue
@@ -242,49 +323,46 @@ jmorrison-juniper/MistHelper#3404. The MistHelper file
 
 MistHelper also keeps these files and jobs:
 
-- `auto-merge.yml`. Its orphaned-push report and its close job exist only in
-  MistHelper, and a guardrail test reads the job text.
-
-- The `create_failure_issues` and `close_resolved_issues` jobs in `ci.yml`.
-  Two guardrail tests read the job text.
-
 - `.github/quality-gates-portable.yml`. This template must run without this
-  package, so it keeps its inline radon script.
+  package, so it keeps its inline radon script. Its job for gate issues calls
+  the shared workflow.
 
-- `ste-lint.yml`. MistHelper is the only repository with an STE gate, so a
-  shared workflow would have one caller.
+- The test quality baseline, `.github/test-quality-baseline.json`, and the
+  analyzer settings, `.github/test-quality-config.toml`. MistHelper can change
+  a rule or a baseline entry without a devtools release.
 
-- The test quality baseline, `.github/test-quality-baseline.json`.
+- The product benchmarks under `scripts/benchmarks/`, and
+  `scripts/e2e_store_reset.py`. They import the MistHelper product.
+
+- The guardrail tests that read its workflow callers. They check that each
+  caller pins a full commit of the shared workflow. They also check that each
+  caller keeps the triggers and the permissions that the shared jobs need.
 
 ## Candidates for a later wave
 
-- The MistHelper `auto-merge.yml` and gate issue jobs. Before the move, the
-  shared workflow for auto-merge needs the orphaned-push report and the close
-  job of the MistHelper copy. Then the guardrail tests must read the shared
-  workflows.
+- The orphaned-push report for MistCircuitStats and MistHelper-Go. Each caller
+  needs a push trigger for the branches other than `main`, and the
+  `report-orphaned-push: true` input.
 
-- A shared STE lint workflow, when a second repository adopts the STE rules.
-  At this time, MistHelper grades the text of one file with `ste-lint.yml`.
-
-- A MistHelper copy of the analyzer settings. The analyzer reads the
-  `config.toml` file of the package when a run gives no `--config` option.
-  With its own copy, MistHelper can change a rule without a devtools release.
+- The stranded branch report and the STE lint workflow for each other
+  repository. At this time, only MistHelper calls the stranded branch report.
+  Only MistHelper and this repository follow the STE rules.
 
 ## Tasks for the owner
 
 These tasks need the account owner. A workflow cannot do them.
 
-1. Enable the Copilot cloud agent for the account. Then save a user token as
-   the `COPILOT_ASSIGN_TOKEN` secret in MistHelper and in MistHelper-Go. Until
-   then, each assignment run writes one comment with the cause.
+1. Buy a Copilot plan that includes the cloud agent, for example Copilot Pro.
+   Enable the cloud agent for the account. Then save a user token as the
+   `COPILOT_ASSIGN_TOKEN` secret in MistHelper and in MistHelper-Go. Until then,
+   each assignment run writes one comment with the cause.
 
-2. Decide on jmorrison-juniper/MistCircuitStats#39. Dependabot changes the
-   CodeQL pin from `v4` to the exact version `v4.37.3`.
-
-3. Decide on jmorrison-juniper/MistCircuitStats#37. It moves the base image
-   from Python 3.13 to Python 3.14, and that changes the runtime of the
-   application.
-
-4. At each devtools release, change the `requirements-dev.txt` pin in
+2. At each devtools release, change the `requirements-dev.txt` pin in
    MistCircuitStats and MistHelper by hand. Dependabot changes only the
    workflow pins.
+
+3. Examine the two branches in jmorrison-juniper/MistHelper#3490:
+   `preservation/2746-pr3011-turn0` and `refactor/2926-portal-handlers-c`.
+   Each holds one commit that no pull request holds. Open a pull request for
+   each branch that you keep, and delete each other branch. The weekly report
+   closes the issue when no branch stays on the list.

@@ -222,14 +222,16 @@ python -m ruff check .
 python -m black --check .
 python -m mypy -p misthelper_devtools --config-file pyproject.toml
 python -m pytest
-ste-linter --min-score 80 README.md documentation/ASD-STE100_writing-guide.md documentation/mist-repository-tooling-inventory.md
+ste-linter --min-score 80 README.md documentation/ASD-STE100_writing-guide.md documentation/mist-repository-tooling-inventory.md src/misthelper_devtools/ste_linter/README.md src/misthelper_devtools/test_quality_analyzer/README.md
 actionlint
 ```
 
-The type gate reads the `juniper_skills` sub-package only. That scope matches
-the MistHelper repository, which type-checked its `src/` tree only. The other
-modules of the package hold 51 known annotation defects. A separate change
-repairs them and widens the scope.
+The type gate reads the full `misthelper_devtools` package. At release 0.3.0,
+the gate read the `juniper_skills` sub-package only, because the other modules
+held 51 known annotation defects. Pull request #17 repaired them and widened
+the scope.
+
+The STE command reads the same files as the CI workflow.
 
 In the CI workflow, [actionlint](https://github.com/rhysd/actionlint) and
 shellcheck read each workflow file, because a defect in a shared workflow
