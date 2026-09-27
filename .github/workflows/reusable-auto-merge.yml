@@ -11,11 +11,20 @@
 # job starts each main workflow with an explicit dispatch call.
 # jmorrison-juniper/MistHelper#1851 records the effect and the repair.
 #
+# A merged pull request stops reading its branch. A commit that reaches the
+# branch after the merge therefore has no pull request, and no reviewer and no
+# gate reads it. When report-orphaned-push is true, the third job reads each
+# push to a branch and writes one notice on the merged pull request of that
+# branch. jmorrison-juniper/MistHelper#1960 records a real loss of work.
+#
 # The caller workflow:
 #
 #   on:
 #     pull_request:
 #       types: [labeled, synchronize, opened, reopened, closed]
+#     # The push trigger is necessary only for report-orphaned-push.
+#     push:
+#       branches-ignore: [main]
 #     schedule:
 #       - cron: '37 */6 * * *'
 #     workflow_dispatch:
@@ -29,6 +38,7 @@
 #       uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-auto-merge.yml@<commit>
 #       with:
 #         main-workflows: 'ci.yml codeql.yml container-build.yml'
+#         report-orphaned-push: true
 #
 # Each workflow in main-workflows must accept workflow_dispatch. The schedule
 # is the backstop for a merge that starts no closed event.
@@ -58,6 +68,11 @@ on:
         required: false
         default: main
         type: string
+      report-orphaned-push:
+        description: Write a notice on a merged pull request when a later push adds a commit to its branch. The caller needs a push trigger.
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   enable-auto-merge:
@@ -241,3 +256,116 @@ jobs:
             exit 1
           fi
           echo "Each main workflow now covers the tip of ${DEFAULT_BRANCH}."
+
+  report-orphaned-push:
+    name: Report a push that arrived after the merge
+    # Only a push to a branch other than the default branch can orphan a
+    # commit. A push that deletes a branch adds no commit.
+    if: >-
+      inputs.report-orphaned-push
+      && github.event_name == 'push'
+      && github.event.deleted != true
+      && startsWith(github.ref, 'refs/heads/')
+      && github.ref_name != inputs.default-branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # The notice is one comment on the merged pull request.
+      pull-requests: write
+      # The compare calls read the commits.
+      contents: read
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BRANCH: ${{ github.ref_name }}
+      PUSHED_SHA: ${{ github.sha }}
+      DEFAULT_BRANCH: ${{ inputs.default-branch }}
+    steps:
+      - name: Write a notice on the merged pull request of the branch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # An open pull request takes the push to a review.
+          if ! open="$(gh pr list --head "${BRANCH}" --state open --limit 1 --json number --jq '.[0].number // empty')"; then
+            echo "::error::The open pull requests of ${BRANCH} did not load."
+            exit 1
+          fi
+          if [ -n "${open}" ]; then
+            echo "Pull request #${open} is open for ${BRANCH}, so the push goes to a review."
+            exit 0
+          fi
+
+          if ! merged="$(gh pr list --head "${BRANCH}" --state merged --limit 1 --json number,headRefOid --jq '.[0] // empty | "\(.number) \(.headRefOid)"')"; then
+            echo "::error::The merged pull requests of ${BRANCH} did not load."
+            exit 1
+          fi
+          if [ -z "${merged}" ]; then
+            echo "Branch ${BRANCH} has no merged pull request. Nothing to report."
+            exit 0
+          fi
+          read -r number merged_head <<< "${merged}"
+
+          # Return 0 when the first commit holds the second commit. The
+          # compare status is then identical or behind.
+          holds() {
+            local status
+            if ! status="$(gh api "repos/${GH_REPO}/compare/$1...$2" --jq '.status')"; then
+              echo "::error::The compare of $1 with $2 failed."
+              exit 1
+            fi
+            [ "${status}" = "identical" ] || [ "${status}" = "behind" ]
+          }
+
+          # A squash merge puts no branch commit on the default branch, so
+          # the last head of the pull request tells what the merge took.
+          if holds "${merged_head}" "${PUSHED_SHA}"; then
+            echo "Pull request #${number} merged commit ${PUSHED_SHA}. Nothing to report."
+            exit 0
+          fi
+          # A merge commit or a rebase puts the branch commits on the default
+          # branch.
+          if holds "${DEFAULT_BRANCH}" "${PUSHED_SHA}"; then
+            echo "Commit ${PUSHED_SHA} is already on ${DEFAULT_BRANCH}. Nothing to report."
+            exit 0
+          fi
+
+          # The marker keeps one notice for each orphaned commit, so a rerun
+          # adds no copy.
+          marker="<!-- auto-merge:orphaned-push:${PUSHED_SHA} -->"
+          if ! bodies="$(gh pr view "${number}" --json comments --jq '.comments[].body')"; then
+            echo "::error::The comment list of pull request #${number} did not load."
+            exit 1
+          fi
+          if printf '%s\n' "${bodies}" | grep -qF "${marker}"; then
+            echo "Pull request #${number} already reports commit ${PUSHED_SHA}."
+            exit 0
+          fi
+
+          # Each line stays flush left after YAML removes the block indent, so
+          # Markdown reads the body as prose and not as a code block.
+          cat > "${RUNNER_TEMP}/orphaned-push.md" <<EOF
+          ${marker}
+          **Warning: this push arrived after the merge, so the commit has no pull request.**
+
+          Commit \`${PUSHED_SHA}\` reached branch \`${BRANCH}\` after the merge of
+          pull request #${number}. A merged pull request stops reading its branch,
+          so no reviewer and no gate reads this commit.
+
+          The commit is safe on the remote, but it is not on \`${DEFAULT_BRANCH}\`.
+          To deliver the work, start a new branch from \`${DEFAULT_BRANCH}\`, copy
+          the commits that came after the merge onto it, and open a pull request.
+
+          \`\`\`
+          git fetch origin
+          git switch -c recover-${BRANCH} origin/${DEFAULT_BRANCH}
+          git cherry-pick ${merged_head}..${PUSHED_SHA}
+          \`\`\`
+
+          After a merge, put the next work on a new branch.
+          jmorrison-juniper/MistHelper#1960 records a loss of work from this cause.
+          EOF
+
+          gh pr comment "${number}" --body-file "${RUNNER_TEMP}/orphaned-push.md"
+          echo "Reported commit ${PUSHED_SHA} on pull request #${number}."

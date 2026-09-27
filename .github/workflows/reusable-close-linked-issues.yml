@@ -1,9 +1,15 @@
 # ================================================================
-# Close linked issues -- close each issue that a merged pull request names
+# Close linked issues -- close each issue that a merged pull request links
 # ================================================================
-# A pull request body names an issue with a closing keyword, for example
-# "Fixes #12". This workflow closes each open issue that a merged pull request
-# names in that way.
+# GitHub links an issue to a pull request in two ways. A closing keyword in
+# the pull request body, for example "Fixes #12", makes a link. A person can
+# also add a link in the Development panel. This workflow reads GitHub's own
+# list of these links, closingIssuesReferences, and it closes each open issue
+# of this repository in that list.
+#
+# GitHub makes a keyword link only for a pull request into the default branch,
+# and it closes a linked issue only for a merge into that branch. This
+# workflow also skips a merge into any other branch.
 #
 # GitHub starts no workflow from an event that GITHUB_TOKEN makes. A pull
 # request that the auto-merge label merges therefore starts no closed event.
@@ -67,7 +73,7 @@ jobs:
     permissions:
       # The job comments on and closes an issue.
       issues: write
-      # The job reads the body of each merged pull request.
+      # The job reads the linked issues of each merged pull request.
       pull-requests: read
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
@@ -79,10 +85,10 @@ jobs:
       DRY_RUN: ${{ inputs.dry-run }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
       PR_MERGED: ${{ github.event.pull_request.merged }}
-      PR_MERGED_AT: ${{ github.event.pull_request.merged_at }}
-      PR_BODY: ${{ github.event.pull_request.body }}
+      # The sweep reads at most this number of merged pull requests.
+      SWEEP_LIMIT: '200'
     steps:
-      - name: Close the issues that each merged pull request names
+      - name: Close the issues that each merged pull request links
         shell: bash
         run: |
           set -euo pipefail
@@ -97,14 +103,6 @@ jobs:
               return 0
             fi
             "$@"
-          }
-
-          # Print each issue number that a closing keyword names, one per line.
-          linked_issues() {
-            printf '%s\n' "$1" \
-              | grep -oiE '\b(close[sd]?|fix(e[sd])?|resolve[sd]?):? +#[0-9]+' \
-              | grep -oE '[0-9]+' \
-              | sort -un || true
           }
 
           # Return 0 when a person reopened the issue after the merge, 1 when
@@ -126,8 +124,8 @@ jobs:
             sweep=true
           fi
 
-          # Each row holds the pull request number, the merge time, and the
-          # body in base64, so a body with a tab or a new line stays one row.
+          fields='number,mergedAt,baseRefName,closingIssuesReferences'
+          since=''
           if [ "${sweep}" = "true" ]; then
             if ! [[ "${LOOKBACK_HOURS}" =~ ^[0-9]+$ ]]; then
               echo "::error::The lookback-hours input must be a whole number. It is '${LOOKBACK_HOURS}'."
@@ -135,19 +133,34 @@ jobs:
             fi
             since="$(date -u -d "${LOOKBACK_HOURS} hours ago" +%Y-%m-%dT%H:%M:%SZ)"
             echo "Sweeping the pull requests that merged since ${since}."
-            rows="$(gh pr list --state merged --search "merged:>=${since}" --limit 100 \
-              --json number,body,mergedAt \
-              --jq ".[] | select(.mergedAt >= \"${since}\") | \"\(.number)\t\(.mergedAt)\t\(.body // \"\" | @base64)\"")"
+            pulls="$(gh pr list --state merged --search "merged:>=${since}" --limit "${SWEEP_LIMIT}" --json "${fields}")"
+            if [ "$(jq 'length' <<< "${pulls}")" -ge "${SWEEP_LIMIT}" ]; then
+              echo "::warning::The sweep read ${SWEEP_LIMIT} pull requests, which is its limit. It can miss an older merge in the window. Run the sweep more frequently."
+            fi
           else
             if [ "${PR_MERGED}" != "true" ]; then
               echo "Pull request #${PR_NUMBER} closed with no merge. Nothing to close."
               exit 0
             fi
-            rows="$(printf '%s\t%s\t%s' "${PR_NUMBER}" "${PR_MERGED_AT}" "$(printf '%s' "${PR_BODY}" | base64 -w 0)")"
+            pulls="$(gh pr view "${PR_NUMBER}" --json "${fields}" --jq '[.]')"
           fi
 
+          default_branch="$(gh api "repos/${GH_REPO}" --jq '.default_branch')"
+
+          # Each row holds the pull request number, the merge time, and the
+          # issue number. The filter keeps a merge into the default branch and
+          # an issue of this repository only, because gh issue view reads this
+          # repository.
+          rows="$(jq -r --arg since "${since}" --arg base "${default_branch}" --arg repo "${GH_REPO,,}" '
+            .[]
+            | select(.mergedAt != null and .mergedAt >= $since and .baseRefName == $base)
+            | . as $pull
+            | .closingIssuesReferences[]?
+            | select((.repository.owner.login + "/" + .repository.name | ascii_downcase) == $repo)
+            | "\($pull.number)\t\($pull.mergedAt)\t\(.number)"' <<< "${pulls}")"
+
           if [ -z "${rows}" ]; then
-            echo "No merged pull request is in scope. Nothing to close."
+            echo "No pull request that merged into ${default_branch} links an issue of ${GH_REPO}. Nothing to close."
             exit 0
           fi
 
@@ -155,53 +168,45 @@ jobs:
           failed=0
           # The loop reads from its own file descriptor, so a command in the
           # loop cannot read the loop input.
-          while IFS=$'\t' read -r -u 3 pull_request merged_at encoded; do
-            if [ -z "${pull_request}" ]; then
-              continue
-            fi
-            body="$(printf '%s' "${encoded}" | base64 -d)"
-            issues="$(linked_issues "${body}")"
-            if [ -z "${issues}" ]; then
+          while IFS=$'\t' read -r -u 3 pull_request merged_at issue; do
+            if [ -z "${issue}" ]; then
               continue
             fi
 
-            for issue in ${issues}; do
-              # A number can name a pull request or a deleted issue. Both
-              # return no issue state, so the loop skips them.
-              state="$(gh issue view "${issue}" --json state --jq '.state' 2> /dev/null || echo "MISSING")"
-              if [ "${state}" != "OPEN" ]; then
-                echo "Issue #${issue} from pull request #${pull_request} is ${state}. Skipping."
+            # A deleted issue returns no state, so the loop skips it.
+            state="$(gh issue view "${issue}" --json state --jq '.state' 2> /dev/null || echo "MISSING")"
+            if [ "${state}" != "OPEN" ]; then
+              echo "Issue #${issue} from pull request #${pull_request} is ${state}. Skipping."
+              continue
+            fi
+
+            if [ "${sweep}" = "true" ]; then
+              # The exit status carries the answer, so exit-on-error stops
+              # for this call only.
+              set +e
+              reopened_after_merge "${issue}" "${merged_at}"
+              reopen_status="$?"
+              set -e
+              if [ "${reopen_status}" -eq 0 ]; then
+                echo "A person reopened issue #${issue} after pull request #${pull_request} merged. Keeping it open."
                 continue
               fi
-
-              if [ "${sweep}" = "true" ]; then
-                # The exit status carries the answer, so exit-on-error stops
-                # for this call only.
-                set +e
-                reopened_after_merge "${issue}" "${merged_at}"
-                reopen_status="$?"
-                set -e
-                if [ "${reopen_status}" -eq 0 ]; then
-                  echo "A person reopened issue #${issue} after pull request #${pull_request} merged. Keeping it open."
-                  continue
-                fi
-                if [ "${reopen_status}" -eq 2 ]; then
-                  failed=1
-                  continue
-                fi
-                comment="Automatically closed by the merge of PR #${pull_request}. The scheduled sweep found this link, because an auto-merged pull request starts no event."
-              else
-                comment="Automatically closed by PR #${pull_request} merge."
-              fi
-
-              if change gh issue close "${issue}" --reason completed --comment "${comment}"; then
-                echo "Closed issue #${issue} from pull request #${pull_request}."
-                closed=$((closed + 1))
-              else
-                echo "::error::The close call for issue #${issue} from pull request #${pull_request} failed."
+              if [ "${reopen_status}" -eq 2 ]; then
                 failed=1
+                continue
               fi
-            done
+              comment="Automatically closed by the merge of PR #${pull_request}. The scheduled sweep found this link, because an auto-merged pull request starts no event."
+            else
+              comment="Automatically closed by PR #${pull_request} merge."
+            fi
+
+            if change gh issue close "${issue}" --reason completed --comment "${comment}"; then
+              echo "Closed issue #${issue} from pull request #${pull_request}."
+              closed=$((closed + 1))
+            else
+              echo "::error::The close call for issue #${issue} from pull request #${pull_request} failed."
+              failed=1
+            fi
           done 3<<< "${rows}"
 
           echo "Closed ${closed} issue(s). Dry run: ${DRY_RUN}."
