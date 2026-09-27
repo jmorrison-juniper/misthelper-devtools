@@ -65,19 +65,30 @@ jobs:
       - name: Check the workflow files
         run: ${{ steps.get_actionlint.outputs.executable }} -color
 
+  # The documentation of this repository meets the same STE rules that the
+  # shared workflow checks in each Mist repository. This job also tests the
+  # shared workflow on each pull request.
+  ste-lint:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reusable-ste-lint.yml
+    with:
+      files: README.md documentation/*.md src/misthelper_devtools/**/README.md
+
   # The aggregator always reports, so branch protection always receives a
   # status. It is the only check that a protection rule needs to require.
   ci-result:
     name: ci-result
     runs-on: ubuntu-latest
-    needs: [gates, actionlint]
+    needs: [gates, actionlint, ste-lint]
     if: always()
     steps:
       - name: Report the combined result
         run: |
           echo "The gate result is '${{ needs.gates.result }}'."
           echo "The actionlint result is '${{ needs.actionlint.result }}'."
-          if [ "${{ needs.gates.result }}" != "success" ] || [ "${{ needs.actionlint.result }}" != "success" ]; then
+          echo "The STE lint result is '${{ needs.ste-lint.result }}'."
+          if [ "${{ needs.gates.result }}" != "success" ] || [ "${{ needs.actionlint.result }}" != "success" ] || [ "${{ needs.ste-lint.result }}" != "success" ]; then
             echo "One gate failed or was skipped. Read the job list above."
             exit 1
           fi

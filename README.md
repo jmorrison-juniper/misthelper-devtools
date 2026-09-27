@@ -134,6 +134,7 @@ file holds a full caller example and the permissions that the caller must give.
 | `reusable-close-linked-issues.yml` | Closes each issue that a merged pull request links. A sweep finds the auto-merged pull requests. |
 | `reusable-copilot-assign.yml` | Assigns the Copilot cloud agent to an issue with a user token. It adds the in-progress label only when the agent is an assignee, and otherwise writes the cause on the issue. |
 | `reusable-stranded-branch-report.yml` | Runs `stranded-branch-report` and keeps one issue with each branch that holds work with no pull request. It closes the issue after a pull request holds every branch. |
+| `reusable-ste-lint.yml` | Runs `ste-linter` on the documentation files of the caller. It fails when a file scores below the threshold, and it writes the report to the job summary. |
 
 A caller pins the full commit SHA of a release and writes the release tag in a
 comment:
@@ -195,13 +196,14 @@ secret, and pass that secret to `reusable-copilot-assign.yml` as
 that tells how to set it up. The header of the workflow gives the token
 permissions.
 
-Note: `reusable-stranded-branch-report.yml` checks out this repository at the
-commit that the caller pins, and it installs the command from that commit.
-Thus the workflow and the command always come from the same release. An open
-pull request protects its head branch. A closed or merged pull request protects
-a branch only when the branch holds no commit above the last head of that pull
-request. The report lists a branch that it cannot compare, for example a branch
-with no shared history, with `unknown` values.
+Note: `reusable-stranded-branch-report.yml` and `reusable-ste-lint.yml` check
+out this repository at the commit that the caller pins, and they install the
+command from that commit. Thus the workflow and the command always come from
+the same release. An open pull request protects its head branch in the
+stranded branch report. A closed or merged pull request protects a branch only
+when the branch holds no commit above the last head of that pull request. The
+report lists a branch that it cannot compare, for example a branch with no
+shared history, with `unknown` values.
 
 ## Run the tests
 
@@ -220,6 +222,7 @@ python -m ruff check .
 python -m black --check .
 python -m mypy -p misthelper_devtools.juniper_skills --config-file pyproject.toml
 python -m pytest
+ste-linter --min-score 80 README.md documentation/ASD-STE100_writing-guide.md documentation/mist-repository-tooling-inventory.md
 actionlint
 ```
 

@@ -79,5 +79,12 @@ skipped.
 
 ## More information
 
-See `specs/1026-ste-linter/quickstart.md` for the full guide and
-`specs/1026-ste-linter/spec.md` for the specification.
+The MistHelper repository holds the full guide and the specification of the
+linter, in `specs/1026-ste-linter/quickstart.md` and
+`specs/1026-ste-linter/spec.md`.
+
+## Continuous integration
+
+A Mist repository calls `.github/workflows/reusable-ste-lint.yml` of this
+repository to grade its documentation on each pull request. The header of that
+workflow holds a caller example.

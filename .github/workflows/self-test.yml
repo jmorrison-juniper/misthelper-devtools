@@ -2,7 +2,9 @@ name: Self-test
 
 # Each reusable workflow that a Mist repository calls runs here first. A
 # change to a reusable workflow must pass this test before a consumer pins the
-# new commit. Each run that could change the repository uses dry-run.
+# new commit. Each run that could change the repository uses dry-run. The CI
+# workflow calls reusable-ste-lint.yml on each pull request, so this workflow
+# does not call it.
 on:
   pull_request:
     paths:
