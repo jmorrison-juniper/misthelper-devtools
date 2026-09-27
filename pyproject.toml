@@ -140,6 +140,8 @@ known-first-party = ["misthelper_devtools"]
 # The bad fixtures hold the defects that the analyzer finds. The linter must not
 # repair the material under test.
 "src/misthelper_devtools/test_quality_analyzer/fixtures/bad/**" = ["UP031", "UP042", "B017", "G", "F", "E"]
+# The codemod input holds the eager logging calls that the codemod rewrites.
+"tests/fixtures/issue_429_codemod_synthetic_input.py" = ["G"]
 # The command-line entry point sets the import path before it imports.
 "src/misthelper_devtools/test_quality_analyzer/__main__.py" = ["E402"]
 

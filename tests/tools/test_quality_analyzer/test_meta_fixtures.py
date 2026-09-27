@@ -362,6 +362,96 @@ def test_missing_failure_mode_detector_separates_network_from_json_parse() -> No
     assert "missing_fm_malformed_json" not in rule_ids  # Malformed JSON needs a parser to be in scope.
 
 
+_STATUS_VALUE_OBJECT_SOURCE = (  # A trimmed copy of the MistHelper ApiResult value object.
+    "from dataclasses import dataclass\n"
+    "\n"
+    "HTTP_SUCCESS_MIN = 200\n"
+    "HTTP_SUCCESS_MAX_EXCLUSIVE = 300\n"
+    "\n"
+    "\n"
+    "@dataclass(frozen=True, slots=True)\n"
+    "class ApiResult:\n"
+    '    """Thin wrapper around a mistapi response."""\n'
+    "\n"
+    "    status_code: int\n"
+    "    data: dict\n"
+    "\n"
+    "    @property\n"
+    "    def success(self) -> bool:\n"
+    "        return HTTP_SUCCESS_MIN <= self.status_code < HTTP_SUCCESS_MAX_EXCLUSIVE\n"
+    "\n"
+    "    @property\n"
+    "    def error(self) -> str | None:\n"
+    "        if self.success:\n"
+    "            return None\n"
+    "        return self.data.get('detail', str(self.data))\n"
+)
+_STATUS_VALUE_OBJECT_NETWORK_METHOD = (  # The same class after it gains a real HTTP call.
+    "\n"
+    "    @classmethod\n"
+    "    def fetch(cls, url: str) -> 'ApiResult':\n"
+    "        response = requests.get(url, timeout=5)\n"
+    "        return cls(response.status_code, {})\n"
+)
+_STATUS_VALUE_OBJECT_TEST = (  # The MistHelper test reads status_code behavior and performs no network operation.
+    "from src.shared.mist.endpoints import ApiResult\n"
+    "\n"
+    "\n"
+    "class TestApiResultSuccess:\n"
+    "    def test_200_is_success(self) -> None:\n"
+    "        assert ApiResult(status_code=200, data={}).success is True\n"
+    "\n"
+    "    def test_500_is_not_success(self) -> None:\n"
+    "        assert ApiResult(status_code=500, data={}).success is False\n"
+)
+
+
+def _write_nested_project(root: Path, source: str) -> Path:
+    """Write a nested project with one source module and its test, and return the test path."""
+    (root / "pyproject.toml").write_text('[project]\nname = "nested"\n', encoding="utf-8")  # Mark the project root.
+    source_path = root / "src" / "shared" / "mist" / "endpoints.py"  # The module that the test imports.
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text(source, encoding="utf-8")
+    test_path = root / "tests" / "unit" / "mist" / "test_api_result.py"  # The MistHelper layout of the test.
+    test_path.parent.mkdir(parents=True)
+    test_path.write_text(_STATUS_VALUE_OBJECT_TEST, encoding="utf-8")
+    return test_path
+
+
+def test_missing_failure_mode_detector_ignores_status_value_objects(tmp_path: Path) -> None:
+    """MissingFailureModeDetector must not require network failures for a value object."""
+    from misthelper_devtools.test_quality_analyzer.detection.missing_failure_mode import (
+        MissingFailureModeDetector,
+    )  # Import the detector under the same path as the CLI.
+
+    path = _write_nested_project(tmp_path, _STATUS_VALUE_OBJECT_SOURCE)  # The source has no network call.
+    tree, source = _parse(path)  # Parse the real test that only reads status_code behavior.
+    detector = MissingFailureModeDetector()  # Use a fresh detector so the inspection count is isolated.
+
+    findings = detector.detect(path, tree, source)  # Run the rule against the historical false positive.
+
+    assert findings == []  # A value object must not produce failure-mode debt.
+    assert detector.inspected_module_count() == 0  # The detector must not count an out-of-scope module.
+
+
+def test_missing_failure_mode_detector_measures_value_object_with_http_call(tmp_path: Path) -> None:
+    """The same test must come into scope when the imported class makes an HTTP call."""
+    from misthelper_devtools.test_quality_analyzer.detection.missing_failure_mode import (
+        MissingFailureModeDetector,
+    )  # Import the detector under the same path as the CLI.
+
+    network_source = "import requests\n" + _STATUS_VALUE_OBJECT_SOURCE + _STATUS_VALUE_OBJECT_NETWORK_METHOD
+    path = _write_nested_project(tmp_path, network_source)  # The imported class now reaches the network.
+    tree, source = _parse(path)  # Parse the unchanged test module.
+    detector = MissingFailureModeDetector()  # Use a fresh detector so the inspection count is isolated.
+
+    findings = detector.detect(path, tree, source)  # Run the rule against the network-capable source.
+    rule_ids = {finding.rule_id for finding in findings}  # Compare rule identifiers, not message text.
+
+    assert detector.inspected_module_count() == 1  # The nested project source must put the test in scope.
+    assert "missing_fm_connection_error" in rule_ids  # A network call needs connection failure coverage.
+
+
 def test_missing_edge_case_detector() -> None:
     """MissingEdgeCaseDetector: bad fixture yields numeric findings; good yields zero."""
     # Import inside the test so a missing module surfaces as a clean failure.

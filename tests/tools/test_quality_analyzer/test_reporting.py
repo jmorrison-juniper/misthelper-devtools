@@ -183,6 +183,8 @@ def test_json_validates_against_schema() -> None:
     payload = json.loads(text)  # Re-parse so we validate the on-disk shape.
     # Validator raises on failure; no return value on success.
     builder.validate(payload, schema)  # Should not raise.
+    assert payload["findings"], "A validated payload must carry the findings it reported."
+    assert payload["engine_version"], "A validated payload must name the engine version."
 
 
 def test_validator_rejects_missing_required_field() -> None:
