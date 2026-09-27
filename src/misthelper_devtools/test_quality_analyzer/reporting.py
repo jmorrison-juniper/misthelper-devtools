@@ -312,6 +312,8 @@ class ReportBuilder:
             if segment not in node:
                 raise ValueError("Unresolvable $ref segment: %s" % segment)
             node = node[segment]
+        if not isinstance(node, dict):
+            raise ValueError("$ref did not resolve to an object: %s" % ref)
         return node
 
 

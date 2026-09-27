@@ -12,7 +12,7 @@ OUT = Path("data/compliance_backlog.tsv")
 
 
 def main() -> None:
-    rows = []
+    rows: list[tuple[int, float, int, int, int, int, str, str]] = []
     prefix = "| src\\"
     for line in REPORT.read_text(encoding="utf-8").splitlines():
         if not line.startswith(prefix):
@@ -28,8 +28,23 @@ def main() -> None:
     rows.sort(key=lambda r: (-r[0], r[1]))
     with OUT.open("w", encoding="utf-8", newline="\n") as fh:
         fh.write("rank\ttotal\tcritical\thigh\tmedium\tlow\tscore\tgrade\tpath\n")
-        for idx, (total, score, crit, high, med, low, grade, path) in enumerate(rows, 1):
-            fh.write(f"{idx}\t{total}\t{crit}\t{high}\t{med}\t{low}\t{score}\t{grade}\t{path}\n")
+        for idx, (
+            total_count,
+            row_score,
+            crit_count,
+            high_count,
+            med_count,
+            low_count,
+            row_grade,
+            row_path,
+        ) in enumerate(
+            rows,
+            1,
+        ):
+            fh.write(
+                f"{idx}\t{total_count}\t{crit_count}\t{high_count}\t{med_count}\t{low_count}\t"
+                f"{row_score}\t{row_grade}\t{row_path}\n"
+            )
     logger.info("wrote %s sub-A rows -> %s", len(rows), OUT)
 
 

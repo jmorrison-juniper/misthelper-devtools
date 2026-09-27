@@ -14,6 +14,7 @@ from misthelper_devtools.refactor_analyzer.models import (  # Data models render
     CATEGORY_UNUSED,
     AnalysisResult,
     Candidate,
+    Reference,
 )
 
 logger = logging.getLogger(__name__)  # Module-scoped logger for action logging.
@@ -206,7 +207,7 @@ class MarkdownReportGenerator:
         return f"{header}\n{items}"  # Return the assembled checklist.
 
     @staticmethod
-    def _reference_groups(reference_files: dict[str, list]) -> str:
+    def _reference_groups(reference_files: dict[str, list[Reference]]) -> str:
         """Render references grouped by file, one sub-bullet per file with linenos."""
         header = "- Reference sites (one PR cluster per file):"  # Section bullet.
         rows = []  # Accumulate rows.

@@ -218,7 +218,7 @@ never repairs them.
 ```powershell
 python -m ruff check .
 python -m black --check .
-python -m mypy -p misthelper_devtools.juniper_skills --config-file pyproject.toml
+python -m mypy -p misthelper_devtools --config-file pyproject.toml
 python -m pytest
 actionlint
 ```

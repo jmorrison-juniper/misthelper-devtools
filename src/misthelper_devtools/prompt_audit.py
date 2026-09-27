@@ -29,6 +29,7 @@ import ast
 import json
 import pathlib
 import re
+from typing import TypedDict
 
 from misthelper_devtools.repository_root import resolve_repository_root  # One root answer for every tool here.
 
@@ -50,6 +51,15 @@ RAW_INPUT_NAMES = {"input", "safe_input", "input_fn"}
 # How deep the walk follows a call before it gives up. A prompt sits close to
 # its handler in this project, and an unbounded walk reaches the whole tree.
 MAX_DEPTH = 4
+FunctionNode = ast.FunctionDef | ast.AsyncFunctionDef  # Functions and async functions share the fields we inspect.
+
+
+class PromptReportRow(TypedDict):
+    """One JSON-serializable row in the prompt audit report."""
+
+    handler: str | None  # Handler dotted name from the menu table.
+    prompts: list[str]  # Prompt kinds reached by the call walk.
+    note: str  # Confidence or missing-handler note.
 
 
 def menu_file_for(repository_root: pathlib.Path | str | None = None) -> pathlib.Path:
@@ -73,8 +83,8 @@ class FunctionIndex:
                 from the working directory for the nearest ``.git`` entry.
         """
         self.source_roots = source_roots_for(repository_root)  # Resolve once, so every read uses one root.
-        self.by_qualname: dict[str, ast.FunctionDef] = {}  # "Class.method" to its node.
-        self.by_name: dict[str, list[ast.FunctionDef]] = {}  # Plain name to every match.
+        self.by_qualname: dict[str, FunctionNode] = {}  # "Class.method" to its node.
+        self.by_name: dict[str, list[FunctionNode]] = {}  # Plain name to every match.
         self._build()
 
     def _build(self) -> None:
@@ -106,7 +116,7 @@ class FunctionIndex:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and id(node) not in methods:
                 self.by_name.setdefault(node.name, []).append(node)
 
-    def lookup(self, dotted: str) -> ast.FunctionDef | None:
+    def lookup(self, dotted: str) -> FunctionNode | None:
         """Return the function a dotted handler name points at."""
         if dotted in self.by_qualname:
             return self.by_qualname[dotted]
@@ -215,7 +225,7 @@ def main() -> int:
 
     index = FunctionIndex()
     walker = PromptWalker(index)
-    report = {}
+    report: dict[str, PromptReportRow] = {}
     for menu in wanted:
         dotted = handlers.get(menu)
         if dotted is None:

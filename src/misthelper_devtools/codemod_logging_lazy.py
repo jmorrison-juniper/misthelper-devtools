@@ -51,6 +51,7 @@ from __future__ import annotations  # Enable PEP 604 unions on Python 3.13.
 import argparse  # Stdlib CLI argument parser.
 import json  # For optional --report JSON output.
 import logging  # We log our own progress through the codemod.
+from collections.abc import Sequence  # Sequence type for libcst argument lists.
 from dataclasses import dataclass, field  # Lightweight result records.
 from pathlib import Path  # Portable path handling on Windows + POSIX.
 
@@ -73,8 +74,8 @@ class CodemodReport:
     """Per-site record of what the codemod did (or skipped)."""
 
     file: str  # Absolute or relative path of the file scanned.
-    rewrites: list[dict] = field(default_factory=list)  # One dict per converted site.
-    skipped: list[dict] = field(default_factory=list)  # One dict per skipped site (with reason).
+    rewrites: list[dict[str, int | str]] = field(default_factory=list)  # One dict per converted site.
+    skipped: list[dict[str, int | str]] = field(default_factory=list)  # One dict per skipped site (with reason).
     parse_error: str | None = None  # libcst parse error message, if any.
 
     def to_json(self) -> str:
@@ -244,7 +245,7 @@ class LoggingLazyCodemod(cst.CSTTransformer):
         return (call.with_changes(args=tuple(_strip_trailing_comma(merged))), kind)  # Final tree.
 
     @staticmethod
-    def _first_positional_index(args: tuple[cst.Arg, ...] | list[cst.Arg]) -> int | None:
+    def _first_positional_index(args: Sequence[cst.Arg]) -> int | None:
         """Return the index of the first positional arg, or None if all are keyword."""
         for i, arg in enumerate(args):  # Linear scan; arg lists are small.
             if arg.keyword is None:  # Positional arg detected.
@@ -319,6 +320,14 @@ def _python_string_literal(text: str) -> str:
 def _escape_percent(text: str) -> str:
     """Escape every literal `%` to `%%` for use inside a `%`-style template."""
     return text.replace("%", "%%")  # Single replacement covers every literal %.
+
+
+def _simple_string_text(node: cst.SimpleString) -> str:
+    """Return a text string literal value, rejecting bytes literals."""
+    value = node.evaluated_value  # libcst returns str for text literals and bytes for bytes literals.
+    if isinstance(value, bytes):  # Logging templates must be text strings.
+        raise _RewriteSkip("bytes string logging messages are unsupported")
+    return value  # Text string literal value.
 
 
 def _format_spec_to_percent(spec: str) -> str:
@@ -410,7 +419,7 @@ def _convert_concat_string_to_lazy(
             stack.append(current.right)  # Push right first so left is processed first.
             stack.append(current.left)  # Push left last so it pops first.
         elif isinstance(current, cst.SimpleString):  # Plain literal segment.
-            template_parts.append(_escape_percent(current.evaluated_value))  # Escape %.
+            template_parts.append(_escape_percent(_simple_string_text(current)))  # Escape %.
         elif isinstance(current, cst.FormattedString):  # Nested f-string segment.
             sub_tpl, sub_args = _convert_fstring_to_lazy(current)  # Reuse f-string converter.
             template_parts.append(sub_tpl)  # Already escaped/spec-mapped by recursion.
@@ -433,7 +442,7 @@ def _convert_concat_to_lazy(
             stack.append(current.right)  # Push right then left -> left processed first.
             stack.append(current.left)  # Push left last so it pops first.
         elif isinstance(current, cst.SimpleString):  # Plain literal segment.
-            template_parts.append(_escape_percent(current.evaluated_value))  # Escape %.
+            template_parts.append(_escape_percent(_simple_string_text(current)))  # Escape %.
         elif isinstance(current, cst.FormattedString):  # Nested f-string.
             sub_tpl, sub_args = _convert_fstring_to_lazy(current)  # Reuse f-string converter.
             template_parts.append(sub_tpl)  # Carry template text.

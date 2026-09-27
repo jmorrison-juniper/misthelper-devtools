@@ -26,9 +26,11 @@ import json  # Read OpenAPI 3.1 JSON document
 import logging  # Project-mandated action logging
 import re  # Tokenize OpenAPI paths and scan MistHelper.py for mistapi calls
 import sys  # Exit codes when invariants fail
+from collections.abc import Mapping, Sequence  # OpenAPI JSON containers after validation
 from dataclasses import dataclass, field  # Dataclasses for endpoint records
 from datetime import UTC, datetime  # Timestamp generated artifacts in UTC
 from pathlib import Path  # Cross-platform path manipulation
+from typing import Any  # OpenAPI JSON values are heterogeneous before projection
 
 from misthelper_devtools.repository_root import resolve_repository_root  # Find the checkout that the operator names
 
@@ -164,7 +166,7 @@ def parse_openapi_get_endpoints(spec_path: Path) -> list[GetEndpoint]:
     return endpoints  # Hand off to downstream stages
 
 
-def _endpoint_from_op(path: str, op: dict) -> GetEndpoint:
+def _endpoint_from_op(path: str, op: Mapping[str, Any]) -> GetEndpoint:
     """Project a single OpenAPI GET op dict into a GetEndpoint record."""
     LOG.debug("Projecting endpoint for path %s", path)  # Trace per-path projection
     operation_id = op.get("operationId") or _synth_operation_id(path)  # Fallback when operationId missing
@@ -189,7 +191,7 @@ def _synth_operation_id(path: str) -> str:
     return "get" + "".join(t.capitalize() for t in tokens)  # CamelCase rejoin prefixed with 'get'
 
 
-def _split_parameters(params: list[dict]) -> tuple[list[str], list[tuple[str, bool]]]:
+def _split_parameters(params: Sequence[object]) -> tuple[list[str], list[tuple[str, bool]]]:
     """Split OpenAPI parameter entries into (path_param_names, query_param_required_pairs)."""
     LOG.debug("Splitting %d parameters", len(params))  # Trace incoming param count
     path_params: list[str] = []  # Required path params accumulator

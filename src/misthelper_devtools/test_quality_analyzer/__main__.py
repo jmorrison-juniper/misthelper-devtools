@@ -39,9 +39,12 @@ from misthelper_devtools.test_quality_analyzer.baseline import (  # US2 baseline
 )
 from misthelper_devtools.test_quality_analyzer.config import ConfigError, ConfigLoader  # Config loader.
 from misthelper_devtools.test_quality_analyzer.detection import (
+    Baseline,
+    ConfigSnapshot,
     DetectorRegistry,
     Finding,
     ParseError,
+    Report,
     SkippedFile,
 )
 
@@ -272,6 +275,7 @@ class TestQualityCLI:
                     "test_quality_analyzer: --write-baseline requires --baseline path\n",
                 )
                 return 2  # Invalid usage.
+            assert baseline_path is not None  # baseline_enabled proves the path exists for mypy.
             BaselineDiffer().write(baseline_path, findings)  # Overwrite baseline in place.
             _LOGGER.info("Wrote baseline (%s findings) to %s", len(findings), baseline_path)
             # Still emit the standard report/summary/stdout artifacts for auditability.
@@ -294,11 +298,14 @@ class TestQualityCLI:
         gate_evaluation = None  # GateEvaluation | None -- populated only in --gate mode.
         stale_entries: tuple[str, ...] = ()  # Absent-file advisory entries.
         if baseline_enabled:
+            assert baseline_path is not None  # baseline_enabled proves the path exists for all baseline calls.
             if args.gate:
                 gate_evaluation = evaluate_gate(findings, baseline_path)  # Validate the required baseline first.
                 if gate_evaluation.exit_code == 2:
                     sys.stderr.write(gate_evaluation.stderr_line)  # State why the gate cannot compare.
                     return 2  # Required gate inputs must fail closed.
+                assert gate_evaluation.baseline is not None  # Successful gate evaluation always parsed a baseline.
+                assert gate_evaluation.diff is not None  # Successful gate evaluation always computed a diff.
                 baseline = gate_evaluation.baseline  # Reuse the parsed baseline for stale-entry checks.
                 diff = gate_evaluation.diff  # Reuse the tested diff for the final gate result.
             else:
@@ -362,6 +369,7 @@ class TestQualityCLI:
                 )
                 return 2  # Invalid usage in gate mode without a baseline.
             if gate_evaluation is None:
+                assert baseline_path is not None  # A non-disabled gate always has a comparator path here.
                 gate_evaluation = evaluate_gate(findings, baseline_path)  # Defensive fallback for future callers.
             sys.stdout.write(gate_evaluation.stdout_line)  # Print the ratchet comparison result.
             if gate_evaluation.exit_code == 1:
@@ -399,7 +407,7 @@ class TestQualityCLI:
 
     def _prune_baseline(
         self,
-        baseline,  # Baseline loaded from the baseline path.
+        baseline: Baseline,  # Baseline loaded from the baseline path.
         stale_entries: tuple[str, ...],  # Paths the scan can no longer reach.
         baseline_path: Path,  # File that the prune rewrites in place.
     ) -> None:
@@ -419,15 +427,15 @@ class TestQualityCLI:
 
     def _build_report(
         self,
-        findings,  # Sequence[Finding] filtered + severity-overridden.
-        skipped,  # Sequence[SkippedFile] Mist-API exclusions.
-        parse_errors,  # Sequence[ParseError] non-fatal parse failures.
+        findings: Sequence[Finding],  # Sequence[Finding] filtered + severity-overridden.
+        skipped: Sequence[SkippedFile],  # Sequence[SkippedFile] Mist-API exclusions.
+        parse_errors: Sequence[ParseError],  # Sequence[ParseError] non-fatal parse failures.
         stale_baseline_entries: tuple[str, ...],  # Absent-file paths from baseline.
-        config_snapshot,  # ConfigSnapshot for envelope.
+        config_snapshot: ConfigSnapshot,  # ConfigSnapshot for envelope.
         args: argparse.Namespace,  # For timestamp + scanned roots.
         analyzed_files: Sequence[str],  # Test files read by detectors.
         detector_metrics: Mapping[str, int],  # Per-detector proof counts.
-    ):
+    ) -> Report:
         """Assemble the Report envelope; factored out for gate + write-baseline paths."""
         return ReportBuilder().build(
             findings=findings,
@@ -496,7 +504,7 @@ class TestQualityCLI:
         self,
         test_files: Sequence[Path],  # Paths returned by TestFileDiscoverer.
         include_mist_api: bool,  # When True, disable the Mist-API exclusion predicate.
-        config_snapshot,  # ConfigSnapshot -- forward-referenced to avoid import cycles.
+        config_snapshot: ConfigSnapshot,  # ConfigSnapshot -- effective analyzer config.
     ) -> tuple[list[tuple[Path, ast.Module, str]], list[SkippedFile], list[ParseError]]:
         """Parse each file; return (analyzable triples, skipped records, parse errors)."""
         # Analyzable triples fed to detectors: (path, tree, source).
@@ -568,14 +576,14 @@ class TestQualityCLI:
         metrics = self._detector_metrics(per_file_detectors)  # Collect scope counts after the run.
         return findings, metrics  # Return findings and the proof that detectors measured files.
 
-    def _reset_detector_inspection(self, detectors) -> None:
+    def _reset_detector_inspection(self, detectors: Sequence[object]) -> None:
         """Reset detectors that expose per-run inspection state."""
         for detector in detectors:  # Registry instances can survive multiple in-process CLI tests.
             reset = getattr(detector, "reset_inspection", None)  # Look for the optional reset seam.
             if callable(reset):  # Only detectors with state implement the seam.
                 reset()  # Clear stale inspection counts before this run.
 
-    def _detector_metrics(self, detectors) -> dict[str, int]:
+    def _detector_metrics(self, detectors: Sequence[object]) -> dict[str, int]:
         """Return detector-specific proof metrics."""
         metrics: dict[str, int] = {}  # Accumulate metrics by stable key.
         for detector in detectors:  # Read optional metrics from each detector.
@@ -632,7 +640,7 @@ class TestQualityCLI:
         self,
         findings: Sequence[Finding],
         disabled_rules: Sequence[str],  # From --disable-rule (repeatable).
-        config_snapshot,  # Forward-referenced ConfigSnapshot for severity overrides.
+        config_snapshot: ConfigSnapshot,  # Effective config snapshot for severity overrides.
     ) -> list[Finding]:
         """Drop --disable-rule findings and apply severity overrides from the config."""
         # Freeze disabled rule ids into a set for O(1) membership tests.
@@ -680,7 +688,7 @@ class TestQualityCLI:
     # Output writers
     # -----------------------------------------------------------------------
 
-    def _write_outputs(self, report, report_path: Path, summary_path: Path) -> None:
+    def _write_outputs(self, report: Report, report_path: Path, summary_path: Path) -> None:
         """Serialize Report to JSON + Markdown and write both artifacts to disk."""
         # Ensure the parent directories exist so first-run writes succeed.
         report_path.parent.mkdir(parents=True, exist_ok=True)  # Idempotent mkdir.

@@ -11,7 +11,10 @@ import argparse  # Parse command-line arguments.
 import logging  # Configure action logging for the CLI run.
 from pathlib import Path  # Portable filesystem path handling.
 
-from misthelper_devtools.analyzer_coverage import AnalyzerCoverageRenderer  # Shared read and skip reporter.
+from misthelper_devtools.analyzer_coverage import (  # Shared read and skip reporter.
+    AnalyzerCoverageRenderer,
+    AnalyzerCoverageSummary,
+)
 
 from .engine import ComplianceAnalyzer  # Core analysis engine.
 from .models import FileReport  # Type for analyzer results passed through the CLI.
@@ -114,7 +117,7 @@ class ComplianceCLI:
         path.write_text(text, encoding="utf-8")  # Persist the report as UTF-8.
         logger.debug("Wrote %d characters to %s", len(text), path)  # Log the bytes written.
 
-    def _print_summary(self, reports: list[FileReport], output: str, coverage) -> None:
+    def _print_summary(self, reports: list[FileReport], output: str, coverage: AnalyzerCoverageSummary) -> None:
         """Print a concise per-file and overall summary to the console."""
         overall = MarkdownReportGenerator().overall_score(reports)  # Aggregate score.
         grade = self._scorer.grade(overall)  # Aggregate grade.

@@ -13,6 +13,7 @@ import logging  # info/debug logging per Principle VII.
 import tomllib  # Stdlib TOML parser (Python 3.11+).
 from pathlib import Path  # Path type for load().
 from types import MappingProxyType  # Read-only mapping wrapper for immutability.
+from typing import Any  # TOML values are heterogeneous before validation.
 
 from misthelper_devtools.test_quality_analyzer.detection import (  # Types come from detection package.
     ConfigSnapshot,
@@ -98,7 +99,7 @@ class ConfigLoader:
             mist_api_predicate=predicate,
         )
 
-    def _read_or_default(self, path: Path) -> dict:
+    def _read_or_default(self, path: Path) -> dict[str, Any]:
         """Return parsed TOML dict, or an empty dict when file is missing/empty."""
         # Empty dict path: file does not exist -> defaults per contracts/config.schema.md.
         if not path.exists():
@@ -115,7 +116,7 @@ class ConfigLoader:
         except tomllib.TOMLDecodeError as exc:
             raise ConfigError(f"Malformed TOML in {path}: {exc}") from exc
 
-    def _parse_rules(self, table: dict) -> dict[str, bool]:
+    def _parse_rules(self, table: dict[str, Any]) -> dict[str, bool]:
         """Validate [rules] table and merge with built-in defaults (all enabled)."""
         # Start from a defaults dict so missing keys stay enabled per contract.
         merged = {rule_id: True for rule_id in _KNOWN_RULE_IDS}
@@ -128,7 +129,7 @@ class ConfigLoader:
             merged[key] = value  # Apply the override.
         return merged
 
-    def _parse_severities(self, table: dict) -> dict[str, Severity]:
+    def _parse_severities(self, table: dict[str, Any]) -> dict[str, Severity]:
         """Validate [severity] table and merge with built-in defaults."""
         # Start from documented defaults so missing keys use the FR-009 mapping.
         merged: dict[str, Severity] = dict(_DEFAULT_SEVERITIES)
@@ -144,7 +145,7 @@ class ConfigLoader:
                 raise ConfigError(f"[severity].{key}: unknown severity '{value}'") from exc
         return merged
 
-    def _parse_predicate(self, exclusions: dict) -> MistApiPredicate:
+    def _parse_predicate(self, exclusions: dict[str, Any]) -> MistApiPredicate:
         """Validate Mist-API predicate parameters from [exclusions]."""
         # Default values match contracts/config.schema.md.
         banned = exclusions.get("banned_imports", ["mistapi"])
@@ -157,7 +158,7 @@ class ConfigLoader:
         # Freeze into tuples so the snapshot is immutable.
         return MistApiPredicate(banned_imports=tuple(banned), excluded_src_prefixes=tuple(prefixes))
 
-    def _parse_globs(self, exclusions: dict) -> tuple[str, ...]:
+    def _parse_globs(self, exclusions: dict[str, Any]) -> tuple[str, ...]:
         """Validate [exclusions].path_globs -> tuple[str, ...]."""
         # Missing key -> empty tuple per contract.
         globs = exclusions.get("path_globs", [])

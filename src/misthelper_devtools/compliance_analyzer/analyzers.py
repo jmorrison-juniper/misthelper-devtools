@@ -9,6 +9,7 @@ from __future__ import annotations  # Enable modern annotation syntax on Python 
 
 import ast  # The standard library AST powers all structural inspection.
 import re  # Word-segment splitting so naming tokens match whole words, not substrings.
+from collections.abc import Iterator  # Iterator return type for custom AST walks.
 
 from .models import AnalysisContext, Severity, Violation  # Shared record/enum types.
 
@@ -103,9 +104,9 @@ class AstHelpers:
         return False  # No matching decorator found.
 
     @classmethod
-    def walk_body(cls, function: ast.FunctionDef | ast.AsyncFunctionDef):
+    def walk_body(cls, function: ast.FunctionDef | ast.AsyncFunctionDef) -> Iterator[ast.AST]:
         """Yield every node inside a function body without entering nested scopes."""
-        stack = list(function.body)  # Seed the traversal with the top-level body.
+        stack: list[ast.AST] = list(function.body)  # Seed the traversal with the top-level body.
         while stack:  # Continue until every reachable node is visited.
             node = stack.pop()  # Take the next node to inspect.
             yield node  # Surface the node to the caller.
@@ -506,6 +507,8 @@ class ArchitecturalAnalyzer:
         )  # Validate the statement shape before reading its fields.
         if target is None:  # Only simple name assignments qualify for alias analysis.
             return None  # Not an alias assignment.
+        if not isinstance(statement, ast.Assign):  # Re-narrow after the helper proved the assignment shape.
+            return None  # Defensive only; the helper returns None for non-assign statements.
         if not isinstance(statement.value, self._ALIAS_RHS):  # Alias rules only flag plain symbol rebinding.
             return None  # Not an alias assignment.
         if target.id.isupper():  # ALL_CAPS targets are intentional constants.
@@ -1015,6 +1018,8 @@ class ConventionAnalyzer:
         escapes embedded in longer words (e.g. `r"{master:\\d+}"`, `r"doc:\\s*"`)
         that happen to contain `:\\` for unrelated reasons.
         """
+        if not isinstance(node, ast.Constant):  # Constants carry the lineno used for the finding.
+            return None  # Non-constant nodes cannot be string literals.
         text = ConventionAnalyzer._string_literal_value(
             node
         )  # Reduce the node to text only when it is a string literal.

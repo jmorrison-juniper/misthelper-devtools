@@ -21,6 +21,7 @@ import logging  # Principle VII structured logging.
 from collections.abc import Iterable  # Iterable annotation for canonical inputs.
 from dataclasses import dataclass  # Frozen result object for gate decisions.
 from pathlib import Path  # Filesystem primitives for load/write.
+from typing import Any  # Baseline JSON values are heterogeneous until validated.
 
 from misthelper_devtools.test_quality_analyzer.detection import (  # Shared type layer.
     Baseline,
@@ -182,7 +183,7 @@ class BaselineDiffer:
 
     # --- Internal helpers ---------------------------------------------------
 
-    def _finding_to_dict(self, finding: Finding) -> dict:
+    def _finding_to_dict(self, finding: Finding) -> dict[str, object]:
         """Convert a Finding to the schema-conformant dict shape."""
         # Mirror ReportBuilder._finding_dict so a baseline element is drop-in.
         return {
@@ -197,7 +198,7 @@ class BaselineDiffer:
             "related_source": finding.related_source,
         }
 
-    def _finding_from_dict(self, obj: dict) -> Finding:
+    def _finding_from_dict(self, obj: dict[str, Any]) -> Finding:
         """Rebuild a Finding from a schema-conformant dict."""
         # Fail loudly if the object is not the expected shape.
         if not isinstance(obj, dict):
