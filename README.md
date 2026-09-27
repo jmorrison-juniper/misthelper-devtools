@@ -59,7 +59,7 @@ python -m misthelper_devtools.compliance_analyzer src\
 python -m misthelper_devtools.symbol_diff --base main path\to\file.py
 ```
 
-Eleven tools also install as a command.
+Twelve tools also install as a command.
 
 | Command | Module |
 | - | - |
@@ -70,6 +70,7 @@ Eleven tools also install as a command.
 | `refactor-analyzer` | `misthelper_devtools.refactor_analyzer` |
 | `speckit-task-audit` | `misthelper_devtools.speckit_task_audit` |
 | `ste-linter` | `misthelper_devtools.ste_linter` |
+| `stranded-branch-report` | `misthelper_devtools.stranded_branch_report` |
 | `symbol-diff` | `misthelper_devtools.symbol_diff` |
 | `test-quality-analyzer` | `misthelper_devtools.test_quality_analyzer` |
 | `venv-health` | `misthelper_devtools.venv_health` |
@@ -132,6 +133,7 @@ file holds a full caller example and the permissions that the caller must give.
 | `reusable-auto-merge.yml` | Enables auto-merge for a labeled pull request. After the merge, it starts the main workflows that the merge did not start. |
 | `reusable-close-linked-issues.yml` | Closes each issue that a merged pull request names with a closing keyword. A sweep finds the auto-merged pull requests. |
 | `reusable-copilot-assign.yml` | Assigns the Copilot cloud agent to an issue with a user token. It adds the in-progress label only when the agent is an assignee, and otherwise writes the cause on the issue. |
+| `reusable-stranded-branch-report.yml` | Runs `stranded-branch-report` and keeps one issue with each branch that holds work with no pull request. It closes the issue after a pull request holds every branch. |
 
 A caller pins the full commit SHA of a release and writes the release tag in a
 comment:
@@ -182,6 +184,14 @@ secret, and pass that secret to `reusable-copilot-assign.yml` as
 `assign-token`. Without the secret, the job writes one comment on the issue
 that tells how to set it up. The header of the workflow gives the token
 permissions.
+
+Note: `reusable-stranded-branch-report.yml` checks out this repository at the
+commit that the caller pins, and it installs the command from that commit.
+Thus the workflow and the command always come from the same release. An open
+pull request protects its head branch. A closed or merged pull request protects
+a branch only when the branch holds no commit above the last head of that pull
+request. The report lists a branch that it cannot compare, for example a branch
+with no shared history, with `unknown` values.
 
 ## Run the tests
 
