@@ -130,8 +130,8 @@ file holds a full caller example and the permissions that the caller must give.
 | - | - |
 | `reusable-container-image.yml` | Builds a multi-arch image with Buildx and can push it to GHCR. The caller gives the tag rules. |
 | `reusable-quality-gate-issues.yml` | Opens one issue for each failed gate and closes it after the gate passes. |
-| `reusable-auto-merge.yml` | Enables auto-merge for a labeled pull request. After the merge, it starts the main workflows that the merge did not start. |
-| `reusable-close-linked-issues.yml` | Closes each issue that a merged pull request names with a closing keyword. A sweep finds the auto-merged pull requests. |
+| `reusable-auto-merge.yml` | Enables auto-merge for a labeled pull request. After the merge, it starts the main workflows that the merge did not start. With `report-orphaned-push`, it writes a notice on a merged pull request when a later push adds a commit to its branch. |
+| `reusable-close-linked-issues.yml` | Closes each issue that a merged pull request links. A sweep finds the auto-merged pull requests. |
 | `reusable-copilot-assign.yml` | Assigns the Copilot cloud agent to an issue with a user token. It adds the in-progress label only when the agent is an assignee, and otherwise writes the cause on the issue. |
 | `reusable-stranded-branch-report.yml` | Runs `stranded-branch-report` and keeps one issue with each branch that holds work with no pull request. It closes the issue after a pull request holds every branch. |
 
@@ -176,6 +176,16 @@ starts. The auto-merge workflow runs after each merge and on a schedule. Each
 run starts each workflow in `main-workflows` whose newest run is not on the tip
 of the default branch. Thus a merge that changes only the documentation can
 start a container build that its `paths` filter skipped.
+
+Note: `report-orphaned-push` needs a `push` trigger in the caller, for example
+`branches-ignore: [main]`. The job writes no notice when an open pull request
+has the branch, or when the merged pull request or the default branch already
+holds the pushed commit.
+
+Note: `reusable-close-linked-issues.yml` reads GitHub's own list of linked
+issues. The list holds the closing keywords of a pull request into the default
+branch, for example `Fixes #12`, and each link from the Development panel. The
+job skips a merge into any other branch and an issue in another repository.
 
 Note: GitHub assigns the Copilot cloud agent only for a user token, for
 example a fine-grained personal access token. For `GITHUB_TOKEN`, GitHub
