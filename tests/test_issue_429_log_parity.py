@@ -89,13 +89,11 @@ def test_log_render_matches_baseline(
     module = _load_module(REPO_ROOT / source_rel)  # Parse (cached) the file this site lives in.
     inputs = _build_inputs_for_pattern(site_def["pattern"], site_def["inputs"])  # Same enrichment as capture.
     actual = _find_matching_render(module, site_def["line"], inputs, expected)  # Robust lookup.
-    assert actual is not None, (  # No call in the file renders to the expected string.
-        f"site {site_id}: no logging call (near line {site_def['line']}) in {source_rel} "
-        f"renders to {expected!r} with inputs {sorted(inputs)}"
+    assert actual == expected, (  # Byte-identical rendering is the whole contract.
+        f"site {site_id} drift: expected {expected!r}, got {actual!r}. "
+        f"Searched the logging calls near line {site_def['line']} in {source_rel} "
+        f"with inputs {sorted(inputs)}"
     )
-    assert (
-        actual == expected
-    ), f"site {site_id} drift: expected {expected!r}, got {actual!r}"  # Byte-identical rendering is the whole contract.
 
 
 def _find_matching_render(
@@ -214,8 +212,10 @@ def test_indexed_render_matches_direct_line_collector() -> None:
     direct_collector = _LineCallCollector(2)  # Use the old line collector as the oracle.
     cst.MetadataWrapper(module).visit(direct_collector)  # Collect the direct call for comparison.
     call_index = _index_calls_by_line(module)  # Build the new reusable line index.
-    assert direct_collector.found is not None  # The fixture must contain a call on the target line.
-    direct_msg, direct_args = _extract_msg_and_args(direct_collector.found, {})  # Render the old path.
+    found_call = direct_collector.found  # The call that the old collector matched on line 2.
+    assert isinstance(found_call, cst.Call)  # The fixture line holds exactly one logging call.
+    direct_msg, direct_args = _extract_msg_and_args(found_call, {})  # Render the old path.
+    assert (direct_msg, direct_args) == ("stable %s", ("text",))  # The oracle must read the fixture call.
     index_msg, index_args = _extract_msg_and_args(call_index[2][0], {})  # Render the indexed path.
     assert (index_msg, index_args) == (direct_msg, direct_args)  # The indexed call must match the old lookup.
 
