@@ -1,0 +1,9 @@
+# actionlint reads this file from the .github folder.
+paths:
+  # actionlint 1.7.12 does not know the job.workflow_repository and
+  # job.workflow_sha properties yet. GitHub documents both in the job context,
+  # and a reusable workflow reads them to check out its own source. Remove this
+  # rule after an actionlint release adds the two properties.
+  .github/workflows/reusable-*.yml:
+    ignore:
+      - 'property "workflow_(repository|sha)" is not defined in object type'

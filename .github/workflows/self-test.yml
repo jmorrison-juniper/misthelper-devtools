@@ -9,12 +9,14 @@ on:
       - '.github/workflows/reusable-*.yml'
       - '.github/workflows/self-test.yml'
       - 'tests/fixtures/container/**'
+      - 'src/misthelper_devtools/stranded_branch_report.py'
   push:
     branches: [main]
     paths:
       - '.github/workflows/reusable-*.yml'
       - '.github/workflows/self-test.yml'
       - 'tests/fixtures/container/**'
+      - 'src/misthelper_devtools/stranded_branch_report.py'
   workflow_dispatch:
 
 concurrency:
@@ -96,6 +98,18 @@ jobs:
     with:
       sweep: true
       lookback-hours: '720'
+      dry-run: true
+
+  # The report reads this repository. A zero quiet period makes the command
+  # read every branch, and the dry run leaves the issues unchanged.
+  stranded-branch-report:
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    uses: ./.github/workflows/reusable-stranded-branch-report.yml
+    with:
+      min-age-days: 0
       dry-run: true
 
   # The issues API treats a pull request as an issue. A push or a manual run

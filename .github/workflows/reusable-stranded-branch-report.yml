@@ -1,0 +1,183 @@
+# ================================================================
+# Stranded branch report -- one issue for work with no pull request
+# ================================================================
+# A branch with commits above the base branch and no pull request has one
+# copy. A cleanup deletes that copy, and git prints no warning. A repository
+# that squash-merges never shows a feature branch in `git branch --merged`, so
+# a cleanup that trusts `--merged` is unsafe.
+#
+# Only `refs/pull/<n>/head` survives a branch deletion. This workflow runs the
+# stranded-branch-report command of this repository. It keeps one open issue
+# with the list of branches that no pull request holds, and it closes that
+# issue after every branch is held.
+#
+# The caller workflow:
+#
+#   on:
+#     schedule:
+#       - cron: "0 7 * * 1"
+#     workflow_dispatch:
+#   permissions: {}
+#   jobs:
+#     stranded-branch-report:
+#       permissions:
+#         contents: read
+#         issues: write
+#         pull-requests: read
+#       uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-stranded-branch-report.yml@<commit>
+#
+# The job checks out this repository at the commit that the caller pins, so
+# the command and the workflow come from the same commit.
+# ================================================================
+name: Stranded branch report (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      min-age-days:
+        description: The quiet period in days. A younger branch is active work.
+        required: false
+        default: 7
+        type: number
+      base-branch:
+        description: The branch that each feature branch merges into. An empty value reads the default branch.
+        required: false
+        default: ''
+        type: string
+      issue-title:
+        description: The title of the one tracking issue.
+        required: false
+        default: 'chore(git): a branch holds work with no pull request'
+        type: string
+      labels:
+        description: The comma-separated labels for a new issue.
+        required: false
+        default: chore,ci
+        type: string
+      python-version:
+        description: The Python version that runs the command.
+        required: false
+        default: '3.13'
+        type: string
+      dry-run:
+        description: Log each issue change and make no change.
+        required: false
+        default: false
+        type: boolean
+    outputs:
+      found:
+        description: The value true when the report names a branch.
+        value: ${{ jobs.report.outputs.found }}
+
+jobs:
+  report:
+    name: Report a branch with no pull request
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      # The job checks out this repository to install the command.
+      contents: read
+      # The job opens, comments on, and closes the tracking issue.
+      issues: write
+      # The command reads the open and closed pull requests.
+      pull-requests: read
+    outputs:
+      found: ${{ steps.report.outputs.found }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Check out the shared tooling
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .misthelper-devtools
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install the shared tooling
+        shell: bash
+        run: python -m pip install --disable-pip-version-check ./.misthelper-devtools
+
+      - name: Build the report
+        id: report
+        shell: bash
+        env:
+          MIN_AGE_DAYS: ${{ inputs.min-age-days }}
+          BASE_BRANCH: ${{ inputs.base-branch }}
+        run: |
+          set -euo pipefail
+          base="${BASE_BRANCH}"
+          if [ -z "${base}" ]; then
+            base="$(gh api "repos/${GH_REPO}" --jq .default_branch)"
+          fi
+          echo "Reporting the branches of ${GH_REPO} against ${base}."
+          stranded-branch-report --repository "${GH_REPO}" --base-branch "${base}" \
+            --min-age-days "${MIN_AGE_DAYS}" > report.md
+          # A table row starts with a branch name in backticks.
+          if grep -q '^| `' report.md; then
+            echo "found=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "found=false" >> "${GITHUB_OUTPUT}"
+          fi
+          cat report.md >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Open, update, or close the tracking issue
+        shell: bash
+        env:
+          FOUND: ${{ steps.report.outputs.found }}
+          TITLE: ${{ inputs.issue-title }}
+          LABELS: ${{ inputs.labels }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          set -euo pipefail
+
+          # Run a command that changes the repository. A dry run logs the
+          # command and skips it.
+          change() {
+            if [ "${DRY_RUN}" = "true" ]; then
+              printf 'Dry run. Skipped:'
+              printf ' %q' "$@"
+              printf '\n'
+              return 0
+            fi
+            "$@"
+          }
+
+          # Reuse one open issue, so a weekly run never opens a second copy.
+          # The jq filter reads the title from the environment, so a quote in
+          # the title cannot break the filter.
+          number="$(gh issue list --state open --search "${TITLE} in:title" --limit 100 \
+            --json number,title --jq 'map(select(.title == env.TITLE)) | .[0].number // empty')"
+
+          if [ "${FOUND}" = "true" ]; then
+            if [ -n "${number}" ]; then
+              echo "Adding the report to issue #${number}."
+              change gh issue comment "${number}" --body-file report.md
+            else
+              label_args=()
+              IFS=',' read -r -a names <<< "${LABELS}"
+              for name in "${names[@]}"; do
+                name="$(printf '%s' "${name}" | xargs)"
+                if [ -n "${name}" ]; then
+                  # A label that exists already returns an error. That is normal.
+                  change gh label create "${name}" 2> /dev/null || true
+                  label_args+=(--label "${name}")
+                fi
+              done
+              echo "Opening the tracking issue."
+              change gh issue create --title "${TITLE}" --body-file report.md "${label_args[@]}"
+            fi
+          elif [ -n "${number}" ]; then
+            echo "Closing issue #${number}, because a pull request holds every branch."
+            change gh issue close "${number}" \
+              --comment "Every branch with work above the base branch now has a pull request that holds its head."
+          else
+            echo "No branch needs a pull request, and no tracking issue is open."
+          fi
