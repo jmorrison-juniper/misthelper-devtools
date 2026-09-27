@@ -326,8 +326,8 @@ class EdgeCaseApplicabilityInferer:
     def _domain_from_default(self, default: ast.expr | None) -> EdgeCaseDomain:
         if default is None:  # No default gives no domain proof.
             return EdgeCaseDomain()  # Keep the signature outside scope unless another signal exists.
-        numeric = isinstance(default, ast.Constant) and isinstance(default.value, int | float)  # Numeric default.
-        numeric = numeric and not isinstance(default.value, bool)  # Boolean defaults are categorical switches.
+        value = default.value if isinstance(default, ast.Constant) else None  # Constants expose primitive defaults.
+        numeric = isinstance(value, int | float) and not isinstance(value, bool)  # Boolean defaults are switches.
         collection = isinstance(default, ast.List | ast.Dict | ast.Tuple | ast.Set)  # Container default.
         optional = isinstance(default, ast.Constant) and default.value is None  # None default marks optional input.
         return EdgeCaseDomain(numeric=numeric, collection=collection, optional=optional)  # Return default domains.

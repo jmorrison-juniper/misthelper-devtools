@@ -179,7 +179,7 @@ def _extract_msg_and_args(  # Convert a libcst Call into (msg, args) for LogReco
         _eval_simple(a.value, inputs) for a in call.args[1:] if a.keyword is None
     )
     if isinstance(msg_arg, cst.SimpleString):  # Already-lazy form: plain string literal.
-        return (msg_arg.evaluated_value, extra_args)  # Use libcst's evaluated_value helper.
+        return (_simple_string_text(msg_arg), extra_args)  # Use libcst's evaluated_value helper.
     if isinstance(msg_arg, cst.ConcatenatedString):  # Adjacent implicit string concatenation.
         return (_render_concatenated_string(msg_arg, inputs), extra_args)  # Render joined parts.
     if isinstance(msg_arg, cst.FormattedString):  # Eager f-string: render with inputs.
@@ -200,13 +200,21 @@ def _render_concatenated_string(node: cst.ConcatenatedString, inputs: dict[str, 
 def _render_string_like(node: cst.BaseExpression, inputs: dict[str, Any]) -> str:
     """Render any string-typed expression (Simple, Formatted, Concatenated)."""
     if isinstance(node, cst.SimpleString):  # Plain literal.
-        return node.evaluated_value  # libcst already parsed the literal value.
+        return _simple_string_text(node)  # libcst already parsed the literal value.
     if isinstance(node, cst.FormattedString):  # Nested f-string.
         return _render_fstring(node, inputs)  # Reuse the f-string renderer.
     if isinstance(node, cst.ConcatenatedString):  # Recursive: a "b" "c" "d" chains.
         return _render_concatenated_string(node, inputs)  # Reuse this function recursively.
     msg = f"unsupported string-like node: {type(node).__name__}"  # Diagnostic message.
     raise ValueError(msg)  # Forces operator to extend support before silent miscompare.
+
+
+def _simple_string_text(node: cst.SimpleString) -> str:
+    """Return a text string literal value, rejecting bytes literals."""
+    value = node.evaluated_value  # libcst returns str for text literals and bytes for bytes literals.
+    if isinstance(value, bytes):  # Logging message baselines must be text, not byte strings.
+        raise ValueError("bytes string logging messages are unsupported")
+    return value  # Text string literal value.
 
 
 def _render_fstring(node: cst.FormattedString, inputs: dict[str, Any]) -> str:

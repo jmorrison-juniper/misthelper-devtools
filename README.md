@@ -220,7 +220,7 @@ never repairs them.
 ```powershell
 python -m ruff check .
 python -m black --check .
-python -m mypy -p misthelper_devtools.juniper_skills --config-file pyproject.toml
+python -m mypy -p misthelper_devtools --config-file pyproject.toml
 python -m pytest
 ste-linter --min-score 80 README.md documentation/ASD-STE100_writing-guide.md documentation/mist-repository-tooling-inventory.md
 actionlint

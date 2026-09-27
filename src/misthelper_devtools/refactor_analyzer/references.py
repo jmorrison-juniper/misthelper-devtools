@@ -129,7 +129,7 @@ class _NameCollector(ast.NodeVisitor):
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
         """Root-name attribute chains (e.g. Manager.method) count as one reference."""
-        root = node  # Walk to the leftmost Name to find the chain root.
+        root: ast.expr = node  # Walk to the leftmost Name to find the chain root.
         while isinstance(root, ast.Attribute):  # Descend attribute nesting.
             root = root.value  # Follow the value chain leftward.
         if isinstance(root, ast.Name):  # Chain rooted at a bare name; check it.

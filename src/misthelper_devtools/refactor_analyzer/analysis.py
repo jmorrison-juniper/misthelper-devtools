@@ -199,6 +199,9 @@ class RefactorAnalyzer:
             refs = refs_by_name.get(defn.name, [])  # References found for this name.
             reference_files = self._group_refs_by_file(refs)  # For PR-per-cluster planning.
             flags = self._scan_guideline_flags(defn, nodes_by_name.get(defn.name), source_lines)  # Body flags.
+            suggested_class: str | None  # Semantic class landing target, when a move is suggested.
+            suggested_module: str | None  # File-level landing target, when a move is suggested.
+            rationale: str | None  # Human-readable move reason, absent for hot/unused cases.
             if defn.name in self._skip_names:  # Curated bootstrap pin overrides normal categorization.
                 category = CATEGORY_SKIPPED  # Force the skipped bucket regardless of reference count.
                 suggested_class = None  # No landing target; the symbol stays put.

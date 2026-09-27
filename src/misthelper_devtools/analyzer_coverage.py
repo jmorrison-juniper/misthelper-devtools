@@ -3,6 +3,7 @@
 from __future__ import annotations  # Keep annotations light for command-line tools.
 
 import logging  # Record analyzer coverage actions for operators.
+from collections.abc import Iterable  # Iterable input for deterministic sorting helper.
 from dataclasses import dataclass, field  # Define small immutable and mutable records.
 from pathlib import Path, PurePosixPath  # Normalize paths without hardcoded separators.
 
@@ -79,7 +80,7 @@ class AnalyzerCoverageTracker:
         return AnalyzerCoverageSummary(self.analyzer, read_files, skipped_files, self.complete)  # Freeze the view.
 
     @staticmethod
-    def _sorted(records: object) -> list[AnalyzerCoverageRecord]:
+    def _sorted(records: Iterable[AnalyzerCoverageRecord]) -> list[AnalyzerCoverageRecord]:
         """Return coverage records sorted by path and reason."""
         return sorted(records, key=lambda record: (record.path, record.reason))  # Stable report order.
 

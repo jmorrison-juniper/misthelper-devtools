@@ -98,7 +98,9 @@ class GuardProofAuditor:
             return GuardProofReport((finding,), (), 0, 0)  # Block merge because scope is unknown.
         findings = tuple(self._analyzer_scope_findings(payload))  # Convert zero-scope metrics to findings.
         logger.debug("Analyzer scope audit found %d finding(s)", len(findings))  # Summarize analyzer scope.
-        return GuardProofReport(findings, (), 0, len(payload.get("detector_metrics", {})))  # Return scope result.
+        metrics = payload.get("detector_metrics", {})  # ReportBuilder writes a dict of detector counts.
+        metric_count = len(metrics) if isinstance(metrics, Mapping) else 0  # Invalid payloads count as no metrics.
+        return GuardProofReport(findings, (), 0, metric_count)  # Return scope result.
 
     def _load_analyzer_payload(self, report_path: Path) -> Mapping[str, object] | None:
         """Return analyzer report JSON, or None when the required input is invalid."""
