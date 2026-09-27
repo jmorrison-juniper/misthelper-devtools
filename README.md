@@ -83,14 +83,14 @@ radon cc . -j | complexity-gate --max 15
 check-citations src tests
 ```
 
-## Upgrade from release 0.3.0
+## Upgrade from release 0.3.0 to release 0.4.0
 
 Release 0.3.0 installed two top-level packages with generic names, `tools` and
 `src`. A consumer repository with its own `src` package could import the wrong
 code. Every module is now inside `misthelper_devtools`. Change each import and
 each `python -m` command of a consumer.
 
-| Release 0.3.0 | Now |
+| Release 0.3.0 | Release 0.4.0 |
 | - | - |
 | `from tools.ste_linter.cli import LinterCLI` | `from misthelper_devtools.ste_linter.cli import LinterCLI` |
 | `python -m tools.check_citations src tests` | `check-citations src tests` |
@@ -145,7 +145,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-container-image.yml@<commit-sha> # v0.3.0
+    uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-container-image.yml@<commit-sha> # v0.4.0
 ```
 
 To upgrade a consumer, read the release notes, then change the SHA and the
