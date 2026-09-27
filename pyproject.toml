@@ -22,6 +22,9 @@ dependencies = [
 # the standard-library backend when spaCy or its model is absent, so this group
 # stays optional.
 grammar = ["spacy>=3.7"]
+# The full STE linter group, as in MistHelper. The dictionary extractor reads
+# the licensed ASD-STE100 PDF with pdfplumber.
+ste-linter = ["spacy>=3.7", "pdfplumber>=0.11"]
 dev = [
     "black>=24.0",
     "hypothesis>=6.100",

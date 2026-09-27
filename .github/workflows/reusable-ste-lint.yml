@@ -1,0 +1,142 @@
+# ================================================================
+# STE lint -- grade documentation against the Simplified Technical English rules
+# ================================================================
+# The job grades each file with the ste-linter command of this repository. The
+# job fails when a file scores below the threshold. The report goes to the run
+# log and to the job summary.
+#
+# The caller workflow:
+#
+#   on:
+#     pull_request:
+#       paths:
+#         - 'documentation/**/*.md'
+#         - '.ste-linter.toml'
+#         - '.github/workflows/ste-lint.yml'
+#     workflow_dispatch:
+#   permissions: {}
+#   jobs:
+#     ste-lint:
+#       permissions:
+#         contents: read
+#       uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-ste-lint.yml@<commit>
+#       with:
+#         files: documentation/ASD-STE100_writing-guide.md
+#         config: .ste-linter.toml
+#
+# The job checks out this repository at the commit that the caller pins, so
+# the linter and the workflow come from the same commit. The ASD-STE100
+# dictionary is copyrighted, so the job has no dictionary. The linter then
+# runs the structural checks only.
+# ================================================================
+name: STE lint (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      files:
+        description: The Markdown or Python files to grade. Separate the entries with spaces or new lines. An entry can be a bash glob, and ** matches each directory level.
+        required: true
+        type: string
+      config:
+        description: The TOML file with the [tool.ste_linter] table. An empty value reads pyproject.toml when it exists.
+        required: false
+        default: ''
+        type: string
+      min-score:
+        description: The pass threshold for each file, from 0 to 100.
+        required: false
+        default: 80
+        type: number
+      python-version:
+        description: The Python version that runs the linter.
+        required: false
+        default: '3.13'
+        type: string
+
+jobs:
+  ste-lint:
+    name: STE compliance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # The job reads the caller files and this repository.
+      contents: read
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check out the shared tooling
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .misthelper-devtools
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install the shared tooling
+        shell: bash
+        run: python -m pip install --disable-pip-version-check ./.misthelper-devtools
+
+      - name: Grade the files
+        shell: bash
+        env:
+          FILES: ${{ inputs.files }}
+          CONFIG: ${{ inputs.config }}
+          MIN_SCORE: ${{ inputs.min-score }}
+        run: |
+          set -euo pipefail
+          # A pattern that matches no file must not reach the linter as text.
+          shopt -s globstar nullglob
+
+          args=(--min-score "${MIN_SCORE}")
+          if [ -n "${CONFIG}" ]; then
+            if [ ! -f "${CONFIG}" ]; then
+              echo "::error::The config file '${CONFIG}' does not exist."
+              exit 1
+            fi
+            args+=(--config "${CONFIG}")
+          fi
+
+          read -r -d '' -a patterns <<< "${FILES}" || true
+          targets=()
+          for pattern in "${patterns[@]}"; do
+            # The unquoted pattern expands the glob.
+            # shellcheck disable=SC2206
+            matches=(${pattern})
+            if [ "${#matches[@]}" -eq 0 ]; then
+              echo "::error::The entry '${pattern}' matches no file."
+              exit 1
+            fi
+            targets+=("${matches[@]}")
+          done
+          if [ "${#targets[@]}" -eq 0 ]; then
+            echo "::error::The files input names no file."
+            exit 1
+          fi
+
+          echo "Grading ${#targets[@]} file(s) with a threshold of ${MIN_SCORE}."
+          status=0
+          ste-linter "${args[@]}" "${targets[@]}" | tee "${RUNNER_TEMP}/ste-report.txt" || status=$?
+
+          {
+            echo "## STE lint"
+            echo ""
+            echo '```text'
+            cat "${RUNNER_TEMP}/ste-report.txt"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          if [ "${status}" -ne 0 ]; then
+            echo "::error::A file scored below ${MIN_SCORE}, or the linter failed. Read the report above."
+          fi
+          exit "${status}"
