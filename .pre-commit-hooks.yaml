@@ -2,7 +2,7 @@
 # repository in its .pre-commit-config.yaml at a release tag:
 #
 #   - repo: https://github.com/jmorrison-juniper/misthelper-devtools
-#     rev: v0.5.0
+#     rev: v0.5.1
 #     hooks:
 #       - id: ste-linter
 #         args: [--config, .ste-linter.toml, --min-score, "80"]

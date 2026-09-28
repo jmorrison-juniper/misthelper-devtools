@@ -183,6 +183,15 @@ markdown-link-check --exclude 'documentation/wiki/**'
 markdown-link-check documentation
 ```
 
+## Upgrade from release 0.5.0 to release 0.5.1
+
+Release 0.5.1 repairs one defect in `markdown-link-check` and in the
+`MarkdownLinkChecker` class. Release 0.5.0 reported each link that starts with
+`/` as a missing file, also when the file is present. GitHub starts such a link
+at the repository root, and release 0.5.1 does the same. No other command,
+workflow, action, or hook changes. Change the SHA of each pin and the release
+comment together.
+
 ## Upgrade from release 0.4.0 to release 0.5.0
 
 Release 0.5.0 changes no command of release 0.4.0. It adds commands, workflows,
@@ -262,7 +271,7 @@ the repository. To use these hooks, add this repository to
 ```yaml
 repos:
   - repo: https://github.com/jmorrison-juniper/misthelper-devtools
-    rev: v0.5.0
+    rev: v0.5.1
     hooks:
       - id: ste-linter
         args: [--config, .ste-linter.toml, --min-score, "80"]
@@ -298,7 +307,7 @@ job name and check name:
 ```yaml
 steps:
   - uses: actions/checkout@v7
-  - uses: jmorrison-juniper/misthelper-devtools/.github/actions/mermaid-lint@<commit-sha> # v0.5.0
+  - uses: jmorrison-juniper/misthelper-devtools/.github/actions/mermaid-lint@<commit-sha> # v0.5.1
     with:
       docs-dir: documentation
       extra-files: README.md
@@ -326,7 +335,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-container-image.yml@<commit-sha> # v0.5.0
+    uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-container-image.yml@<commit-sha> # v0.5.1
 ```
 
 To upgrade a consumer, read the release notes, then change the SHA and the
