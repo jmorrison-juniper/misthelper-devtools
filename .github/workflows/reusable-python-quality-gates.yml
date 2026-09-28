@@ -1,0 +1,874 @@
+# ================================================================
+# Python quality gates -- one job for each gate that the caller turns on
+# ================================================================
+# Each gate is one job. A gate runs only when the caller sets its input to
+# true. Each job checks out the caller, runs the install command, and runs the
+# tool. The tools come from the install command, so the caller pins each tool,
+# for example in requirements-dev.txt. The radon gate also installs the
+# complexity-gate command from this repository.
+#
+# The caller workflow:
+#
+#   on:
+#     pull_request:
+#       branches: [main]
+#     push:
+#       branches: [main]
+#     workflow_dispatch:
+#   permissions:
+#     contents: read
+#   jobs:
+#     gates:
+#       permissions:
+#         contents: read
+#       uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-python-quality-gates.yml@<commit>
+#       with:
+#         ruff: true
+#         black: true
+#         pytest: true
+#         pytest-args: --cov=src --cov-fail-under=90
+#     quality-gate-issues:
+#       needs: gates
+#       if: ${{ always() }}
+#       permissions:
+#         issues: write
+#         pull-requests: read
+#       uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-quality-gate-issues.yml@<commit>
+#       with:
+#         results: ${{ needs.gates.outputs.results }}
+#
+# Each check name has two parts: the caller job and the gate job. In the
+# example, the ruff check is "gates / Ruff (lint)". The "Gate results" job
+# fails when a gate fails, so branch protection can require that one check.
+#
+# The job splits each args value at the spaces. It does not read quotes, and
+# it does not expand a glob, so an argument cannot hold a space. The results
+# output holds the result of each gate that ran. The gate issues workflow reads
+# that output, and it uses the job ID, for example pip_audit, in the issue
+# title.
+# ================================================================
+name: Python quality gates (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: The Python version of each gate job.
+        required: false
+        default: '3.13'
+        type: string
+      install:
+        description: The shell command that installs the project and the tools of each gate that is on.
+        required: false
+        default: python -m pip install -r requirements-dev.txt
+        type: string
+      working-directory:
+        description: The directory, relative to the repository root, where each command runs.
+        required: false
+        default: '.'
+        type: string
+      pip-cache:
+        description: Cache the pip downloads with actions/setup-python.
+        required: false
+        default: true
+        type: boolean
+      cache-dependency-path:
+        description: The files, relative to the repository root, that make the pip cache key. An empty value uses the default of actions/setup-python, a requirements.txt or pyproject.toml file.
+        required: false
+        default: ''
+        type: string
+      timeout-minutes:
+        description: The time limit of each gate job.
+        required: false
+        default: 15
+        type: number
+      ruff:
+        description: Run ruff check.
+        required: false
+        default: false
+        type: boolean
+      ruff-args:
+        description: The arguments after ruff check.
+        required: false
+        default: '.'
+        type: string
+      ruff-format:
+        description: Run ruff format --check.
+        required: false
+        default: false
+        type: boolean
+      ruff-format-args:
+        description: The arguments after ruff format --check.
+        required: false
+        default: '.'
+        type: string
+      black:
+        description: Run black --check.
+        required: false
+        default: false
+        type: boolean
+      black-args:
+        description: The arguments after black --check.
+        required: false
+        default: '.'
+        type: string
+      mypy:
+        description: Run mypy.
+        required: false
+        default: false
+        type: boolean
+      mypy-args:
+        description: The arguments after mypy.
+        required: false
+        default: '.'
+        type: string
+      pytest:
+        description: Run python -m pytest.
+        required: false
+        default: false
+        type: boolean
+      pytest-args:
+        description: The arguments after python -m pytest, for example the coverage options.
+        required: false
+        default: ''
+        type: string
+      bandit:
+        description: Run bandit.
+        required: false
+        default: false
+        type: boolean
+      bandit-args:
+        description: The arguments after bandit.
+        required: false
+        default: -r . -ll
+        type: string
+      pip-audit:
+        description: Run pip-audit.
+        required: false
+        default: false
+        type: boolean
+      pip-audit-args:
+        description: The arguments after pip-audit.
+        required: false
+        default: -r requirements.txt
+        type: string
+      pylint:
+        description: Run pylint.
+        required: false
+        default: false
+        type: boolean
+      pylint-args:
+        description: The arguments after pylint, for example --fail-under=9.5.
+        required: false
+        default: --recursive=y .
+        type: string
+      radon:
+        description: Run radon cc, and fail when a block is more complex than radon-max.
+        required: false
+        default: false
+        type: boolean
+      radon-args:
+        description: The paths and options after radon cc, for example --exclude with a list of globs.
+        required: false
+        default: '.'
+        type: string
+      radon-max:
+        description: The highest cyclomatic complexity that passes.
+        required: false
+        default: 15
+        type: number
+      vulture:
+        description: Run vulture.
+        required: false
+        default: false
+        type: boolean
+      vulture-args:
+        description: The arguments after vulture.
+        required: false
+        default: . --min-confidence 90
+        type: string
+      pydocstyle:
+        description: Run pydocstyle.
+        required: false
+        default: false
+        type: boolean
+      pydocstyle-args:
+        description: The arguments after pydocstyle.
+        required: false
+        default: '.'
+        type: string
+      interrogate:
+        description: Run interrogate.
+        required: false
+        default: false
+        type: boolean
+      interrogate-args:
+        description: The arguments after interrogate.
+        required: false
+        default: -v .
+        type: string
+      pydoclint:
+        description: Run pydoclint.
+        required: false
+        default: false
+        type: boolean
+      pydoclint-args:
+        description: The arguments after pydoclint.
+        required: false
+        default: '.'
+        type: string
+    outputs:
+      results:
+        description: The result of each gate that ran, as JSON. Pass it to reusable-quality-gate-issues.yml.
+        value: ${{ jobs.gate-results.outputs.results }}
+
+jobs:
+  ruff:
+    name: Ruff (lint)
+    if: ${{ inputs.ruff }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: ${{ inputs.pip-cache && 'pip' || '' }}
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+      - name: Install the project and the tools
+        env:
+          INSTALL: ${{ inputs.install }}
+        run: eval "${INSTALL}"
+
+      - name: Run ruff check
+        env:
+          ARGS: ${{ inputs.ruff-args }}
+        run: |
+          set -euo pipefail
+          if ! command -v ruff > /dev/null; then
+            echo "::error::The install command did not install ruff. Add a ruff pin to the install command, for example in requirements-dev.txt."
+            exit 1
+          fi
+          read -r -a args <<< "${ARGS}"
+          echo "ruff check ${args[*]}"
+          ruff check "${args[@]}"
+
+  ruff_format:
+    name: Ruff (format check)
+    if: ${{ inputs.ruff-format }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: ${{ inputs.pip-cache && 'pip' || '' }}
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+      - name: Install the project and the tools
+        env:
+          INSTALL: ${{ inputs.install }}
+        run: eval "${INSTALL}"
+
+      - name: Run ruff format --check
+        env:
+          ARGS: ${{ inputs.ruff-format-args }}
+        run: |
+          set -euo pipefail
+          if ! command -v ruff > /dev/null; then
+            echo "::error::The install command did not install ruff. Add a ruff pin to the install command, for example in requirements-dev.txt."
+            exit 1
+          fi
+          read -r -a args <<< "${ARGS}"
+          echo "ruff format --check ${args[*]}"
+          ruff format --check "${args[@]}"
+
+  black:
+    name: Black (format check)
+    if: ${{ inputs.black }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: ${{ inputs.pip-cache && 'pip' || '' }}
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+      - name: Install the project and the tools
+        env:
+          INSTALL: ${{ inputs.install }}
+        run: eval "${INSTALL}"
+
+      - name: Run black --check
+        env:
+          ARGS: ${{ inputs.black-args }}
+        run: |
+          set -euo pipefail
+          if ! command -v black > /dev/null; then
+            echo "::error::The install command did not install black. Add a black pin to the install command, for example in requirements-dev.txt."
+            exit 1
+          fi
+          read -r -a args <<< "${ARGS}"
+          echo "black --check ${args[*]}"
+          black --check "${args[@]}"
+
+  mypy:
+    name: mypy (types)
+    if: ${{ inputs.mypy }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: ${{ inputs.pip-cache && 'pip' || '' }}
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+      - name: Install the project and the tools
+        env:
+          INSTALL: ${{ inputs.install }}
+        run: eval "${INSTALL}"
+
+      - name: Run mypy
+        env:
+          ARGS: ${{ inputs.mypy-args }}
+        run: |
+          set -euo pipefail
+          if ! command -v mypy > /dev/null; then
+            echo "::error::The install command did not install mypy. Add a mypy pin to the install command, for example in requirements-dev.txt."
+            exit 1
+          fi
+          read -r -a args <<< "${ARGS}"
+          echo "mypy ${args[*]}"
+          mypy "${args[@]}"
+
+  pytest:
+    name: pytest (tests)
+    if: ${{ inputs.pytest }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: ${{ inputs.pip-cache && 'pip' || '' }}
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+      - name: Install the project and the tools
+        env:
+          INSTALL: ${{ inputs.install }}
+        run: eval "${INSTALL}"
+
+      - name: Run pytest
+        env:
+          ARGS: ${{ inputs.pytest-args }}
+        run: |
+          set -euo pipefail
+          if ! python -c "import pytest" 2> /dev/null; then
+            echo "::error::The install command did not install pytest. Add a pytest pin to the install command, for example in requirements-dev.txt."
+            exit 1
+          fi
+          read -r -a args <<< "${ARGS}"
+          echo "python -m pytest ${args[*]}"
+          python -m pytest "${args[@]}"
+
+  bandit:
+    name: Bandit (security)
+    if: ${{ inputs.bandit }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: ${{ inputs.pip-cache && 'pip' || '' }}
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+      - name: Install the project and the tools
+        env:
+          INSTALL: ${{ inputs.install }}
+        run: eval "${INSTALL}"
+
+      - name: Run bandit
+        env:
+          ARGS: ${{ inputs.bandit-args }}
+        run: |
+          set -euo pipefail
+          if ! command -v bandit > /dev/null; then
+            echo "::error::The install command did not install bandit. Add a bandit pin to the install command, for example in requirements-dev.txt."
+            exit 1
+          fi
+          read -r -a args <<< "${ARGS}"
+          echo "bandit ${args[*]}"
+          bandit "${args[@]}"
+
+  pip_audit:
+    name: pip-audit (CVE scan)
+    if: ${{ inputs.pip-audit }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: ${{ inputs.pip-cache && 'pip' || '' }}
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+      - name: Install the project and the tools
+        env:
+          INSTALL: ${{ inputs.install }}
+        run: eval "${INSTALL}"
+
+      - name: Run pip-audit
+        env:
+          ARGS: ${{ inputs.pip-audit-args }}
+        run: |
+          set -euo pipefail
+          if ! command -v pip-audit > /dev/null; then
+            echo "::error::The install command did not install pip-audit. Add a pip-audit pin to the install command, for example in requirements-dev.txt."
+            exit 1
+          fi
+          read -r -a args <<< "${ARGS}"
+          echo "pip-audit ${args[*]}"
+          pip-audit "${args[@]}"
+
+  pylint:
+    name: Pylint (score gate)
+    if: ${{ inputs.pylint }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: ${{ inputs.pip-cache && 'pip' || '' }}
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+      - name: Install the project and the tools
+        env:
+          INSTALL: ${{ inputs.install }}
+        run: eval "${INSTALL}"
+
+      - name: Run pylint
+        env:
+          ARGS: ${{ inputs.pylint-args }}
+        run: |
+          set -euo pipefail
+          if ! command -v pylint > /dev/null; then
+            echo "::error::The install command did not install pylint. Add a pylint pin to the install command, for example in requirements-dev.txt."
+            exit 1
+          fi
+          read -r -a args <<< "${ARGS}"
+          echo "pylint ${args[*]}"
+          pylint "${args[@]}"
+
+  radon:
+    name: Radon (complexity)
+    if: ${{ inputs.radon }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check out the shared tooling
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .misthelper-devtools
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: ${{ inputs.pip-cache && 'pip' || '' }}
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+      - name: Install the project and the tools
+        env:
+          INSTALL: ${{ inputs.install }}
+        run: eval "${INSTALL}"
+
+      # The command comes from the commit of this workflow, so the gate and the
+      # command always come from the same release.
+      - name: Install complexity-gate
+        run: python -m pip install --disable-pip-version-check "${GITHUB_WORKSPACE}/.misthelper-devtools"
+
+      - name: Check the cyclomatic complexity
+        env:
+          ARGS: ${{ inputs.radon-args }}
+          MAX_COMPLEXITY: ${{ inputs.radon-max }}
+        run: |
+          set -euo pipefail
+          if ! command -v radon > /dev/null; then
+            echo "::error::The install command did not install radon. Add a radon pin to the install command, for example in requirements-dev.txt."
+            exit 1
+          fi
+          read -r -a args <<< "${ARGS}"
+          echo "radon cc ${args[*]} -a -nb"
+          radon cc "${args[@]}" -a -nb
+          echo "radon cc ${args[*]} -j | complexity-gate --max ${MAX_COMPLEXITY}"
+          radon cc "${args[@]}" -j | complexity-gate --max "${MAX_COMPLEXITY}"
+
+  vulture:
+    name: Vulture (dead code)
+    if: ${{ inputs.vulture }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: ${{ inputs.pip-cache && 'pip' || '' }}
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+      - name: Install the project and the tools
+        env:
+          INSTALL: ${{ inputs.install }}
+        run: eval "${INSTALL}"
+
+      - name: Run vulture
+        env:
+          ARGS: ${{ inputs.vulture-args }}
+        run: |
+          set -euo pipefail
+          if ! command -v vulture > /dev/null; then
+            echo "::error::The install command did not install vulture. Add a vulture pin to the install command, for example in requirements-dev.txt."
+            exit 1
+          fi
+          read -r -a args <<< "${ARGS}"
+          echo "vulture ${args[*]}"
+          vulture "${args[@]}"
+
+  pydocstyle:
+    name: pydocstyle (docstring style)
+    if: ${{ inputs.pydocstyle }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: ${{ inputs.pip-cache && 'pip' || '' }}
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+      - name: Install the project and the tools
+        env:
+          INSTALL: ${{ inputs.install }}
+        run: eval "${INSTALL}"
+
+      - name: Run pydocstyle
+        env:
+          ARGS: ${{ inputs.pydocstyle-args }}
+        run: |
+          set -euo pipefail
+          if ! command -v pydocstyle > /dev/null; then
+            echo "::error::The install command did not install pydocstyle. Add a pydocstyle pin to the install command, for example in requirements-dev.txt."
+            exit 1
+          fi
+          read -r -a args <<< "${ARGS}"
+          echo "pydocstyle ${args[*]}"
+          pydocstyle "${args[@]}"
+
+  interrogate:
+    name: Interrogate (docstring coverage)
+    if: ${{ inputs.interrogate }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: ${{ inputs.pip-cache && 'pip' || '' }}
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+      - name: Install the project and the tools
+        env:
+          INSTALL: ${{ inputs.install }}
+        run: eval "${INSTALL}"
+
+      - name: Run interrogate
+        env:
+          ARGS: ${{ inputs.interrogate-args }}
+        run: |
+          set -euo pipefail
+          if ! command -v interrogate > /dev/null; then
+            echo "::error::The install command did not install interrogate. Add an interrogate pin to the install command, for example in requirements-dev.txt."
+            exit 1
+          fi
+          read -r -a args <<< "${ARGS}"
+          echo "interrogate ${args[*]}"
+          interrogate "${args[@]}"
+
+  pydoclint:
+    name: Pydoclint (docstring quality)
+    if: ${{ inputs.pydoclint }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: ${{ inputs.pip-cache && 'pip' || '' }}
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+      - name: Install the project and the tools
+        env:
+          INSTALL: ${{ inputs.install }}
+        run: eval "${INSTALL}"
+
+      - name: Run pydoclint
+        env:
+          ARGS: ${{ inputs.pydoclint-args }}
+        run: |
+          set -euo pipefail
+          if ! command -v pydoclint > /dev/null; then
+            echo "::error::The install command did not install pydoclint. Add a pydoclint pin to the install command, for example in requirements-dev.txt."
+            exit 1
+          fi
+          read -r -a args <<< "${ARGS}"
+          echo "pydoclint ${args[*]}"
+          pydoclint "${args[@]}"
+
+  # The job always runs, so the caller gets the results output after a failed
+  # gate. It fails when a gate fails, so one required check covers each gate.
+  gate-results:
+    name: Gate results
+    needs:
+      - ruff
+      - ruff_format
+      - black
+      - mypy
+      - pytest
+      - bandit
+      - pip_audit
+      - pylint
+      - radon
+      - vulture
+      - pydocstyle
+      - interrogate
+      - pydoclint
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    outputs:
+      results: ${{ steps.collect.outputs.results }}
+    steps:
+      # A gate that is off has the skipped result. The output drops it, so the
+      # gate issues workflow reads only the gates that ran.
+      - name: Collect the result of each gate
+        id: collect
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          results="$(jq -c 'with_entries(select(.value.result != "skipped"))' <<< "${NEEDS}")"
+          echo "results=${results}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "## Python quality gates"
+            echo ""
+            echo "| Gate | Result |"
+            echo "| - | - |"
+            # The backticks are Markdown code marks, not command substitution.
+            # shellcheck disable=SC2016
+            jq -r 'to_entries[] | "| `\(.key)` | \(.value.result) |"' <<< "${results}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Report the combined result
+        env:
+          RESULTS: ${{ steps.collect.outputs.results }}
+        run: |
+          set -euo pipefail
+          if [ "$(jq 'length' <<< "${RESULTS}")" -eq 0 ]; then
+            echo "::error::No gate is on. Set at least one gate input, for example ruff, to true."
+            exit 1
+          fi
+          jq -r 'to_entries[] | "Gate \(.key): \(.value.result)"' <<< "${RESULTS}"
+          failed="$(jq -r '[to_entries[] | select(.value.result != "success") | .key] | join(" ")' <<< "${RESULTS}")"
+          if [ -n "${failed}" ]; then
+            echo "::error::These gates did not pass: ${failed}. Read the job list above."
+            exit 1
+          fi
+          echo "Every gate passed."

@@ -11,6 +11,7 @@ on:
       - '.github/workflows/reusable-*.yml'
       - '.github/workflows/self-test.yml'
       - 'tests/fixtures/container/**'
+      - 'tests/fixtures/python-gates/**'
       - 'src/misthelper_devtools/stranded_branch_report.py'
   push:
     branches: [main]
@@ -18,6 +19,7 @@ on:
       - '.github/workflows/reusable-*.yml'
       - '.github/workflows/self-test.yml'
       - 'tests/fixtures/container/**'
+      - 'tests/fixtures/python-gates/**'
       - 'src/misthelper_devtools/stranded_branch_report.py'
   workflow_dispatch:
 
@@ -92,6 +94,71 @@ jobs:
       dry-run: true
       fail-on-error: true
 
+  # The sample project passes each gate, so each gate job runs and passes.
+  python-quality-gates:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reusable-python-quality-gates.yml
+    with:
+      working-directory: tests/fixtures/python-gates
+      install: python -m pip install --disable-pip-version-check -r requirements-dev.txt
+      cache-dependency-path: tests/fixtures/python-gates/requirements-dev.txt
+      ruff: true
+      ruff-format: true
+      black: true
+      mypy: true
+      pytest: true
+      pytest-args: --cov=sample_gates --cov-fail-under=100
+      bandit: true
+      pip-audit: true
+      pylint: true
+      radon: true
+      radon-max: 10
+      vulture: true
+      pydocstyle: true
+      interrogate: true
+      pydoclint: true
+
+  check-python-quality-gates:
+    name: Check the Python quality gate results
+    needs: python-quality-gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    env:
+      RESULTS: ${{ needs.python-quality-gates.outputs.results }}
+    steps:
+      - name: Check that each gate ran and passed
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Results: ${RESULTS}"
+          expected="bandit black interrogate mypy pip_audit pydoclint pydocstyle pylint pytest radon ruff ruff_format vulture"
+          actual="$(jq -r 'keys | join(" ")' <<< "${RESULTS}")"
+          if [ "${actual}" != "${expected}" ]; then
+            echo "::error::The results name the gates '${actual}'. The expected gates are '${expected}'."
+            exit 1
+          fi
+          failed="$(jq -r '[to_entries[] | select(.value.result != "success") | .key] | join(" ")' <<< "${RESULTS}")"
+          if [ -n "${failed}" ]; then
+            echo "::error::These gates did not pass: ${failed}."
+            exit 1
+          fi
+          echo "The Python quality gate results are correct."
+
+  # The gate issues workflow reads the results output of the gate workflow.
+  python-quality-gate-issues:
+    needs: python-quality-gates
+    if: ${{ always() }}
+    permissions:
+      issues: write
+      pull-requests: read
+    uses: ./.github/workflows/reusable-quality-gate-issues.yml
+    with:
+      results: ${{ needs.python-quality-gates.outputs.results }}
+      scope: all
+      dry-run: true
+      fail-on-error: true
   close-linked-issues:
     permissions:
       issues: write
