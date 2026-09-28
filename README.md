@@ -364,9 +364,15 @@ workflow writes a notice on that pull request.
 
 Note: a dispatch call does not use the `paths` filter of the workflow that it
 starts. The auto-merge workflow runs after each merge and on a schedule. Each
-run starts each workflow in `main-workflows` whose newest run is not on the tip
-of the default branch. Thus a merge that changes only the documentation can
-start a container build that its `paths` filter skipped.
+run starts a workflow in `main-workflows` when no run of that workflow exists on
+the tip of the default branch. Thus a merge that changes only the documentation
+can start a container build that its `paths` filter skipped.
+
+Note: the run list of GitHub can answer from old data for about a minute at a
+time. An old answer started duplicate runs, so the dispatch job looks for a run
+on the tip commit itself. The job checks 5 times, 20 seconds apart, before it
+starts a workflow. Thus a workflow that missed the tip starts about 80 seconds
+after the merge. In each repository, only one dispatch job can run at a time.
 
 Note: `report-orphaned-push` needs a `push` trigger in the caller, for example
 `branches-ignore: [main]`. The job writes no notice when an open pull request

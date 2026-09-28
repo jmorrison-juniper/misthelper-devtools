@@ -191,8 +191,16 @@ jobs:
       && github.event.pull_request.base.ref == inputs.default-branch))
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Two merges close together start two jobs, and each job waits before it
+    # starts a workflow. A dispatch runs on the newest tip, so the two jobs
+    # would start two runs on the same commit. One job at a time checks the
+    # tip, and a later job finds the runs of the earlier job.
+    concurrency:
+      group: auto-merge-dispatch-${{ github.repository }}-${{ inputs.default-branch }}
+      cancel-in-progress: false
     permissions:
-      # A dispatch call makes a workflow run.
+      # A dispatch call makes a workflow run, and the coverage check reads the
+      # runs of each workflow.
       actions: write
       # The tip lookup reads one commit.
       contents: read
@@ -202,6 +210,11 @@ jobs:
       GH_REPO: ${{ github.repository }}
       MAIN_WORKFLOWS: ${{ inputs.main-workflows }}
       DEFAULT_BRANCH: ${{ inputs.default-branch }}
+      # The job asks this many times, with this many seconds between, before
+      # it starts a workflow that shows no run on the tip. Old answers came in
+      # bursts of about a minute, so the checks span more than a minute.
+      COVERAGE_CHECKS: '5'
+      COVERAGE_CHECK_INTERVAL: '20'
     steps:
       - name: Start each main workflow that missed the tip
         shell: bash
@@ -216,20 +229,42 @@ jobs:
           fi
           echo "The tip of ${DEFAULT_BRANCH} is ${tip}."
 
-          started=''
+          # A workflow covers the tip when it has a run on the tip commit. The
+          # newest run on the branch is not a safe test. The run list of GitHub
+          # can answer from old data, and that answer started duplicate runs.
+          # Old data cannot show a run that does not exist, so one run on the
+          # tip is proof. An answer of no run can be wrong, so the job asks
+          # again before it starts a workflow.
           current=''
-          failed=''
-          read -r -a workflows <<< "${MAIN_WORKFLOWS}"
-          for workflow in "${workflows[@]}"; do
-            # The list also holds a queued run, so a dispatch from a moment ago
-            # counts as coverage of the tip.
-            newest="$(gh run list --workflow "${workflow}" --branch "${DEFAULT_BRANCH}" --limit 1 --json headSha --jq '.[0].headSha // "none"')" || newest='unknown'
-            if [ "${newest}" = "${tip}" ]; then
-              echo "${workflow} already covers the tip."
-              current="${current}${workflow} "
-              continue
+          query="branch=${DEFAULT_BRANCH}&head_sha=${tip}&per_page=1"
+          read -r -a pending <<< "${MAIN_WORKFLOWS}"
+          check=1
+          while :; do
+            missed=()
+            for workflow in "${pending[@]}"; do
+              # The list also holds a queued run, so a dispatch from a moment
+              # ago counts as coverage of the tip.
+              runs="$(gh api "repos/${GH_REPO}/actions/workflows/${workflow}/runs?${query}" --jq '.total_count')" || runs='unknown'
+              if [[ "${runs}" =~ ^[0-9]+$ ]] && [ "${runs}" -gt 0 ]; then
+                echo "${workflow} already covers the tip."
+                current="${current}${workflow} "
+              else
+                echo "Check ${check} of ${COVERAGE_CHECKS}: ${workflow} shows no run on the tip (${runs})."
+                missed+=("${workflow}")
+              fi
+            done
+            pending=("${missed[@]}")
+            if [ "${#pending[@]}" -eq 0 ] || [ "${check}" -ge "${COVERAGE_CHECKS}" ]; then
+              break
             fi
-            echo "${workflow} reports ${newest}, so the workflow missed the tip."
+            sleep "${COVERAGE_CHECK_INTERVAL}"
+            check=$((check + 1))
+          done
+
+          started=''
+          failed=''
+          for workflow in "${pending[@]}"; do
+            echo "${workflow} showed no run on the tip in ${COVERAGE_CHECKS} checks, so the workflow missed the tip."
             # One failed call must not stop the other calls.
             if gh workflow run "${workflow}" --ref "${DEFAULT_BRANCH}"; then
               echo "Started ${workflow} on ${DEFAULT_BRANCH}."

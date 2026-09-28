@@ -201,6 +201,27 @@ class TestAutoMerge:
         assert "github.event.pull_request.merged == true" in condition
         assert "github.event_name == 'schedule'" in condition
 
+    def test_the_dispatch_job_looks_for_a_run_on_the_tip_commit(self, merge_workflow: dict[str, Any]) -> None:
+        """The newest run on the branch can come from old data, and that answer started duplicate runs."""
+        script = job_script(merge_workflow, "dispatch-main-workflows")
+        assert "head_sha=${tip}" in script
+        assert "gh run list" not in script
+
+    def test_the_dispatch_job_checks_again_for_more_than_a_minute(self, merge_workflow: dict[str, Any]) -> None:
+        """The old answers came in bursts of about a minute, so one answer of no run is not proof."""
+        job = merge_workflow["jobs"]["dispatch-main-workflows"]
+        wait = (int(job["env"]["COVERAGE_CHECKS"]) - 1) * int(job["env"]["COVERAGE_CHECK_INTERVAL"])
+        assert wait >= 60
+        # The checks must end well before the job times out.
+        assert wait <= job["timeout-minutes"] * 60 // 2
+
+    def test_one_dispatch_job_runs_at_a_time(self, merge_workflow: dict[str, Any]) -> None:
+        """Two jobs that wait at the same time would start two runs on the newest tip."""
+        concurrency = merge_workflow["jobs"]["dispatch-main-workflows"]["concurrency"]
+        assert concurrency["cancel-in-progress"] is False
+        assert "github.repository" in concurrency["group"]
+        assert "inputs.default-branch" in concurrency["group"]
+
     def test_the_orphan_notice_is_opt_in(self, merge_workflow: dict[str, Any]) -> None:
         """The notice needs a push trigger, so a caller must ask for it."""
         assert input_default(merge_workflow, "report-orphaned-push") is False
