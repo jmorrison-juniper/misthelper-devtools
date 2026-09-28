@@ -1,0 +1,98 @@
+# ================================================================
+# CodeQL -- scan the code of the caller and upload the alerts
+# ================================================================
+# The job runs one CodeQL analysis for each language that the caller names.
+# It uploads the alerts to the code scanning page of the caller.
+#
+# The caller workflow, .github/workflows/codeql.yml:
+#
+#   on:
+#     pull_request:
+#       branches: [main]
+#     push:
+#       branches: [main]
+#     schedule:
+#       - cron: '0 6 * * 1'
+#     workflow_dispatch:
+#   permissions: {}
+#   jobs:
+#     codeql:
+#       permissions:
+#         actions: read
+#         contents: read
+#         security-events: write
+#       uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-codeql.yml@<commit>
+#       with:
+#         languages: '["python"]'
+#
+# Code scanning keeps the alerts of each analysis configuration. The
+# configuration key holds the path of the caller workflow and the job ID of
+# this workflow, analyze. The category is /language:<language>. Thus a caller
+# that moves its own analyze job to this workflow, and keeps the file name,
+# keeps the same configuration and the same alerts.
+#
+# The CodeQL actions use the floating v4 tag, so each scan gets the new CodeQL
+# release with no pull request.
+# ================================================================
+name: CodeQL (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      languages:
+        description: The CodeQL languages as a JSON array, for example '["python"]' or '["go"]'.
+        required: false
+        default: '["python"]'
+        type: string
+      config-file:
+        description: The CodeQL configuration file of the caller. An empty value uses no file.
+        required: false
+        default: ./.github/codeql/codeql-config.yml
+        type: string
+      autobuild:
+        description: Run the CodeQL autobuild step before the analysis. A compiled language, for example Go, needs it.
+        required: false
+        default: false
+        type: boolean
+      timeout-minutes:
+        description: The time limit of each analysis job.
+        required: false
+        default: 60
+        type: number
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      # The analysis reads the run and the code, and it uploads the alerts.
+      actions: read
+      contents: read
+      security-events: write
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ${{ fromJSON(inputs.languages) }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          config-file: ${{ inputs.config-file }}
+
+      - name: Autobuild
+        if: ${{ inputs.autobuild }}
+        uses: github/codeql-action/autobuild@v4
+
+      - name: Perform the CodeQL analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
