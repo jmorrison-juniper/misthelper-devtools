@@ -1,0 +1,43 @@
+name: Mermaid syntax lint
+description: Parse Mermaid blocks in Markdown files.
+inputs:
+  docs-dir:
+    description: Documentation directory to scan.
+    required: false
+    default: documentation
+  extra-files:
+    description: Extra Markdown files to scan. Separate paths with spaces or new lines.
+    required: false
+    default: README.md
+  node-version:
+    description: Node.js version for the parser.
+    required: false
+    default: "24"
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@v7
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: npm
+        cache-dependency-path: ${{ github.action_path }}/package-lock.json
+
+    - name: Install Mermaid parser dependencies
+      shell: bash
+      run: npm ci --prefix "${GITHUB_ACTION_PATH}"
+
+    - name: Parse Mermaid blocks
+      shell: bash
+      env:
+        INPUT_DOCS_DIR: ${{ inputs.docs-dir }}
+        INPUT_EXTRA_FILES: ${{ inputs.extra-files }}
+      run: |
+        set -euo pipefail
+        args=(--docs-dir "${INPUT_DOCS_DIR}")
+        while IFS= read -r extra_file; do
+          if [ -n "${extra_file}" ]; then
+            args+=(--extra-file "${extra_file}")
+          fi
+        done < <(printf '%s\n' "${INPUT_EXTRA_FILES}" | tr '[:space:]' '\n')
+        node "${GITHUB_ACTION_PATH}/lint_mermaid.mjs" "${args[@]}"

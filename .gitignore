@@ -264,6 +264,7 @@ Thumbs.db
 
 # Node.js (ops-portal frontend)
 node_modules/
+.github/actions/mermaid-lint/node_modules/
 
 # Container
 .containerignore
