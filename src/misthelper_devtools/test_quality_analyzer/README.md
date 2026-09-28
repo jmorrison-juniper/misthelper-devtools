@@ -48,6 +48,52 @@ scan set, so the count stays at 0.
 `--prune-baseline`, `--gate`, and `--write-baseline` select a mode. Pass one
 mode only. Two modes together exit 2.
 
+## Scan only the changed test files
+
+A pull request can add a finding only in a test file that it changes. The
+`--changed-from REVISION` option scans only the test files that changed between
+REVISION and `HEAD`:
+
+```bash
+test-quality-analyzer --gate --changed-from origin/main \
+  --full-gate-path .github/workflows/ci.yml --full-gate-path requirements-dev.txt
+```
+
+A trigger path can change a finding in any test file. When a trigger path
+changed, the run scans every test root. The baseline file and the `--config`
+file are always trigger paths. Add more paths with `--full-gate-path PATH`.
+
+Other results:
+
+- A deleted test file leaves the scan.
+- When no test file changed, the gate prints a zero summary and exits 0. The
+  gate still reads the baseline, and exits 2 when the baseline file does not
+  exist.
+- When git cannot list the changes, the command exits 2.
+
+Do not use `--changed-from` with `--roots`, `--write-baseline`, or
+`--prune-baseline`. The command exits 2, because a baseline change must come
+from a full scan.
+
+In GitHub Actions, fetch the base branch before the run, and give the option
+for a pull request only. A push run then scans every root:
+
+```yaml
+- if: ${{ github.event_name == 'pull_request' }}
+  run: git fetch --no-tags --depth=1 origin "${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+  env:
+    BASE_REF: ${{ github.base_ref }}
+- run: |
+    scope=()
+    if [ "${EVENT_NAME}" = "pull_request" ]; then
+      scope=(--changed-from "origin/${BASE_REF}" --full-gate-path .github/workflows/ci.yml)
+    fi
+    test-quality-analyzer --gate "${scope[@]}"
+  env:
+    EVENT_NAME: ${{ github.event_name }}
+    BASE_REF: ${{ github.base_ref }}
+```
+
 The console script is registered in `pyproject.toml` under `[project.scripts]` and resolves to `misthelper_devtools.test_quality_analyzer.__main__:main`. The module also runs directly via `python -m misthelper_devtools.test_quality_analyzer`.
 
 ## Documentation map
@@ -87,6 +133,8 @@ Other options change one run:
 - `--disable-rule RULE_ID` — repeatable; skips one rule at runtime.
 - `--include-mist-api` — bypass the `src/api/` + `mistapi` exclusion predicate.
 - `--roots PATH …` — one or more test root directories (default: `tests`).
+- `--changed-from REVISION` — scan only the test files that changed since REVISION.
+- `--full-gate-path PATH` — repeatable; with `--changed-from`, a change to PATH scans every root.
 - `--baseline ""` — disable baseline comparison for one run.
 - `--prune-baseline` — drop stale baseline entries and exit 0 (issue #1769).
 

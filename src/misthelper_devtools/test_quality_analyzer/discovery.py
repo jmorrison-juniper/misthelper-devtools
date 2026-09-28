@@ -42,19 +42,19 @@ class TestFileDiscoverer:
                 continue
             # Root is a single file: check it directly.
             if root.is_file():
-                if self._is_test_file(root):
+                if self.is_test_file(root):
                     matches.add(self._normalize(root))
                 continue
             # Root is a directory: rglob all Python files and filter by name.
             for candidate in root.rglob("*.py"):
-                if self._is_test_file(candidate):
+                if self.is_test_file(candidate):
                     matches.add(self._normalize(candidate))
         # Sort deterministically by POSIX string so callers get a stable order.
         result = sorted(matches, key=lambda p: p.as_posix())
         _LOGGER.debug("Discovery found %s test files", len(result))
         return result
 
-    def _is_test_file(self, path: Path) -> bool:
+    def is_test_file(self, path: Path) -> bool:
         """Return True when `path` filename matches the pytest test pattern."""
         # Rule 1: filename starts with `test_`.
         name = path.name
