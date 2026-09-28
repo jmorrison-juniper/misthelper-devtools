@@ -60,13 +60,17 @@ python -m misthelper_devtools.compliance_analyzer src\
 python -m misthelper_devtools.symbol_diff --base main path\to\file.py
 ```
 
-Twelve tools also install as a command.
+Sixteen tools also install as a command.
 
 | Command | Module |
 | - | - |
+| `bandit-exclude-check` | `misthelper_devtools.bandit_exclude_check` |
 | `check-citations` | `misthelper_devtools.check_citations` |
+| `codeql-verdict-register` | `misthelper_devtools.codeql_verdict_register` |
 | `complexity-gate` | `misthelper_devtools.complexity_gate` |
 | `compliance-analyzer` | `misthelper_devtools.compliance_analyzer` |
+| `diagram-refs` | `misthelper_devtools.diagram_refs` |
+| `exclusion-drift` | `misthelper_devtools.exclusion_drift` |
 | `guard-proof-audit` | `misthelper_devtools.guard_proof_audit` |
 | `refactor-analyzer` | `misthelper_devtools.refactor_analyzer` |
 | `speckit-task-audit` | `misthelper_devtools.speckit_task_audit` |
@@ -82,6 +86,41 @@ ste-linter path\to\file.md
 test-quality-analyzer --roots tests
 radon cc . -j | complexity-gate --max 15
 check-citations src tests
+```
+
+### CI check command notes
+
+`codeql-verdict-register` reads the repository name from `--repository`, then
+from `GITHUB_REPOSITORY`, then from `gh repo view`. It writes no MistHelper
+default. MistHelper can keep today's register check with:
+
+```powershell
+codeql-verdict-register check
+```
+
+`diagram-refs` has generic defaults. It scans `documentation/diagrams/`,
+`README.md`, and `src/`. MistHelper must name its top-level file and its
+product words:
+
+```powershell
+diagram-refs --source-files MistHelper.py src/ --allow MistHelper --allow InfrastructureCore --allow ConfigObjects --allow APIFetching --allow DataProcessing --allow OrgExporters --allow SiteExporters --allow GatewayExporters --allow WebSocketNet --allow UITUI --allow SystemRegistry --allow OrgExporter --allow SiteExporter --allow GatewayExporter --allow MigrationManager
+```
+
+`exclusion-drift` reads `quality_gate_exclusions.json` from the repository root
+by default. Use `--root` for a different checkout. Use `--manifest` for a
+different manifest. MistHelper can keep the drift job with:
+
+```powershell
+exclusion-drift --format github --output exclusion-drift.json
+```
+
+`bandit-exclude-check` checks that `[tool.bandit].exclude_dirs` has each
+spelling for path separators. Each `--include-sample` path must stay in the
+Bandit scan scope. The command has no default sample, and it imports Bandit
+only for a sample check. MistHelper keeps its Bandit guard with:
+
+```powershell
+bandit-exclude-check --include-sample ./src/utils/zen_city_metadata.py --include-sample .\src\utils\zen_city_metadata.py
 ```
 
 ## Upgrade from release 0.3.0 to release 0.4.0

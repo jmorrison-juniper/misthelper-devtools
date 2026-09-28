@@ -26,6 +26,7 @@ grammar = ["spacy>=3.7"]
 # the licensed ASD-STE100 PDF with pdfplumber.
 ste-linter = ["spacy>=3.7", "pdfplumber>=0.11"]
 dev = [
+    "bandit>=1.7",
     "black>=24.0",
     "hypothesis>=6.100",
     "mypy>=1.10",
@@ -42,9 +43,13 @@ Homepage = "https://github.com/jmorrison-juniper/misthelper-devtools"
 Product = "https://github.com/jmorrison-juniper/MistHelper"
 
 [project.scripts]
+bandit-exclude-check = "misthelper_devtools.bandit_exclude_check:main"
 check-citations = "misthelper_devtools.check_citations:main"
+codeql-verdict-register = "misthelper_devtools.codeql_verdict_register:main"
 complexity-gate = "misthelper_devtools.complexity_gate:main"
 compliance-analyzer = "misthelper_devtools.compliance_analyzer.__main__:main"
+diagram-refs = "misthelper_devtools.diagram_refs:main"
+exclusion-drift = "misthelper_devtools.exclusion_drift:main"
 guard-proof-audit = "misthelper_devtools.guard_proof_audit:main"
 refactor-analyzer = "misthelper_devtools.refactor_analyzer.__main__:main"
 speckit-task-audit = "misthelper_devtools.speckit_task_audit:Command.main"
