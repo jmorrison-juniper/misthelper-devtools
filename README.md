@@ -205,8 +205,10 @@ The package needs Python 3.13 or newer.
 
 This repository supplies hooks for the [pre-commit](https://pre-commit.com)
 framework. The `ste-linter` hook runs the STE linter on each Markdown file and
-each Python file that a commit changes. To use the hook, add this repository
-to `.pre-commit-config.yaml` at a release tag:
+each Python file that a commit changes. The `markdown-link-check` hook checks
+links in changed Markdown files. The links must point to files and anchors in
+the repository. To use these hooks, add this repository to
+`.pre-commit-config.yaml` at a release tag:
 
 ```yaml
 repos:
@@ -216,6 +218,7 @@ repos:
       - id: ste-linter
         args: [--config, .ste-linter.toml, --min-score, "80"]
         exclude: ^tests/fixtures/
+      - id: markdown-link-check
 ```
 
 pre-commit installs this package at the tag in a separate environment. Use the

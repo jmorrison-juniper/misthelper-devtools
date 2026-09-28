@@ -11,6 +11,7 @@ from __future__ import annotations  # Keep annotations stable for console use.
 import argparse  # Parse the command line for the console script.
 import fnmatch  # Match caller exclude patterns against repository paths.
 import logging  # Record each scan step for operator diagnostics.
+import os  # Sanitize git environment variables from pre-commit.
 import re  # Parse Markdown links with the same narrow rules as the source test.
 import subprocess  # Ask git for tracked Markdown files.
 import sys  # Return command status and print diagnostics.
@@ -64,10 +65,14 @@ class MarkdownLinkChecker:
                 ["git", "-C", str(self.root), "ls-files", "*.md"],  # Ask git for tracked Markdown files only.
                 capture_output=True,
                 encoding="utf-8",
+                env=_git_env(),
                 check=True,
                 timeout=GIT_TIMEOUT_SECONDS,
             )
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        except subprocess.CalledProcessError as error:
+            stderr = error.stderr.strip() if error.stderr else str(error)
+            raise RuntimeError(f"git ls-files failed: {stderr}") from error  # Let the CLI return usage status.
+        except subprocess.TimeoutExpired as error:
             raise RuntimeError(f"git ls-files failed: {error}") from error  # Let the CLI return usage status.
         relative_limits = tuple(self._relative_path(limit) for limit in limits)  # Normalize optional scan roots.
         files = tuple(
@@ -144,6 +149,17 @@ def _targets_in_line(line: str) -> tuple[str, ...]:
     inline = [match.group(1) for match in INLINE_LINK.finditer(line)]  # Read inline links and image links.
     reference = [match.group(1) for match in REFERENCE_DEFINITION.finditer(line)]  # Read reference definitions.
     return tuple([*inline, *reference])  # Preserve the order found on the line.
+
+
+def _git_env() -> dict[str, str]:
+    """Return an environment that lets `git -C` choose the repository."""
+    env = os.environ.copy()
+    for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX"):
+        env.pop(name, None)
+    for name in tuple(env):
+        if name == "GIT_CONFIG_COUNT" or name.startswith("GIT_CONFIG_KEY_") or name.startswith("GIT_CONFIG_VALUE_"):
+            env.pop(name, None)
+    return env
 
 
 def _strip_code(text: str) -> str:
