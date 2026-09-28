@@ -51,6 +51,8 @@ compliance-analyzer = "misthelper_devtools.compliance_analyzer.__main__:main"
 diagram-refs = "misthelper_devtools.diagram_refs:main"
 exclusion-drift = "misthelper_devtools.exclusion_drift:main"
 guard-proof-audit = "misthelper_devtools.guard_proof_audit:main"
+markdown-link-check = "misthelper_devtools.markdown_link_check:main"
+pytest-chunks = "misthelper_devtools.pytest_chunks:main"
 refactor-analyzer = "misthelper_devtools.refactor_analyzer.__main__:main"
 speckit-task-audit = "misthelper_devtools.speckit_task_audit:Command.main"
 ste-linter = "misthelper_devtools.ste_linter.__main__:main"
@@ -59,6 +61,7 @@ symbol-diff = "misthelper_devtools.symbol_diff.__main__:main"
 test-quality-analyzer = "misthelper_devtools.test_quality_analyzer.__main__:main"
 venv-health = "misthelper_devtools.venv_health:main"
 wan-port-report = "misthelper_devtools.wan_port_report:main"
+worktree-cleanup = "misthelper_devtools.worktree_cleanup:main"
 
 [build-system]
 requires = ["hatchling"]

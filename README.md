@@ -61,7 +61,7 @@ python -m misthelper_devtools.compliance_analyzer src\
 python -m misthelper_devtools.symbol_diff --base main path\to\file.py
 ```
 
-Sixteen tools also install as a command.
+Nineteen tools also install as a command.
 
 | Command | Module |
 | - | - |
@@ -73,6 +73,8 @@ Sixteen tools also install as a command.
 | `diagram-refs` | `misthelper_devtools.diagram_refs` |
 | `exclusion-drift` | `misthelper_devtools.exclusion_drift` |
 | `guard-proof-audit` | `misthelper_devtools.guard_proof_audit` |
+| `markdown-link-check` | `misthelper_devtools.markdown_link_check` |
+| `pytest-chunks` | `misthelper_devtools.pytest_chunks` |
 | `refactor-analyzer` | `misthelper_devtools.refactor_analyzer` |
 | `speckit-task-audit` | `misthelper_devtools.speckit_task_audit` |
 | `ste-linter` | `misthelper_devtools.ste_linter` |
@@ -81,6 +83,7 @@ Sixteen tools also install as a command.
 | `test-quality-analyzer` | `misthelper_devtools.test_quality_analyzer` |
 | `venv-health` | `misthelper_devtools.venv_health` |
 | `wan-port-report` | `misthelper_devtools.wan_port_report` |
+| `worktree-cleanup` | `misthelper_devtools.worktree_cleanup` |
 
 ```powershell
 ste-linter path\to\file.md
@@ -124,6 +127,59 @@ only for a sample check. MistHelper keeps its Bandit guard with:
 bandit-exclude-check --include-sample ./src/utils/zen_city_metadata.py --include-sample .\src\utils\zen_city_metadata.py
 ```
 
+### Clean git worktrees
+
+`worktree-cleanup` removes only safe targets. It uses dry-run mode by default.
+Add `--apply` only after you review the plan.
+
+```powershell
+worktree-cleanup merged --base main
+worktree-cleanup --apply merged --base main --delete-branch
+worktree-cleanup stale-admin
+worktree-cleanup --apply stale-admin
+```
+
+The `merged` mode keeps the main worktree, a dirty worktree, and a worktree
+whose branch is not merged into the base branch. Use repeatable `--path` values
+to limit the list of candidates. The `stale-admin` mode removes stale admin
+directories in `.git\worktrees`, then runs `git worktree prune`.
+
+A squash merge counts as a merge. For a branch that git does not show as
+merged, the tool writes a probe commit. The probe holds the tree of the branch
+on top of the merge base. Then `git cherry` looks for a base commit with the
+same patch. The tool keeps a branch that is only partly on the base.
+
+### Run pytest in chunks
+
+`pytest-chunks` runs caller-named pytest paths in bounded chunks. The first
+chunk runs the named paths without the `--split` folders. Each `--split` folder
+then runs as one chunk for each child folder, plus batches of eight for its
+top-level test files.
+
+The command runs every chunk by default. Add `-x` to stop after the first
+failed chunk. The command gives `--timeout` to pytest only when the environment
+has the `pytest-timeout` plugin. If a chunk runs for more than the
+`--chunk-timeout` value in seconds, the command stops it with status 124.
+
+```powershell
+pytest-chunks -x tests\unit --split tests\unit\upgrade_portal
+pytest-chunks -x tests\contract tests\guardrails tests\integration --split tests\contract\upgrade_portal --split tests\integration\upgrade_portal
+```
+
+### Check Markdown links
+
+`markdown-link-check` reads tracked Markdown files with git. It reports
+repository-local links that point to a missing file, folder, or Markdown anchor.
+The command checks every tracked Markdown file by default. Use repeatable
+`--exclude` globs to skip a tree, such as a wiki mirror with links that only
+the wiki can resolve.
+
+```powershell
+markdown-link-check
+markdown-link-check --exclude 'documentation/wiki/**'
+markdown-link-check documentation
+```
+
 ## Upgrade from release 0.3.0 to release 0.4.0
 
 Release 0.3.0 installed two top-level packages with generic names, `tools` and
@@ -165,8 +221,10 @@ The package needs Python 3.13 or newer.
 
 This repository supplies hooks for the [pre-commit](https://pre-commit.com)
 framework. The `ste-linter` hook runs the STE linter on each Markdown file and
-each Python file that a commit changes. To use the hook, add this repository
-to `.pre-commit-config.yaml` at a release tag:
+each Python file that a commit changes. The `markdown-link-check` hook checks
+links in changed Markdown files. The links must point to files and anchors in
+the repository. To use these hooks, add this repository to
+`.pre-commit-config.yaml` at a release tag:
 
 ```yaml
 repos:
@@ -176,6 +234,7 @@ repos:
       - id: ste-linter
         args: [--config, .ste-linter.toml, --min-score, "80"]
         exclude: ^tests/fixtures/
+      - id: markdown-link-check
 ```
 
 pre-commit installs this package at the tag in a separate environment. Use the

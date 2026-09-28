@@ -15,3 +15,9 @@
   entry: ste-linter
   language: python
   types_or: [markdown, python]
+- id: markdown-link-check
+  name: Markdown link checker
+  description: Check repository-local Markdown links and anchors.
+  entry: markdown-link-check
+  language: python
+  types: [markdown]

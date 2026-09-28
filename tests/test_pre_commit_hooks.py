@@ -82,3 +82,8 @@ def test_each_hook_installs_this_package() -> None:
 def test_ste_linter_hook_reads_markdown_and_python() -> None:
     hooks = {hook["id"]: hook for hook in load_hooks()}
     assert hooks["ste-linter"]["types_or"] == ["markdown", "python"]
+
+
+def test_markdown_link_check_hook_reads_markdown() -> None:
+    hooks = {hook["id"]: hook for hook in load_hooks()}
+    assert hooks["markdown-link-check"]["types"] == ["markdown"]
