@@ -47,11 +47,14 @@ def test_mermaid_action_declares_composite_inputs() -> None:
 def test_mermaid_action_uses_action_lockfile_for_npm_cache() -> None:
     """Require setup-node to cache the action dependencies only."""
     action = load_action()
-    setup_node = action["runs"]["steps"][0]
+    resolve_paths = action["runs"]["steps"][0]
+    setup_node = action["runs"]["steps"][1]
 
+    assert resolve_paths["id"] == "action-paths"
+    assert "${GITHUB_ACTION_PATH}/package-lock.json" in resolve_paths["run"]
     assert setup_node["uses"] == "actions/setup-node@v7"
     assert setup_node["with"]["cache"] == "npm"
-    assert setup_node["with"]["cache-dependency-path"] == ("${{ github.action_path }}/package-lock.json")
+    assert setup_node["with"]["cache-dependency-path"] == ("${{ steps.action-paths.outputs.lockfile }}")
 
 
 def test_mermaid_package_versions_match_lockfile() -> None:
