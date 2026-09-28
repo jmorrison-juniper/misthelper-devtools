@@ -182,6 +182,10 @@ Inputs:
 | `extra-files` | `README.md` | Scans these extra Markdown files. Use spaces or new lines between paths. |
 | `node-version` | `24` | Selects the Node.js version for the parser. |
 
+The action runs `npm ci` on each run, with no npm cache. The cache in
+`actions/setup-node` reads only the files in the caller workspace, and the
+action runs from a folder outside that workspace.
+
 A caller pins the full commit SHA of a release and writes the release tag in a
 comment:
 

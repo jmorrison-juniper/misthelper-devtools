@@ -94,4 +94,4 @@ for (let index = 0; index < process.argv.length; index += 1) { // Read repeated 
 }
 if (!hasExtraFileFlag && !extraFiles.length) extraFiles.push("README.md"); // Scan README diagrams by default.
 const runner = new MermaidLintRunner(rootDirectory, extraFiles); // Create one isolated validator instance.
-process.reallyExit(await runner.run()); // Run the gate and expose its result to CI.
+process.exit(await runner.run()); // Exit now, because the DOM helpers keep Node alive after the report.

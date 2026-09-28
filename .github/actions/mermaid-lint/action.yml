@@ -16,21 +16,16 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Resolve action paths
-      id: action-paths
-      shell: bash
-      run: echo "lockfile=$(realpath "${GITHUB_ACTION_PATH}/package-lock.json")" >> "${GITHUB_OUTPUT}"
-
+    # No npm cache: setup-node hashes only the files in the caller workspace,
+    # and a caller runs this action from a folder outside that workspace.
     - name: Set up Node.js
       uses: actions/setup-node@v7
       with:
         node-version: ${{ inputs.node-version }}
-        cache: npm
-        cache-dependency-path: ${{ steps.action-paths.outputs.lockfile }}
 
     - name: Install Mermaid parser dependencies
       shell: bash
-      run: npm ci --prefix "${GITHUB_ACTION_PATH}"
+      run: npm ci --prefix "${GITHUB_ACTION_PATH}" --no-audit --no-fund
 
     - name: Parse Mermaid blocks
       shell: bash

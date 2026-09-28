@@ -44,17 +44,25 @@ def test_mermaid_action_declares_composite_inputs() -> None:
     assert action["inputs"]["node-version"]["default"] == "24"
 
 
-def test_mermaid_action_uses_action_lockfile_for_npm_cache() -> None:
-    """Require setup-node to cache the action dependencies only."""
-    action = load_action()
-    resolve_paths = action["runs"]["steps"][0]
-    setup_node = action["runs"]["steps"][1]
+def test_mermaid_action_asks_setup_node_for_no_cache() -> None:
+    """Keep setup-node from hashing a lock file outside the caller workspace.
 
-    assert resolve_paths["id"] == "action-paths"
-    assert "${GITHUB_ACTION_PATH}/package-lock.json" in resolve_paths["run"]
-    assert setup_node["uses"] == "actions/setup-node@v7"
-    assert setup_node["with"]["cache"] == "npm"
-    assert setup_node["with"]["cache-dependency-path"] == ("${{ steps.action-paths.outputs.lockfile }}")
+    setup-node hashes only the files in the caller workspace. A caller runs this
+    action from a folder outside that workspace, so a cache input fails the step.
+    """
+    action = load_action()
+    steps = action["runs"]["steps"]
+    setup_node = next(step for step in steps if step.get("uses", "").startswith("actions/setup-node@"))
+
+    assert setup_node["with"] == {"node-version": "${{ inputs.node-version }}"}
+
+
+def test_mermaid_action_installs_from_its_own_lockfile() -> None:
+    """Require npm ci to read the lock file that ships with the action."""
+    action = load_action()
+    runs = [step.get("run", "") for step in action["runs"]["steps"]]
+
+    assert any(run.startswith('npm ci --prefix "${GITHUB_ACTION_PATH}"') for run in runs)
 
 
 def test_mermaid_package_versions_match_lockfile() -> None:
