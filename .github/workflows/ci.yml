@@ -124,10 +124,12 @@ jobs:
           extra-files: ""
 
       - name: Confirm the invalid fixture failed
-        if: steps.invalid-fixture.outcome != 'failure'
         run: |
-          echo "The invalid Mermaid fixture passed unexpectedly."
-          exit 1
+          if [ "${{ steps.invalid-fixture.outcome }}" != "failure" ]; then
+            echo "The invalid Mermaid fixture passed unexpectedly."
+            exit 1
+          fi
+          echo "The invalid Mermaid fixture failed as expected."
 
   # The aggregator always reports, so branch protection always receives a
   # status. It is the only check that a protection rule needs to require.
