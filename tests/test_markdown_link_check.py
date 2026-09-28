@@ -110,15 +110,19 @@ def test_markdown_link_check_cli_returns_one_for_dead_links(tmp_path: Path, caps
     assert capsys.readouterr().out.strip() == "README.md:1: missing.md (no such file)"
 
 
-def test_markdown_link_check_cli_uses_misthelper_default_excludes(tmp_path: Path, capsys) -> None:
-    """The CLI skips the MistHelper wiki folder unless the caller changes code."""
+def test_markdown_link_check_cli_scans_every_tree_unless_told_to_skip(tmp_path: Path, capsys) -> None:
+    """The CLI has no built-in exempt tree, and --exclude skips a named one."""
     repository = tmp_path / "repo"
     _init_repository(repository)
     (repository / "documentation" / "wiki").mkdir(parents=True)
-    (repository / "documentation" / "wiki" / "Page.md").write_text("[wiki](Bare Page)\n", encoding="utf-8")
+    (repository / "documentation" / "wiki" / "Page.md").write_text("[wiki](Bare-Page)\n", encoding="utf-8")
     _commit_all(repository)
 
-    status = main(["--root", str(repository)])
+    default_status = main(["--root", str(repository)])
+    default_out = capsys.readouterr().out.strip()
+    excluded_status = main(["--root", str(repository), "--exclude", "documentation/wiki/**"])
 
-    assert status == 0
+    assert default_status == 1
+    assert default_out == "documentation/wiki/Page.md:1: Bare-Page (no such file)"
+    assert excluded_status == 0
     assert capsys.readouterr().out.strip() == ""

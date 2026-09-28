@@ -87,7 +87,9 @@ class GitWorktreeCleanup:
         main_path = worktrees[0].path.resolve() if worktrees else self.root  # The first row is the main worktree.
         merged = self._merged_branches(base)  # Read branches merged into the base.
         targets = tuple(self._resolve_path(path) for path in paths)  # Normalize explicit targets.
-        plans = tuple(self._plan_worktree(record, main_path, merged, targets) for record in worktrees)  # Plan actions.
+        plans = tuple(
+            self._plan_worktree(record, main_path, merged, targets, base) for record in worktrees
+        )  # Plan actions.
         chosen = tuple(plan for plan in plans if plan.remove)  # Only removable plans change files in apply mode.
         for plan in plans:  # Print every decision so dry run explains what it did.
             action = "remove" if plan.remove else "keep"  # Name the action.
@@ -96,16 +98,18 @@ class GitWorktreeCleanup:
             print(f"dry-run: would remove {len(chosen)} merged worktree(s)")  # Summarize planned removals.
             return 0  # A dry run succeeds after planning.
         failures = 0  # Count failed removals and branch deletes.
+        removed: list[RemovalPlan] = []  # Only removed worktrees can have their branch deleted.
         for plan in chosen:  # Apply each safe removal.
             if not force_rmtree(plan.worktree.path):  # Remove the checkout directory.
                 failures += 1  # Record the failed directory removal.
                 continue  # Do not delete a branch when the worktree remains.
+            removed.append(plan)  # Record the removed worktree.
         failures += self._prune()  # Reap admin dirs after checkout removal.
         if delete_branch:  # The caller asked to delete merged branches too.
-            for plan in chosen:  # Delete branches for the removed worktrees.
+            for plan in removed:  # Delete branches for the removed worktrees.
                 if plan.worktree.branch is not None:  # Detached worktrees have no branch to delete.
                     failures += self._delete_branch(plan.worktree.branch)  # Delete the local branch.
-        print(f"removed {len(chosen) - failures} merged worktree(s); failures={failures}")  # Summarize apply mode.
+        print(f"removed {len(removed)} merged worktree(s); failures={failures}")  # Summarize apply mode.
         return 1 if failures else 0  # Fail only when a removal or branch delete failed.
 
     def cleanup_stale_admin(self) -> int:
@@ -132,6 +136,7 @@ class GitWorktreeCleanup:
         main_path: Path,
         merged: frozenset[str],
         targets: tuple[Path, ...],
+        base: str,
     ) -> RemovalPlan:
         """Return the cleanup decision for one worktree."""
         if targets and worktree.path.resolve() not in targets:  # Explicit paths limit the candidate list.
@@ -142,11 +147,15 @@ class GitWorktreeCleanup:
             return RemovalPlan(worktree, False, "bare worktree")  # Keep bare rows.
         if worktree.branch is None:  # A detached worktree has no merged branch signal.
             return RemovalPlan(worktree, False, "detached HEAD")  # Keep detached rows.
-        if worktree.branch not in merged:  # Only branches merged into the base are safe for this command.
+        if worktree.branch in merged:  # The base holds the branch tip.
+            reason = f"branch {worktree.branch} is merged"
+        elif self._squash_merged(base, worktree.branch):  # The base holds the branch change as one commit.
+            reason = f"branch {worktree.branch} is squash-merged"
+        else:  # Only branches merged into the base are safe for this command.
             return RemovalPlan(worktree, False, f"branch {worktree.branch} is not merged into base")
         if self._dirty(worktree.path):  # Uncommitted changes can hold work not in the merge.
             return RemovalPlan(worktree, False, "uncommitted changes")  # Keep dirty worktrees.
-        return RemovalPlan(worktree, True, f"branch {worktree.branch} is merged")  # Safe to remove.
+        return RemovalPlan(worktree, True, reason)  # Safe to remove.
 
     def _worktrees(self) -> tuple[WorktreeRecord, ...]:
         """Read git worktree list --porcelain."""
@@ -178,6 +187,41 @@ class GitWorktreeCleanup:
         branches = frozenset(line.strip() for line in completed.stdout.splitlines() if line.strip())  # Parse names.
         logger.info("Found %d branch(es) merged into %s", len(branches), base)  # Log the merged set size.
         return branches  # Return branch names.
+
+    def _squash_merged(self, base: str, branch: str) -> bool:
+        """Return True when the base holds the whole branch change as one commit.
+
+        A squash merge writes a new commit, so ``git branch --merged`` misses it.
+        This check writes one probe commit that holds the branch tree on top of
+        the merge base. ``git cherry`` marks the probe with ``-`` when the base
+        has a commit with the same patch. The probe is a loose object with no
+        reference, so a dry run changes no branch and no checkout file.
+        """
+        try:
+            merge_base = self._git(["merge-base", base, branch], cwd=self.root).stdout.strip()
+            tree = self._git(["rev-parse", f"{branch}^{{tree}}"], cwd=self.root).stdout.strip()
+            probe = self._git(
+                [
+                    "-c",
+                    "user.name=worktree-cleanup",
+                    "-c",
+                    "user.email=worktree-cleanup@localhost",
+                    "commit-tree",
+                    tree,
+                    "-p",
+                    merge_base,
+                    "-m",
+                    "worktree-cleanup squash probe",
+                ],
+                cwd=self.root,
+            ).stdout.strip()
+            cherry = self._git(["cherry", base, probe], cwd=self.root).stdout
+        except RuntimeError as error:
+            logger.warning("Could not test branch %s for a squash merge: %s", branch, error)  # Keep on doubt.
+            return False
+        squashed = cherry.startswith("-")  # A minus sign means the base already has this patch.
+        logger.info("Branch %s squash-merged into %s: %s", branch, base, squashed)  # Log the decision.
+        return squashed
 
     def _dirty(self, path: Path) -> bool:
         """Return True when a worktree has uncommitted changes."""
@@ -263,8 +307,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--root", type=Path, default=None, help="Repository root to clean.")
     parser.add_argument("--apply", action="store_true", help="Perform removals. Default is a dry run.")
     subparsers = parser.add_subparsers(dest="command", required=True)  # Require a cleanup mode.
-    merged = subparsers.add_parser("merged", help="Remove linked worktrees whose branch is merged.")
-    merged.add_argument("--base", default="main", help="Base branch for git branch --merged.")
+    merged = subparsers.add_parser("merged", help="Remove linked worktrees whose branch is merged or squash-merged.")
+    merged.add_argument("--base", default="main", help="Base branch that must hold each branch change.")
     merged.add_argument("--delete-branch", action="store_true", help="Delete each removed local branch.")
     merged.add_argument("--path", action="append", default=[], type=Path, help="Limit cleanup to this worktree path.")
     subparsers.add_parser("stale-admin", help="Remove stale .git/worktrees admin directories.")

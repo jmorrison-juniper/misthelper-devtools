@@ -60,7 +60,7 @@ python -m misthelper_devtools.compliance_analyzer src\
 python -m misthelper_devtools.symbol_diff --base main path\to\file.py
 ```
 
-Sixteen tools also install as a command.
+Nineteen tools also install as a command.
 
 | Command | Module |
 | - | - |
@@ -140,27 +140,42 @@ worktree-cleanup --apply stale-admin
 
 The `merged` mode keeps the main worktree, a dirty worktree, and a worktree
 whose branch is not merged into the base branch. Use repeatable `--path` values
-to limit the worktree candidates. The `stale-admin` mode removes stale
-`.git\worktrees` admin directories, then runs `git worktree prune`.
+to limit the list of candidates. The `stale-admin` mode removes stale admin
+directories in `.git\worktrees`, then runs `git worktree prune`.
+
+A squash merge counts as a merge. For a branch that git does not show as
+merged, the tool writes a probe commit. The probe holds the tree of the branch
+on top of the merge base. Then `git cherry` looks for a base commit with the
+same patch. The tool keeps a branch that is only partly on the base.
 
 ### Run pytest in chunks
 
-`pytest-chunks` runs caller-named pytest paths in bounded chunks. It passes
-`--timeout` to pytest only when the `pytest-timeout` plugin is installed.
+`pytest-chunks` runs caller-named pytest paths in bounded chunks. The first
+chunk runs the named paths without the `--split` folders. Each `--split` folder
+then runs as one chunk for each child folder, plus batches of eight for its
+top-level test files.
+
+The command runs every chunk by default. Add `-x` to stop after the first
+failed chunk. The command gives `--timeout` to pytest only when the environment
+has the `pytest-timeout` plugin. If a chunk runs for more than the
+`--chunk-timeout` value in seconds, the command stops it with status 124.
 
 ```powershell
-pytest-chunks tests\unit --split tests\unit\upgrade_portal
-pytest-chunks tests\contract tests\guardrails tests\integration --split tests\contract\upgrade_portal --split tests\integration\upgrade_portal
+pytest-chunks -x tests\unit --split tests\unit\upgrade_portal
+pytest-chunks -x tests\contract tests\guardrails tests\integration --split tests\contract\upgrade_portal --split tests\integration\upgrade_portal
 ```
 
 ### Check Markdown links
 
 `markdown-link-check` reads tracked Markdown files with git. It reports
 repository-local links that point to a missing file, folder, or Markdown anchor.
+The command checks every tracked Markdown file by default. Use repeatable
+`--exclude` globs to skip a tree, such as a wiki mirror with links that only
+the wiki can resolve.
 
 ```powershell
 markdown-link-check
-markdown-link-check --exclude documentation/wiki/**
+markdown-link-check --exclude 'documentation/wiki/**'
 markdown-link-check documentation
 ```
 

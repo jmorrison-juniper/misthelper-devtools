@@ -28,11 +28,10 @@ GIT_TIMEOUT_SECONDS = 30  # Bound each git read so a broken checkout cannot hang
 INLINE_LINK = re.compile(r"!?\[[^\]]*\]\(\s*<?([^)>\s]+)>?(?:\s+\"[^\"]*\")?\s*\)")  # Inline and image links.
 REFERENCE_DEFINITION = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*<?(\S+)>?\s*$")  # Reference target definitions.
 FENCE = re.compile(r"^\s*(```|~~~)")  # Fenced code starts and ends with backticks or tildes.
-INLINE_CODE = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)")  # Inline code spans from the MistHelper test.
+INLINE_CODE = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)")  # Inline code spans, which hold examples.
 ATX_HEADING = re.compile(r"^#{1,6}\s+(.*?)\s*#*\s*$", re.MULTILINE)  # Headings that GitHub anchors.
 HTML_ANCHOR = re.compile(r"<a\s+[^>]*(?:name|id)=[\"']([^\"']+)[\"']", re.IGNORECASE)  # Named HTML anchors.
 EXTERNAL_SCHEME = re.compile(r"^(?:[a-z][a-z0-9+.-]*:|//|#|mailto:)", re.IGNORECASE)  # Non-repository targets.
-DEFAULT_EXCLUDES = ("documentation/wiki/**",)  # MistHelper wiki pages use published wiki-only page names.
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,7 +110,7 @@ class MarkdownLinkChecker:
     def _failure_for_target(self, path: Path, relative: Path, line_number: int, target: str) -> LinkFailure | None:
         """Return a failure if one target does not resolve."""
         if EXTERNAL_SCHEME.match(target):  # External links and same-page anchors stay outside this command.
-            return None  # Keep the MistHelper test behavior.
+            return None  # A URL or a same-page anchor needs no repository file.
         file_part, _, anchor = target.partition("#")  # Split the path from an optional anchor.
         if file_part:
             resolved = (path.parent / unquote(file_part)).resolve()  # Decode percent escapes before path lookup.
@@ -233,9 +232,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--exclude",
         action="append",
-        default=list(DEFAULT_EXCLUDES),
-        help="Exclude a repository path glob. Default: documentation/wiki/**.",
-    )
+        default=[],
+        help="Skip tracked files that match this path glob, such as a wiki tree. Repeat for more globs.",
+    )  # No default glob: each caller names its own exempt tree.
     parser.add_argument("paths", nargs="*", type=Path, help="Optional files or folders to scan.")
     return parser  # The CLI parses this object once.
 

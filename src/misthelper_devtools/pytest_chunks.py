@@ -22,10 +22,9 @@ from misthelper_devtools.repository_root import resolve_repository_root
 logger = logging.getLogger(__name__)  # Use a module logger so callers can choose the detail level.
 
 EXCLUDED_DIR_NAMES = frozenset({"__pycache__"})  # Ignore cache folders that hold no tests.
-DEFAULT_CHUNK_TIMEOUT_SECONDS = 300  # Match the MistHelper local shard script.
-DEFAULT_TEST_TIMEOUT_SECONDS = 120  # Match the MistHelper per-test timeout.
-DEFAULT_FILE_BATCH_SIZE = 8  # Keep sibling files in the same batch size as the source script.
-DEFAULT_LARGE_PACKAGE_NAME = "upgrade_portal"  # MistHelper package that needs smaller chunks.
+DEFAULT_CHUNK_TIMEOUT_SECONDS = 300  # Give one chunk five minutes of wall-clock time.
+DEFAULT_TEST_TIMEOUT_SECONDS = 120  # Give one test two minutes through pytest-timeout.
+DEFAULT_FILE_BATCH_SIZE = 8  # Eight sibling files stayed below the Windows wall-clock limit.
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +56,8 @@ class PytestChunkRunner:
         test_timeout: int,
         durations: int,
         runner: Callable[[Sequence[str], Path, int], int] | None = None,
+        *,
+        exitfirst: bool = False,
     ) -> None:
         self.root = root.resolve()  # Run every pytest command from the repository root.
         self.test_paths = tuple(self._absolute(path) for path in test_paths)  # Normalize caller paths.
@@ -65,6 +66,7 @@ class PytestChunkRunner:
         self.test_timeout = test_timeout  # Store the pytest-timeout cap for one test.
         self.durations = durations  # Store how many slow tests pytest reports.
         self.runner = runner or self._run_subprocess  # Tests can pass a fake runner.
+        self.exitfirst = exitfirst  # True stops the run at the first failed chunk.
         self.timeout_available = _pytest_timeout_available()  # Add --timeout only when the plugin exists.
 
     def build_chunks(self) -> tuple[TestChunk, ...]:
@@ -88,6 +90,9 @@ class PytestChunkRunner:
             result = self._run_chunk(index, len(chunks), chunk)  # Execute one bounded command.
             if result.exit_code != 0 and exit_code == 0:  # Preserve the first failure status.
                 exit_code = result.exit_code  # Report failure after all chunks get a chance to run.
+            if result.exit_code != 0 and self.exitfirst:  # The operator asked to see the first fault only.
+                print(f"pytest-chunks: stopped after chunk {index}/{len(chunks)} (--exitfirst)", flush=True)
+                break  # Skip the remaining chunks.
         elapsed = time.monotonic() - started  # Measure the whole run.
         status = "passed" if exit_code == 0 else "failed"  # Keep the final line easy to scan.
         print(f"pytest-chunks: {status} {len(chunks)} chunks in {elapsed:.1f}s exit_code={exit_code}", flush=True)
@@ -198,15 +203,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--root", type=Path, default=None, help="Repository root for the run.")
     parser.add_argument("--split", action="append", default=[], type=Path, help="Split this folder one level lower.")
     parser.add_argument(
-        "--preset",
-        choices=("unit", "other"),
-        default=None,
-        help="Use the MistHelper unit or other shard path defaults.",
-    )
-    parser.add_argument(
-        "--large-package-name",
-        default=DEFAULT_LARGE_PACKAGE_NAME,
-        help="Package folder to split for MistHelper presets. Default: upgrade_portal.",
+        "-x",
+        "--exitfirst",
+        action="store_true",
+        help="Stop after the first failed chunk. By default every chunk runs.",
     )
     parser.add_argument("--chunk-timeout", type=int, default=DEFAULT_CHUNK_TIMEOUT_SECONDS, help="Seconds per chunk.")
     parser.add_argument("--test-timeout", type=int, default=DEFAULT_TEST_TIMEOUT_SECONDS, help="Seconds per test.")
@@ -215,56 +215,20 @@ def build_parser() -> argparse.ArgumentParser:
     return parser  # The CLI parses this object once.
 
 
-def _paths_for_preset(root: Path, preset: str, large_package_name: str) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
-    """Return MistHelper-compatible paths and split roots for one preset."""
-    if preset == "unit":
-        unit = root / "tests" / "unit"
-        return (unit,), (unit / large_package_name,)
-    contract = root / "tests" / "contract"
-    guardrails = root / "tests" / "guardrails"
-    integration = root / "tests" / "integration"
-    return (
-        (contract, guardrails, integration),
-        (contract / large_package_name, integration / large_package_name),
-    )
-
-
-def _resolve_cli_scope(
-    root: Path,
-    paths: tuple[Path, ...],
-    splits: tuple[Path, ...],
-    preset: str | None,
-    large_package_name: str,
-) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
-    """Return the pytest paths and split roots requested by the command line."""
-    selected_preset = preset
-    if selected_preset is None and len(paths) == 1 and paths[0].as_posix() in {"unit", "other"} and not splits:
-        selected_preset = paths[0].as_posix()
-    if selected_preset is not None:
-        return _paths_for_preset(root, selected_preset, large_package_name)
-    return paths, splits
-
-
 def main(argv: list[str] | None = None) -> int:
     """Run the generic pytest chunk command."""
     logging.basicConfig(level=logging.INFO, format="%(message)s")  # Print concise progress messages.
     parser = build_parser()  # Build the parser once for CLI and tests.
     args = parser.parse_args(argv)  # Let argparse handle usage errors with status 2.
     root = resolve_repository_root(args.root)  # Resolve the target repository root.
-    paths, splits = _resolve_cli_scope(
+    runner = PytestChunkRunner(
         root,
         tuple(args.paths),
         tuple(args.split),
-        args.preset,
-        str(args.large_package_name),
-    )
-    runner = PytestChunkRunner(
-        root,
-        paths,
-        splits,
         args.chunk_timeout,
         args.test_timeout,
         args.durations,
+        exitfirst=args.exitfirst,
     )  # Store all run settings.
     try:
         return runner.run()  # Run the chunks and return the aggregate status.

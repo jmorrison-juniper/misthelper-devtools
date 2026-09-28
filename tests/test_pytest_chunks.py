@@ -6,6 +6,8 @@ import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 
+import pytest
+
 from misthelper_devtools.pytest_chunks import PytestChunkRunner, main
 from misthelper_devtools.pytest_chunks import TestChunk as Chunk
 
@@ -94,14 +96,32 @@ def test_pytest_chunks_cli_rejects_missing_split_path(tmp_path: Path, capsys) ->
     assert "does not exist" in capsys.readouterr().err
 
 
-def test_pytest_chunks_cli_accepts_misthelper_unit_preset(tmp_path: Path, capsys) -> None:
-    """The original MistHelper shard name still selects its default paths."""
+def test_pytest_chunks_exitfirst_stops_after_the_first_failed_chunk(tmp_path: Path, capsys) -> None:
+    """With --exitfirst the runner skips the chunks after the first failure."""
     root = tmp_path / "repo"
-    portal = root / "tests" / "unit" / "upgrade_portal"
-    portal.mkdir(parents=True)
+    split = root / "tests" / "split"
+    (split / "first").mkdir(parents=True)
+    (split / "second").mkdir()
     (root / ".git").mkdir()
+    calls: list[list[str]] = []
 
-    status = main(["--root", str(root), "unit"])
+    def fake_runner(command: Sequence[str], cwd: Path, timeout: int) -> int:
+        calls.append(list(command))
+        return 1 if len(calls) == 2 else 0
 
-    assert status == 5
-    assert "tests" in capsys.readouterr().out
+    runner = PytestChunkRunner(
+        root, (Path("tests"),), (Path("tests") / "split",), 300, 120, 0, fake_runner, exitfirst=True
+    )
+
+    assert runner.run() == 1
+    assert len(calls) == 2
+    assert "stopped after chunk 2/3 (--exitfirst)" in capsys.readouterr().out
+
+
+def test_pytest_chunks_cli_has_no_repository_presets(capsys) -> None:
+    """A shard name is not an option, so each caller names its own paths."""
+    with pytest.raises(SystemExit) as raised:
+        main(["--preset", "unit"])
+
+    assert raised.value.code == 2
+    assert "unrecognized arguments: --preset" in capsys.readouterr().err

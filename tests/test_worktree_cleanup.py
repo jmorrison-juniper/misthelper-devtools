@@ -28,11 +28,35 @@ def _init_repository(repository: Path) -> None:
 
 def _create_merged_worktree(repository: Path, worktree: Path, branch: str) -> None:
     """Create a linked worktree whose branch is merged into main."""
+    _create_branch_worktree(repository, worktree, branch)
+    _git(repository, "merge", "-q", "--no-ff", branch, "-m", f"merge {branch}")
+
+
+def _create_branch_worktree(repository: Path, worktree: Path, branch: str) -> None:
+    """Create a linked worktree whose branch has one commit that main lacks."""
     _git(repository, "worktree", "add", "-q", "-b", branch, str(worktree))
     (worktree / f"{branch}.txt").write_text(branch, encoding="utf-8")
     _git(worktree, "add", "-A")
     _git(worktree, "commit", "-q", "-m", f"add {branch}")
-    _git(repository, "merge", "-q", "--no-ff", branch, "-m", f"merge {branch}")
+
+
+def _commit_on_main(repository: Path, name: str) -> None:
+    """Add one unrelated commit to main so the base moves past the merge."""
+    (repository / name).write_text(name, encoding="utf-8")
+    _git(repository, "add", "-A")
+    _git(repository, "commit", "-q", "-m", f"add {name}")
+
+
+def _branches(repository: Path) -> list[str]:
+    """Return the local branch names."""
+    return subprocess.run(
+        ["git", "branch", "--format", "%(refname:short)"],
+        cwd=repository,
+        capture_output=True,
+        encoding="utf-8",
+        check=True,
+        timeout=60,
+    ).stdout.splitlines()
 
 
 def test_worktree_cleanup_dry_run_keeps_merged_worktree(tmp_path: Path, capsys) -> None:
@@ -60,15 +84,52 @@ def test_worktree_cleanup_apply_removes_merged_worktree_and_branch(tmp_path: Pat
 
     assert status == 0
     assert not worktree.exists()
-    branches = subprocess.run(
-        ["git", "branch", "--format", "%(refname:short)"],
-        cwd=repository,
-        capture_output=True,
-        encoding="utf-8",
-        check=True,
-        timeout=60,
-    ).stdout.splitlines()
-    assert "feature" not in branches
+    assert "feature" not in _branches(repository)
+
+
+def test_worktree_cleanup_removes_squash_merged_worktree_and_branch(tmp_path: Path, capsys) -> None:
+    """A squash merge counts as merged, though git branch --merged misses it."""
+    repository = tmp_path / "repo"
+    worktree = tmp_path / "squashed"
+    _init_repository(repository)
+    _create_branch_worktree(repository, worktree, "squash-feature")
+    (worktree / "second.txt").write_text("second\n", encoding="utf-8")
+    _git(worktree, "add", "-A")
+    _git(worktree, "commit", "-q", "-m", "add second")
+    _git(repository, "merge", "-q", "--squash", "squash-feature")
+    _git(repository, "commit", "-q", "-m", "squash squash-feature")
+    _commit_on_main(repository, "later.txt")
+
+    status = GitWorktreeCleanup(repository, apply=True).cleanup_merged("main", True, ())
+
+    assert status == 0
+    assert not worktree.exists()
+    assert "squash-feature" not in _branches(repository)
+    assert "branch squash-feature is squash-merged" in capsys.readouterr().out
+
+
+def test_worktree_cleanup_keeps_unmerged_and_partly_merged_branches(tmp_path: Path, capsys) -> None:
+    """A branch whose whole change is not on the base is kept."""
+    repository = tmp_path / "repo"
+    unmerged = tmp_path / "unmerged"
+    partial = tmp_path / "partial"
+    _init_repository(repository)
+    _create_branch_worktree(repository, unmerged, "open-feature")
+    _create_branch_worktree(repository, partial, "partial-feature")
+    _git(repository, "cherry-pick", "partial-feature")
+    (partial / "extra.txt").write_text("extra\n", encoding="utf-8")
+    _git(partial, "add", "-A")
+    _git(partial, "commit", "-q", "-m", "add extra")
+
+    status = GitWorktreeCleanup(repository, apply=True).cleanup_merged("main", True, ())
+
+    output = capsys.readouterr().out
+    assert status == 0
+    assert unmerged.exists()
+    assert partial.exists()
+    assert {"open-feature", "partial-feature"} <= set(_branches(repository))
+    assert "branch open-feature is not merged into base" in output
+    assert "branch partial-feature is not merged into base" in output
 
 
 def test_worktree_cleanup_keeps_dirty_worktree(tmp_path: Path, capsys) -> None:
