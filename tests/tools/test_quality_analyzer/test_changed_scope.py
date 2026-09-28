@@ -259,6 +259,35 @@ class TestChangedFromCommandLine:
         assert "gate_scope: 2 files checked" in out  # Both test files, not only the changed one.
         assert rc == 0
 
+    @pytest.mark.parametrize("option", ["--baseline", "--config"])
+    def test_a_changed_gate_input_scans_every_root(
+        self,
+        repository: Path,
+        repo_root: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        option: str,
+    ) -> None:
+        # The temporary repository holds no source module, so no detector can measure real scope.
+        monkeypatch.setattr(TestQualityCLI, "_zero_detector_scope_metric", lambda *_args, **_kwargs: None)
+        settings = ".github/test-quality-config.toml"  # A caller-owned settings file, as in MistHelper.
+        package_settings = repo_root / "src" / "misthelper_devtools" / "test_quality_analyzer" / "config.toml"
+        shutil.copyfile(package_settings, repository / settings)
+        _commit(repository, "own the settings")
+        _git(repository, "tag", "owned")
+        _append_comment(repository / "tests" / "test_alpha.py")
+        if option == "--baseline":
+            (repository / _BASELINE).write_text("[]\n\n", encoding="utf-8")  # The JSON keeps its value.
+        else:
+            _append_comment(repository / settings)
+        _commit(repository, "change a gate input")
+
+        rc = main(["--gate", "--changed-from", "owned", "--baseline", _BASELINE, "--config", settings])
+
+        out = capsys.readouterr().out
+        assert "gate_scope: 2 files checked" in out  # No --full-gate-path option names the changed input.
+        assert rc == 0
+
     def test_an_unknown_revision_exits_two(self, repository: Path, capsys: pytest.CaptureFixture[str]) -> None:
         rc = main(["--gate", "--changed-from", "no-such-revision"])
 
