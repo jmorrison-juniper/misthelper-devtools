@@ -103,11 +103,12 @@ codeql-verdict-register check
 ```
 
 `diagram-refs` has generic defaults. It scans `documentation/diagrams/`,
-`README.md`, and `src/`. MistHelper must name its top-level file and its
-product words:
+`README.md`, and `src/`. MistHelper names its top-level file, and it keeps its
+product words in an allowlist file. The command skips each blank line and each
+line that starts with `#` in that file.
 
 ```powershell
-diagram-refs --source-files MistHelper.py src/ --allow MistHelper --allow InfrastructureCore --allow ConfigObjects --allow APIFetching --allow DataProcessing --allow OrgExporters --allow SiteExporters --allow GatewayExporters --allow WebSocketNet --allow UITUI --allow SystemRegistry --allow OrgExporter --allow SiteExporter --allow GatewayExporter --allow MigrationManager
+diagram-refs --source-files MistHelper.py src/ --allowlist-file .github/diagram-refs-allowlist.txt
 ```
 
 `exclusion-drift` reads `quality_gate_exclusions.json` from the repository root
@@ -179,6 +180,36 @@ markdown-link-check
 markdown-link-check --exclude 'documentation/wiki/**'
 markdown-link-check documentation
 ```
+
+## Upgrade from release 0.4.0 to release 0.5.0
+
+Release 0.5.0 changes no command of release 0.4.0. It adds commands, workflows,
+one action, and pre-commit hooks that replace local copies in the Mist
+repositories. Change the SHA of each pin and the release comment together.
+Then delete each local copy in this table.
+
+| Local copy in a Mist repository | Release 0.5.0 |
+| - | - |
+| `scripts/codeql_verdict_register.py` | `codeql-verdict-register generate` and `codeql-verdict-register check` |
+| `scripts/lint_diagram_refs.py` | `diagram-refs` |
+| `scripts/check_exclusion_drift.py` | `exclusion-drift` |
+| The inline Bandit exclude check of a CI workflow | `bandit-exclude-check` |
+| `scripts/mermaid/lint_mermaid.mjs` and its npm files | The `mermaid-lint` action |
+| `scripts/run_local_test_shard.py` | `pytest-chunks` |
+| `scripts/cleanup_merged_worktrees.py` and `scripts/cleanup_stale_worktree_admin_dirs.py` | `worktree-cleanup merged` and `worktree-cleanup stale-admin` |
+| The link checker of a Markdown guardrail test | `markdown-link-check`, or the `MarkdownLinkChecker` class |
+| A template or copy of the Python gate jobs | `reusable-python-quality-gates.yml` |
+| The `analyze` job of a CodeQL workflow | `reusable-codeql.yml` |
+| A local STE lint hook | The `ste-linter` and `markdown-link-check` pre-commit hooks |
+
+`test-quality-analyzer --gate` can scan only the test files that a pull request
+changes. Give `--changed-from` a git revision, such as the base branch. A
+change to the baseline, to the settings file, or to a `--full-gate-path` file
+scans the whole suite.
+
+The MistHelper file names and settings are not defaults. Give them as options,
+for example `--source-files MistHelper.py src/` or
+`--exclude 'documentation/wiki/**'`.
 
 ## Upgrade from release 0.3.0 to release 0.4.0
 
@@ -293,7 +324,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-container-image.yml@<commit-sha> # v0.4.0
+    uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-container-image.yml@<commit-sha> # v0.5.0
 ```
 
 To upgrade a consumer, read the release notes, then change the SHA and the
