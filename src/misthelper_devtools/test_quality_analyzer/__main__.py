@@ -9,6 +9,8 @@ Pipeline:
 
     1. Parse CLI flags via argparse.
     2. Load config via ConfigLoader (ConfigError -> exit 2).
+       With --changed-from, replace the roots with the changed test files
+       (see changed_scope.py), or stop early when no test file changed.
     3. Discover test files via TestFileDiscoverer.
     4. Import all 5 detector modules to trigger DetectorRegistry registration.
     5. For each discovered file:
@@ -36,6 +38,10 @@ from misthelper_devtools.test_quality_analyzer import __version__ as _ENGINE_VER
 from misthelper_devtools.test_quality_analyzer.baseline import (  # US2 baseline load/diff/write.
     BaselineDiffer,
     evaluate_gate,
+)
+from misthelper_devtools.test_quality_analyzer.changed_scope import (  # --changed-from scope selection.
+    ChangedScopeError,
+    ChangedScopeResolver,
 )
 from misthelper_devtools.test_quality_analyzer.config import ConfigError, ConfigLoader  # Config loader.
 from misthelper_devtools.test_quality_analyzer.detection import (
@@ -167,6 +173,24 @@ class TestQualityCLI:
             action="store_true",  # Rewrites the baseline without the stale entries.
             help="Drop stale baseline entries, keep every other entry, and exit 0.",
         )
+        # --changed-from: scan only the test files that changed since a git revision.
+        parser.add_argument(
+            "--changed-from",
+            default=None,  # Unset -> scan the roots.
+            metavar="REVISION",
+            help=(
+                "Scan only the test files that changed between REVISION and HEAD. "
+                "A change to a trigger path scans every root."
+            ),
+        )
+        # --full-gate-path: repeatable trigger path for --changed-from.
+        parser.add_argument(
+            "--full-gate-path",
+            action="append",  # Repeatable flag accumulates into a list.
+            default=[],  # The baseline and the config are always trigger paths.
+            metavar="PATH",
+            help="With --changed-from, a change to PATH scans every root (may be repeated).",
+        )
         # --disable-rule: repeatable rule id filter.
         parser.add_argument(
             "--disable-rule",
@@ -227,12 +251,19 @@ class TestQualityCLI:
         """Full US1+US2 pipeline; returns exit code (0/1/2 per contracts/cli.md)."""
         # Validate the mode flags up-front; more than one mode is invalid CLI usage.
         conflict = self._mode_conflict(args)  # None when at most one mode flag is set.
+        if conflict is None:
+            conflict = self._changed_scope_conflict(args)  # None when --changed-from fits the other options.
         if conflict is not None:
             sys.stderr.write(conflict)  # The contract puts the reason on stderr.
             return 2  # Invalid CLI usage per contract exit code 2.
         # 1. Load the config; ConfigError bubbles up to run() and maps to exit 2.
         _LOGGER.info("Loading config from %s", args.config)
         config_snapshot = ConfigLoader().load(Path(args.config))  # Immutable snapshot.
+        # 1b. --changed-from: replace the roots with the changed test files, or stop when none changed.
+        if args.changed_from is not None:
+            scope_exit = self._apply_changed_scope(args)  # None means the pipeline continues.
+            if scope_exit is not None:
+                return scope_exit  # No test file changed, or git cannot list the changes.
         # 2. Discover test files under the requested roots.
         roots = self._resolve_roots(args.roots)  # Roots as Path objects for discovery.
         _LOGGER.info("Discovering test files under %s", [str(r) for r in roots])
@@ -404,6 +435,58 @@ class TestQualityCLI:
             return None
         # More than one mode is invalid usage, so the message names each one.
         return "test_quality_analyzer: %s are mutually exclusive\n" % " and ".join(selected)
+
+    def _changed_scope_conflict(self, args: argparse.Namespace) -> str | None:
+        """Return an error line when --changed-from meets an option that it cannot scope."""
+        if args.changed_from is None:  # The option is absent, so nothing can conflict.
+            return None
+        # --roots names the scope too, and a baseline rewrite from a partial scan drops real entries.
+        clashes = (
+            ("--roots", args.roots is not None),  # Two scope sources are ambiguous.
+            ("--write-baseline", args.write_baseline),  # A partial scan must not replace the baseline.
+            ("--prune-baseline", args.prune_baseline),  # A partial scan makes every other entry look stale.
+        )
+        selected = [name for name, enabled in clashes if enabled]  # Keep only the options the caller set.
+        if not selected:  # --changed-from fits the rest of the command.
+            return None
+        return "test_quality_analyzer: --changed-from cannot be used with %s\n" % " or ".join(selected)
+
+    def _apply_changed_scope(self, args: argparse.Namespace) -> int | None:
+        """Scope the run to the changed test files; return an exit code when the run must stop."""
+        triggers = [*args.full_gate_path, str(args.baseline or ""), str(args.config)]  # Gate inputs always count.
+        _LOGGER.info("Selecting the scan scope from the changes since %s", args.changed_from)  # Log before git.
+        try:
+            scope = ChangedScopeResolver(args.changed_from, triggers).resolve()  # Read the diff from git.
+        except ChangedScopeError as exc:
+            _LOGGER.error("Cannot list the changed files: %s", exc)  # Log the failed git call.
+            sys.stderr.write("test_quality_analyzer: changed-file scope error: %s\n" % exc)
+            return 2  # Fail closed: an unknown scope must not pass the gate.
+        if scope.scans_every_root:  # A trigger path can change a finding in any test file.
+            _LOGGER.info("%s changed, so the run scans every test root", scope.full_gate_trigger)
+            return None  # Continue with the default roots.
+        if scope.test_files:  # Scan the changed test files only.
+            _LOGGER.info("Scanning %d changed test file(s)", len(scope.test_files))
+            args.roots = list(scope.test_files)  # The discoverer accepts a file as a root.
+            return None  # Continue with the scoped roots.
+        return self._finish_empty_scope(args)  # No test file changed.
+
+    def _finish_empty_scope(self, args: argparse.Namespace) -> int:
+        """Print the zero summary for a run with no changed test file and return its exit code."""
+        _LOGGER.info("No test file changed since %s", args.changed_from)  # Explain the empty scan.
+        if not args.gate:  # An audit run prints only the summary line.
+            self._emit_stdout_summary(findings=(), skipped=(), parse_errors=())
+            return 0  # An empty audit is a clean run.
+        if not args.baseline:  # The gate needs its comparator, even for an empty scan.
+            sys.stderr.write('test_quality_analyzer: --gate requires --baseline (got "")\n')
+            return 2  # Invalid usage in gate mode without a baseline.
+        evaluation = evaluate_gate((), Path(args.baseline))  # Prove that the committed baseline still loads.
+        if evaluation.exit_code == 2:  # A missing or damaged baseline fails closed.
+            sys.stderr.write(evaluation.stderr_line)  # State why the gate cannot compare.
+            return 2  # Engine error exit code.
+        self._emit_gate_scope(files_checked=0, findings_checked=0)  # Show that the gate measured no file.
+        self._emit_stdout_summary(findings=(), skipped=(), parse_errors=())  # Keep the summary shape.
+        sys.stdout.write(evaluation.stdout_line)  # "gate: 0 new findings vs baseline".
+        return evaluation.exit_code  # Zero, because no scanned file can hold a new finding.
 
     def _prune_baseline(
         self,
