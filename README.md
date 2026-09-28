@@ -171,6 +171,8 @@ pytest-chunks -x tests\contract tests\guardrails tests\integration --split tests
 
 `markdown-link-check` reads tracked Markdown files with git. It reports
 repository-local links that point to a missing file, folder, or Markdown anchor.
+A link that starts with `/` starts at the repository root, as on GitHub. A link
+that leaves the repository counts as a missing file.
 The command checks every tracked Markdown file by default. Use repeatable
 `--exclude` globs to skip a tree, such as a wiki mirror with links that only
 the wiki can resolve.
