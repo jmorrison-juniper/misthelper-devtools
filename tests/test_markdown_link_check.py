@@ -56,6 +56,37 @@ def test_markdown_link_checker_reports_missing_files_and_anchors(tmp_path: Path)
     ]
 
 
+def test_markdown_link_checker_resolves_a_leading_slash_against_the_root(tmp_path: Path) -> None:
+    """GitHub resolves a link that starts with a slash against the repository root."""
+    repository = tmp_path / "repo"
+    _init_repository(repository)
+    (repository / "docs" / "api").mkdir(parents=True)
+    (repository / "docs" / "guide.md").write_text("# Guide\n\n## Setup\n", encoding="utf-8")
+    (repository / "docs" / "api" / "page.md").write_text(
+        "\n".join(
+            [
+                "[root](/)",
+                "[root anchor](/#operations/listThings)",
+                "[guide](/docs/guide.md#setup)",
+                "[missing](/docs/missing.md)",
+                "[bad anchor](/docs/guide.md#missing-heading)",
+                "[outside](/../outside.md)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "outside.md").write_text("# Outside\n", encoding="utf-8")  # Exists, but outside the checkout.
+    _commit_all(repository)
+
+    failures = MarkdownLinkChecker(repository).broken_links()
+
+    assert [failure.report_line() for failure in failures] == [
+        "docs/api/page.md:4: /docs/missing.md (no such file)",
+        "docs/api/page.md:5: /docs/guide.md#missing-heading (no such anchor)",
+        "docs/api/page.md:6: /../outside.md (no such file)",
+    ]
+
+
 def test_markdown_link_checker_ignores_code_and_external_links(tmp_path: Path) -> None:
     """The checker keeps the source test rules for code and URL schemes."""
     repository = tmp_path / "repo"

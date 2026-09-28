@@ -113,7 +113,7 @@ class MarkdownLinkChecker:
             return None  # A URL or a same-page anchor needs no repository file.
         file_part, _, anchor = target.partition("#")  # Split the path from an optional anchor.
         if file_part:
-            resolved = (path.parent / unquote(file_part)).resolve()  # Decode percent escapes before path lookup.
+            resolved = self._resolve_file_part(path, unquote(file_part))  # Decode percent escapes first.
             if not _is_under_root(resolved, self.root) or not resolved.exists():  # Missing or escaping path.
                 return LinkFailure(relative, line_number, target, "no such file")  # Report the bad target.
         else:
@@ -124,6 +124,16 @@ class MarkdownLinkChecker:
             if unquote(anchor).lower() not in self._anchor_cache[resolved]:  # GitHub anchors are lower case.
                 return LinkFailure(relative, line_number, target, "no such anchor")  # Report the bad anchor.
         return None  # The target exists.
+
+    def _resolve_file_part(self, path: Path, file_part: str) -> Path:
+        """Return the absolute path that the path part of a link names.
+
+        GitHub resolves a link that starts with a slash against the repository
+        root, not against the root of the file system.
+        """
+        if file_part.startswith("/"):  # A root-relative link, such as /docs/guide.md.
+            return (self.root / file_part.lstrip("/")).resolve()  # Start from the repository root.
+        return (path.parent / file_part).resolve()  # Start from the folder of the linking file.
 
     def _included(self, relative: Path, limits: tuple[Path, ...]) -> bool:
         """Return True when a relative path passes caller filters."""
