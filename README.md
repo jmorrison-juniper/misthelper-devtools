@@ -27,6 +27,7 @@ consumer repository.
 | `src/misthelper_devtools/wan_port_report.py` | The WAN port report. It reads a saved Mist port list and prints the gateway WAN port state. |
 | `src/misthelper_devtools/*.py` | Single-file tools. They audit citations, guard proofs, prompts, dependencies, and virtual environments. |
 | `.github/workflows/reusable-*.yml` | The shared workflows that the Mist repositories call. See [Shared workflows](#shared-workflows). |
+| `.pre-commit-hooks.yaml` | The pre-commit hooks that the Mist repositories use. See [Pre-commit hooks](#pre-commit-hooks). |
 | `src/misthelper_devtools/juniper_skills/` | The skill factory. It reads a Juniper document set and it writes a skill package. |
 | `scripts/juniper_skills/` | The command-line entry points for the skill factory. |
 | `tests/` | The test suite for every tool above. |
@@ -119,6 +120,27 @@ misthelper-devtools @ git+https://github.com/jmorrison-juniper/misthelper-devtoo
 ```
 
 The package needs Python 3.13 or newer.
+
+## Pre-commit hooks
+
+This repository supplies hooks for the [pre-commit](https://pre-commit.com)
+framework. The `ste-linter` hook runs the STE linter on each Markdown file and
+each Python file that a commit changes. To use the hook, add this repository
+to `.pre-commit-config.yaml` at a release tag:
+
+```yaml
+repos:
+  - repo: https://github.com/jmorrison-juniper/misthelper-devtools
+    rev: v0.5.0
+    hooks:
+      - id: ste-linter
+        args: [--config, .ste-linter.toml, --min-score, "80"]
+        exclude: ^tests/fixtures/
+```
+
+pre-commit installs this package at the tag in a separate environment. Use the
+release that `requirements-dev.txt` pins. Then the hook and the CI gate give
+the same result.
 
 ## Shared workflows
 
