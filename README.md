@@ -28,6 +28,7 @@ consumer repository.
 | `src/misthelper_devtools/*.py` | Single-file tools. They audit citations, guard proofs, prompts, dependencies, and virtual environments. |
 | `.github/workflows/reusable-*.yml` | The shared workflows that the Mist repositories call. See [Shared workflows](#shared-workflows). |
 | `.pre-commit-hooks.yaml` | The pre-commit hooks that the Mist repositories use. See [Pre-commit hooks](#pre-commit-hooks). |
+| `.github/actions/mermaid-lint/` | The shared Mermaid syntax lint action. It parses Mermaid blocks in Markdown files. |
 | `src/misthelper_devtools/juniper_skills/` | The skill factory. It reads a Juniper document set and it writes a skill package. |
 | `scripts/juniper_skills/` | The command-line entry points for the skill factory. |
 | `tests/` | The test suite for every tool above. |
@@ -257,6 +258,31 @@ file holds a full caller example and the permissions that the caller must give.
 | `reusable-stranded-branch-report.yml` | Runs `stranded-branch-report` and keeps one issue with each branch that holds work with no pull request. It closes the issue after a pull request holds every branch. |
 | `reusable-ste-lint.yml` | Runs `ste-linter` on the documentation files of the caller. It fails when a file scores below the threshold, and it writes the report to the job summary. |
 | `reusable-python-quality-gates.yml` | Runs each Python gate that the caller turns on: ruff, ruff format, black, mypy, pytest, bandit, pip-audit, pylint, radon with `complexity-gate`, vulture, pydocstyle, interrogate, and pydoclint. Its `results` output goes to `reusable-quality-gate-issues.yml`. |
+
+The Mermaid lint is a composite action, not a workflow. A caller keeps its own
+job name and check name:
+
+```yaml
+steps:
+  - uses: actions/checkout@v7
+  - uses: jmorrison-juniper/misthelper-devtools/.github/actions/mermaid-lint@<commit-sha> # v0.5.0
+    with:
+      docs-dir: documentation
+      extra-files: README.md
+      node-version: "24"
+```
+
+Inputs:
+
+| Input | Default | Purpose |
+| - | - | - |
+| `docs-dir` | `documentation` | Scans Markdown files below this directory. |
+| `extra-files` | `README.md` | Scans these extra Markdown files. Use spaces or new lines between paths. |
+| `node-version` | `24` | Selects the Node.js version for the parser. |
+
+The action runs `npm ci` on each run, with no npm cache. The cache in
+`actions/setup-node` reads only the files in the caller workspace, and the
+action runs from a folder outside that workspace.
 
 A caller pins the full commit SHA of a release and writes the release tag in a
 comment:
