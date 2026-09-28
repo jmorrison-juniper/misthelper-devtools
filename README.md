@@ -135,6 +135,7 @@ file holds a full caller example and the permissions that the caller must give.
 | `reusable-copilot-assign.yml` | Assigns the Copilot cloud agent to an issue with a user token. It adds the in-progress label only when the agent is an assignee, and otherwise writes the cause on the issue. |
 | `reusable-stranded-branch-report.yml` | Runs `stranded-branch-report` and keeps one issue with each branch that holds work with no pull request. It closes the issue after a pull request holds every branch. |
 | `reusable-ste-lint.yml` | Runs `ste-linter` on the documentation files of the caller. It fails when a file scores below the threshold, and it writes the report to the job summary. |
+| `reusable-python-quality-gates.yml` | Runs each Python gate that the caller turns on: ruff, ruff format, black, mypy, pytest, bandit, pip-audit, pylint, radon with `complexity-gate`, vulture, pydocstyle, interrogate, and pydoclint. Its `results` output goes to `reusable-quality-gate-issues.yml`. |
 
 A caller pins the full commit SHA of a release and writes the release tag in a
 comment:
@@ -196,14 +197,24 @@ secret, and pass that secret to `reusable-copilot-assign.yml` as
 that tells how to set it up. The header of the workflow gives the token
 permissions.
 
-Note: `reusable-stranded-branch-report.yml` and `reusable-ste-lint.yml` check
-out this repository at the commit that the caller pins, and they install the
-command from that commit. Thus the workflow and the command always come from
-the same release. An open pull request protects its head branch in the
-stranded branch report. A closed or merged pull request protects a branch only
-when the branch holds no commit above the last head of that pull request. The
-report lists a branch that it cannot compare, for example a branch with no
-shared history, with `unknown` values.
+Note: `reusable-stranded-branch-report.yml`, `reusable-ste-lint.yml`, and the
+radon gate of `reusable-python-quality-gates.yml` check out this repository at
+the commit that the caller pins, and they install the command from that commit.
+Thus the workflow and the command always come from the same release. An open
+pull request protects its head branch in the stranded branch report. A closed
+or merged pull request protects a branch only when the branch holds no commit
+above the last head of that pull request. The report lists a branch that it
+cannot compare, for example a branch with no shared history, with `unknown`
+values.
+
+Note: `reusable-python-quality-gates.yml` installs no tool of its own, except
+`complexity-gate`. The install command of the caller installs each tool, so
+pin each tool in that command, for example in `requirements-dev.txt`. Then the
+Dependabot of the caller can update the tools. A gate fails with a clear error
+when the install command does not install its tool. Each check name holds the
+caller job and the gate, for example `gates / Ruff (lint)`. The `Gate results`
+check fails when a gate fails, so branch protection can require that one
+check.
 
 ## Run the tests
 

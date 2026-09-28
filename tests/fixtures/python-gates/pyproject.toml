@@ -1,0 +1,27 @@
+# A sample project for the self-test of reusable-python-quality-gates.yml.
+# Each gate of that workflow must pass in this directory.
+[project]
+name = "gates-sample"
+version = "0.1.0"
+requires-python = ">=3.13"
+
+[tool.pytest.ini_options]
+# The devtools test run collects the test_*.py files. These checks use another
+# file name, so that run does not collect them.
+python_files = ["check_*.py"]
+testpaths = ["checks"]
+pythonpath = ["."]
+
+[tool.mypy]
+strict = true
+
+[tool.pydocstyle]
+convention = "google"
+
+[tool.interrogate]
+fail-under = 100
+
+[tool.pydoclint]
+style = "google"
+arg-type-hints-in-docstring = false
+check-return-types = false
