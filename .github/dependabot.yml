@@ -5,7 +5,9 @@ updates:
   # of a consumer cannot see these actions. A consumer gets an update after
   # the next release of this repository.
   - package-ecosystem: "github-actions"
-    directory: "/"
+    directories:
+      - "/"
+      - "/.github/actions/mermaid-lint"
     schedule:
       interval: "weekly"
     commit-message:
@@ -22,3 +24,14 @@ updates:
         update-types:
           - "version-update:semver-minor"
           - "version-update:semver-patch"
+
+  - package-ecosystem: "npm"
+    directory: "/.github/actions/mermaid-lint"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "build"
+    groups:
+      mermaid-lint:
+        patterns:
+          - "*"

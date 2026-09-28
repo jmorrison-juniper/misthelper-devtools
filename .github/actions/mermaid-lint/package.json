@@ -1,0 +1,9 @@
+{
+  "name": "misthelper-devtools-mermaid-lint",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "jsdom": "^27.0.0",
+    "mermaid": "^11.12.1"
+  }
+}

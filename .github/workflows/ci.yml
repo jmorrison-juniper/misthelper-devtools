@@ -91,12 +91,42 @@ jobs:
       - name: Run each hook from this commit
         run: pre-commit try-repo . --files README.md --verbose
 
+  # This job calls the local composite action. It proves that a caller can use
+  # the action before a release pins it. It also proves that bad syntax fails.
+  mermaid-lint-action:
+    name: mermaid-lint-action
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Run the local Mermaid action on valid syntax
+        uses: ./.github/actions/mermaid-lint
+        with:
+          docs-dir: tests/fixtures/mermaid/valid
+          extra-files: ""
+
+      - name: Run the local Mermaid action on invalid syntax
+        id: invalid-fixture
+        continue-on-error: true
+        uses: ./.github/actions/mermaid-lint
+        with:
+          docs-dir: tests/fixtures/mermaid/invalid
+          extra-files: ""
+
+      - name: Confirm the invalid fixture failed
+        run: |
+          if [ "${{ steps.invalid-fixture.outcome }}" != "failure" ]; then
+            echo "The invalid Mermaid fixture passed unexpectedly."
+            exit 1
+          fi
+          echo "The invalid Mermaid fixture failed as expected."
+
   # The aggregator always reports, so branch protection always receives a
   # status. It is the only check that a protection rule needs to require.
   ci-result:
     name: ci-result
     runs-on: ubuntu-latest
-    needs: [gates, actionlint, ste-lint, pre-commit-hooks]
+    needs: [gates, actionlint, ste-lint, pre-commit-hooks, mermaid-lint-action]
     if: always()
     steps:
       - name: Report the combined result
@@ -105,7 +135,8 @@ jobs:
           echo "The actionlint result is '${{ needs.actionlint.result }}'."
           echo "The STE lint result is '${{ needs.ste-lint.result }}'."
           echo "The pre-commit hook result is '${{ needs.pre-commit-hooks.result }}'."
-          if [ "${{ needs.gates.result }}" != "success" ] || [ "${{ needs.actionlint.result }}" != "success" ] || [ "${{ needs.ste-lint.result }}" != "success" ] || [ "${{ needs.pre-commit-hooks.result }}" != "success" ]; then
+          echo "The Mermaid action result is '${{ needs.mermaid-lint-action.result }}'."
+          if [ "${{ needs.gates.result }}" != "success" ] || [ "${{ needs.actionlint.result }}" != "success" ] || [ "${{ needs.ste-lint.result }}" != "success" ] || [ "${{ needs.pre-commit-hooks.result }}" != "success" ] || [ "${{ needs.mermaid-lint-action.result }}" != "success" ]; then
             echo "One gate failed or was skipped. Read the job list above."
             exit 1
           fi
