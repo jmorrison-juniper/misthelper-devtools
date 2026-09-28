@@ -1,0 +1,7 @@
+name: "misthelper-devtools CodeQL configuration"
+
+# The analyzer fixtures hold the defects that the detectors find, and the test
+# fixtures are sample input. Neither is shipped code, so the scan skips both.
+paths-ignore:
+  - src/misthelper_devtools/test_quality_analyzer/fixtures
+  - tests/fixtures

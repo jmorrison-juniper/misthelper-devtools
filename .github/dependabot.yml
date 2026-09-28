@@ -14,3 +14,11 @@ updates:
       github-actions:
         patterns:
           - "*"
+    ignore:
+      # reusable-codeql.yml uses the floating v4 tag. Take only major updates.
+      # If Dependabot runs before GitHub moves the v4 tag, it replaces the tag
+      # with an exact version.
+      - dependency-name: "github/codeql-action"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"

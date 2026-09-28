@@ -129,6 +129,7 @@ file holds a full caller example and the permissions that the caller must give.
 | Workflow | Purpose |
 | - | - |
 | `reusable-container-image.yml` | Builds a multi-arch image with Buildx and can push it to GHCR. The caller gives the tag rules. |
+| `reusable-codeql.yml` | Runs one CodeQL analysis for each language of the caller and uploads the alerts to code scanning. |
 | `reusable-quality-gate-issues.yml` | Opens one issue for each failed gate and closes it after the gate passes. |
 | `reusable-auto-merge.yml` | Enables auto-merge for a labeled pull request. After the merge, it starts the main workflows that the merge did not start. With `report-orphaned-push`, it writes a notice on a merged pull request when a later push adds a commit to its branch. |
 | `reusable-close-linked-issues.yml` | Closes each issue that a merged pull request links. A sweep finds the auto-merged pull requests. |
@@ -188,6 +189,15 @@ Note: `reusable-close-linked-issues.yml` reads GitHub's own list of linked
 issues. The list holds the closing keywords of a pull request into the default
 branch, for example `Fixes #12`, and each link from the Development panel. The
 job skips a merge into any other branch and an issue in another repository.
+
+Note: code scanning keeps the alerts of each analysis configuration. The key
+of a configuration holds the path of the caller workflow, the job ID
+`analyze`, and the category `/language:<language>`. A repository that moves its
+own `analyze` job to `reusable-codeql.yml`, and keeps the file name of its
+CodeQL workflow, keeps the same configuration. So the open alerts stay open,
+and a pull request does not report a missing configuration. The check name
+changes, for example from `Analyze (python)` to `codeql / Analyze (python)`.
+The `CodeQL` check of code scanning keeps its name.
 
 Note: GitHub assigns the Copilot cloud agent only for a user token, for
 example a fine-grained personal access token. For `GITHUB_TOKEN`, GitHub
