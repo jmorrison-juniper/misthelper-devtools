@@ -62,10 +62,26 @@ def test_excluded_sample_fails(tmp_path: Path, capsys: pytest.CaptureFixture[str
     assert "bandit unexpectedly excludes" in capsys.readouterr().err
 
 
-def test_default_samples_match_legacy_guard() -> None:
-    """Default samples must match the old MistHelper inline check."""
+def test_no_sample_is_checked_by_default() -> None:
+    """The caller names its own product files, so the parser holds no default sample."""
     parser = bandit_exclude_check.build_parser()
 
     args = parser.parse_args([])
 
-    assert args.include_sample == list(bandit_exclude_check.DEFAULT_INCLUDE_SAMPLES)
+    assert args.include_sample == []
+
+
+def test_each_sample_spelling_is_checked(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A Windows-only exclude entry must fail for the Windows spelling of a sample."""
+    pyproject = _write_pyproject(tmp_path, ["src\\utils"])
+    samples = ["./src/utils/zen_city_metadata.py", ".\\src\\utils\\zen_city_metadata.py"]
+
+    result = bandit_exclude_check.main(
+        ["--pyproject", str(pyproject), *(word for sample in samples for word in ("--include-sample", sample))]
+    )
+
+    assert result == 1
+    err = capsys.readouterr().err
+    assert err.startswith(bandit_exclude_check.ERROR_PREFIX)
+    assert "bandit unexpectedly excludes .\\src\\utils\\zen_city_metadata.py" in err
+    assert "exclude_dirs misses the spelling 'src/utils'" in err

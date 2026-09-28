@@ -4,6 +4,10 @@ Bandit compares an exclude entry against the scanned path with a plain
 substring test. It does not normalize path separators. A repository can then
 pass on Linux and scan a different file set on Windows. This command checks
 that each exclude entry with a separator also has the other spelling.
+
+Each --include-sample path must stay inside the Bandit scan scope. Name a
+product source file in both spellings, so an exclude entry that grows too wide
+fails the check on Linux and on Windows.
 """
 
 from __future__ import annotations
@@ -16,11 +20,7 @@ from pathlib import Path  # Hold caller paths without hard-coded separators.
 from typing import Any  # Type the decoded TOML payload.
 
 SUCCESS_MESSAGE = "bandit exclude_dirs pairs both path separator spellings"
-ERROR_PREFIX = "issue #1722 guard failed: "
-DEFAULT_INCLUDE_SAMPLES = (
-    "./src/utils/zen_city_metadata.py",
-    ".\\src\\utils\\zen_city_metadata.py",
-)
+ERROR_PREFIX = "bandit exclude check failed: "
 
 logger = logging.getLogger(__name__)  # Use a module logger so callers can route output.
 
@@ -91,9 +91,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--include-sample",
         action="append",
-        default=list(DEFAULT_INCLUDE_SAMPLES),
-        help="Python path that Bandit must include. Repeat for each separator spelling.",
-    )  # Match the old inline sample guard.
+        default=[],
+        help="Python path that Bandit must include. Repeat for each path and each separator spelling.",
+    )  # No default sample: the caller names its own product files.
     return parser
 
 

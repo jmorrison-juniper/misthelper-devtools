@@ -115,12 +115,12 @@ exclusion-drift --format github --output exclusion-drift.json
 ```
 
 `bandit-exclude-check` checks that `[tool.bandit].exclude_dirs` has each
-spelling for path separators. It checks the MistHelper source samples by
-default. The command imports Bandit for sample checks. MistHelper can keep the
-Bandit guard with:
+spelling for path separators. Each `--include-sample` path must stay in the
+Bandit scan scope. The command has no default sample, and it imports Bandit
+only for a sample check. MistHelper keeps its Bandit guard with:
 
 ```powershell
-bandit-exclude-check
+bandit-exclude-check --include-sample ./src/utils/zen_city_metadata.py --include-sample .\src\utils\zen_city_metadata.py
 ```
 
 ## Upgrade from release 0.3.0 to release 0.4.0
