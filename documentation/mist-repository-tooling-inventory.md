@@ -182,6 +182,9 @@ jmorrison-juniper/MistHelper#3490 with two branches. The old MistHelper script
 opened no issue. See [Defects that the shared workflows
 repair](#defects-that-the-shared-workflows-repair).
 
+A later run of the report opened jmorrison-juniper/MistHelper#3529 with three
+branches. A Copilot session then closed #3490 as a duplicate of #3529.
+
 ## Wave 4 pull requests
 
 Wave 4 moved the last MistHelper tools, tool tests, and CI scripts to this
@@ -464,14 +467,18 @@ These tasks need the account owner. A workflow cannot do them.
 1. Buy a Copilot plan that includes the cloud agent, for example Copilot Pro.
    Enable the cloud agent for the account. Then save a user token as the
    `COPILOT_ASSIGN_TOKEN` secret in MistHelper and in MistHelper-Go. Until then,
-   each assignment run writes one comment with the cause.
+   each assignment run writes one comment with the cause. The issues
+   jmorrison-juniper/MistHelper#3650 and jmorrison-juniper/MistHelper-Go#57
+   track this task.
 
 2. At each devtools release, change the `requirements-dev.txt` pin in
    MistCircuitStats and MistHelper by hand. Dependabot changes only the
-   workflow pins.
+   workflow pins. Issue #36 compares the ways to remove this manual step.
 
-3. Examine the two branches in jmorrison-juniper/MistHelper#3490:
-   `preservation/2746-pr3011-turn0` and `refactor/2926-portal-handlers-c`.
-   Each holds one commit that no pull request holds. Open a pull request for
-   each branch that you keep, and delete each other branch. The weekly report
-   closes the issue when no branch stays on the list.
+3. Examine the branches in jmorrison-juniper/MistHelper#3529:
+   `preservation/2746-pr3011-turn0`, `refactor/2926-portal-handlers-c`, and
+   `fix/2746-fm-http-status`. Each branch holds work that no pull request
+   holds. Open a pull request for each branch that you keep, and delete each
+   other branch. The weekly report closes the issue when no branch stays on
+   the list. The earlier report, jmorrison-juniper/MistHelper#3490, named the
+   first two branches. A Copilot session closed it as a duplicate of #3529.
