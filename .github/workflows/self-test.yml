@@ -12,6 +12,7 @@ on:
       - '.github/workflows/self-test.yml'
       - 'tests/fixtures/container/**'
       - 'tests/fixtures/python-gates/**'
+      - 'src/misthelper_devtools/devtools_pin_check.py'
       - 'src/misthelper_devtools/stranded_branch_report.py'
   push:
     branches: [main]
@@ -20,6 +21,7 @@ on:
       - '.github/workflows/self-test.yml'
       - 'tests/fixtures/container/**'
       - 'tests/fixtures/python-gates/**'
+      - 'src/misthelper_devtools/devtools_pin_check.py'
       - 'src/misthelper_devtools/stranded_branch_report.py'
   workflow_dispatch:
 

@@ -138,6 +138,12 @@ MistCircuitStats and MistHelper pin this package that way in
 `requirements-dev.txt`. Change that pin by hand, in the same pull request as
 the workflow pins.
 
+Releases after `v0.5.2` find a requirement pin that you forgot to change. The
+radon job and the ste-lint job run `devtools-pin-check`. The command compares
+the pin with the commit of the workflow. When the two differ, it writes a
+warning with the new text of the line. The warning does not stop the job.
+Issue #36 compares this check with the other choices.
+
 For MistHelper-Go, Dependabot also updates the base image. Dependabot reads a
 file with the name `Containerfile`.
 
@@ -473,7 +479,9 @@ These tasks need the account owner. A workflow cannot do them.
 
 2. At each devtools release, change the `requirements-dev.txt` pin in
    MistCircuitStats and MistHelper by hand. Dependabot changes only the
-   workflow pins. Issue #36 compares the ways to remove this manual step.
+   workflow pins. After `v0.5.2`, the radon job and the ste-lint job write a
+   warning when you forget. The warning gives the new text of the line. Issue
+   #36 added this check.
 
 3. Examine the branches in jmorrison-juniper/MistHelper#3529:
    `preservation/2746-pr3011-turn0`, `refactor/2926-portal-handlers-c`, and
