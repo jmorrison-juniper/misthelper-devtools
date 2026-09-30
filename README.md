@@ -61,7 +61,7 @@ python -m misthelper_devtools.compliance_analyzer src\
 python -m misthelper_devtools.symbol_diff --base main path\to\file.py
 ```
 
-Nineteen tools also install as a command.
+Twenty tools also install as a command.
 
 | Command | Module |
 | - | - |
@@ -70,6 +70,7 @@ Nineteen tools also install as a command.
 | `codeql-verdict-register` | `misthelper_devtools.codeql_verdict_register` |
 | `complexity-gate` | `misthelper_devtools.complexity_gate` |
 | `compliance-analyzer` | `misthelper_devtools.compliance_analyzer` |
+| `devtools-pin-check` | `misthelper_devtools.devtools_pin_check` |
 | `diagram-refs` | `misthelper_devtools.diagram_refs` |
 | `exclusion-drift` | `misthelper_devtools.exclusion_drift` |
 | `guard-proof-audit` | `misthelper_devtools.guard_proof_audit` |
@@ -126,6 +127,17 @@ only for a sample check. MistHelper keeps its Bandit guard with:
 
 ```powershell
 bandit-exclude-check --include-sample ./src/utils/zen_city_metadata.py --include-sample .\src\utils\zen_city_metadata.py
+```
+
+`devtools-pin-check` reads `requirements-dev.txt` by default. It finds each
+line that installs this repository from Git, and it compares the commit of that
+line with the `--commit` value. For each line that names another commit, it
+writes a GitHub Actions warning with the new text of the line. The command
+always exits with status 0. On a workstation, compare the local pin with a
+release commit:
+
+```powershell
+devtools-pin-check --commit 0b969be7f60599f9a19ebc3069161f9353a1d830
 ```
 
 ### Clean git worktrees
@@ -422,6 +434,14 @@ or merged pull request protects a branch only when the branch holds no commit
 above the last head of that pull request. The report lists a branch that it
 cannot compare, for example a branch with no shared history, with `unknown`
 values.
+
+Note: the STE lint job and the radon gate also run `devtools-pin-check`.
+Dependabot moves the workflow pins of a caller, but it does not move a
+requirement that installs this repository from a Git commit. The command
+compares each such line with the commit of the workflow. For each line that
+names another commit, it writes a warning with the new text of the line. The
+warning never fails a job, so the reviewer of the Dependabot pull request
+changes the line.
 
 Note: `reusable-python-quality-gates.yml` installs no tool of its own, except
 `complexity-gate`. The install command of the caller installs each tool, so

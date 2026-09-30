@@ -5,7 +5,9 @@
 # true. Each job checks out the caller, runs the install command, and runs the
 # tool. The tools come from the install command, so the caller pins each tool,
 # for example in requirements-dev.txt. The radon gate also installs the
-# complexity-gate command from this repository.
+# complexity-gate command from this repository. It then runs the
+# devtools-pin-check command, which writes a warning when a requirement of the
+# caller installs this repository at a different commit.
 #
 # The caller workflow:
 #
@@ -618,6 +620,17 @@ jobs:
       # command always come from the same release.
       - name: Install complexity-gate
         run: python -m pip install --disable-pip-version-check "${GITHUB_WORKSPACE}/.misthelper-devtools"
+
+      # Dependabot moves the workflow pins of the caller, but not a requirement
+      # that installs this repository from a Git commit. The check writes a
+      # warning with the new text of each such line that names another commit.
+      # The check is a notice for the reviewer, so it never fails the gate.
+      - name: Compare the requirement pin with this workflow
+        continue-on-error: true
+        env:
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+          WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+        run: devtools-pin-check --commit "${WORKFLOW_SHA}" --repository "${WORKFLOW_REPOSITORY}"
 
       - name: Check the cyclomatic complexity
         env:
