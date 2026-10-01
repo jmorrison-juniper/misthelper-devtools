@@ -195,6 +195,19 @@ markdown-link-check --exclude 'documentation/wiki/**'
 markdown-link-check documentation
 ```
 
+## Upgrade from release 0.5.2 to release 0.6.0
+
+Release 0.6.0 adds the `devtools-pin-check` command. The radon job of
+`reusable-python-quality-gates.yml` and the job of `reusable-ste-lint.yml` run
+it. The command compares each requirement line that installs this repository
+from Git with the commit of the workflow. For a line that names another commit,
+it writes a warning with the new text of the line. The warning never fails a
+job.
+
+No input, permission, action, or hook changes. Change the SHA of each pin and
+the release comment together. Also change the commit of each requirement line
+that installs this repository, and the `rev:` of the pre-commit hooks.
+
 ## Upgrade from release 0.5.1 to release 0.5.2
 
 Release 0.5.2 repairs one defect in `reusable-auto-merge.yml`. The dispatch job
@@ -295,7 +308,7 @@ the repository. To use these hooks, add this repository to
 ```yaml
 repos:
   - repo: https://github.com/jmorrison-juniper/misthelper-devtools
-    rev: v0.5.2
+    rev: v0.6.0
     hooks:
       - id: ste-linter
         args: [--config, .ste-linter.toml, --min-score, "80"]
@@ -331,7 +344,7 @@ job name and check name:
 ```yaml
 steps:
   - uses: actions/checkout@v7
-  - uses: jmorrison-juniper/misthelper-devtools/.github/actions/mermaid-lint@<commit-sha> # v0.5.2
+  - uses: jmorrison-juniper/misthelper-devtools/.github/actions/mermaid-lint@<commit-sha> # v0.6.0
     with:
       docs-dir: documentation
       extra-files: README.md
@@ -359,7 +372,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-container-image.yml@<commit-sha> # v0.5.2
+    uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-container-image.yml@<commit-sha> # v0.6.0
 ```
 
 To upgrade a consumer, read the release notes, then change the SHA and the
