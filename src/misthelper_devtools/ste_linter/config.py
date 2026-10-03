@@ -19,6 +19,12 @@ _LOG = logging.getLogger("ste_linter.config")
 # The default path to the dictionary file, which git ignores.
 _DEFAULT_DICTIONARY = os.path.join("data", "ste_dictionary.json")
 
+# The environment variable that names a dictionary file. It outranks every file path.
+_ENV_DICTIONARY = "STE_DICTIONARY_PATH"
+
+# The file name that every user-level dictionary location uses.
+_DICTIONARY_FILENAME = "ste_dictionary.json"
+
 # The default logging methods that carry operator-facing messages.
 _DEFAULT_LOGGING_CALLS = (
     "logging.debug",
@@ -31,6 +37,37 @@ _DEFAULT_LOGGING_CALLS = (
 
 # The default call names that carry prompts or printed text.
 _DEFAULT_USER_FACING_CALLS = ("print", "safe_input")
+
+
+def user_dictionary_paths() -> tuple[str, ...]:
+    """Return the user-level dictionary locations, in lookup order."""
+    paths: list[str] = []  # Collect the candidates in order.
+    local = os.environ.get("LOCALAPPDATA")  # Read the Windows per-user data folder.
+    if local:  # The variable exists only on Windows.
+        paths.append(os.path.join(local, "ste-linter", _DICTIONARY_FILENAME))  # Add the Windows location.
+    home = os.path.expanduser("~")  # Read the home folder on every platform.
+    paths.append(os.path.join(home, ".local", "share", "ste-linter", _DICTIONARY_FILENAME))  # Add the XDG location.
+    paths.append(os.path.join(home, ".ste-linter", _DICTIONARY_FILENAME))  # Add the simple home location.
+    return tuple(paths)  # Give the caller an immutable order.
+
+
+def resolve_dictionary_path(configured: str | None = None) -> str:
+    """Return the first dictionary path that exists, or the configured default."""
+    candidates: list[str] = []  # Collect every candidate in precedence order.
+    env = os.environ.get(_ENV_DICTIONARY)  # Read the environment override first.
+    if env:  # An empty value means the operator set no override.
+        candidates.append(env)  # The environment value outranks every file path.
+    if configured:  # The configuration file named a path.
+        candidates.append(configured)  # The configured path outranks the built-in default.
+    candidates.append(_DEFAULT_DICTIONARY)  # Try the repository copy next.
+    candidates.extend(user_dictionary_paths())  # Fall back to the user-level copies.
+    for candidate in candidates:  # Walk the candidates in order.
+        if os.path.isfile(candidate):  # Stop at the first file that exists.
+            _LOG.debug("Resolved dictionary path to %s", candidate)  # Record the choice.
+            return candidate  # Give the caller a path that exists.
+    fallback = configured or _DEFAULT_DICTIONARY  # No candidate exists, so keep the stated path.
+    _LOG.debug("No dictionary file found, keeping %s", fallback)  # Record the miss.
+    return fallback  # The caller reports the skip with this path.
 
 
 @dataclass
@@ -85,10 +122,12 @@ class LinterConfig:
         """Return a configuration from the TOML file, or the defaults."""
         config = cls()  # Start from the built-in defaults.
         table = cls._read_table(path)  # Read the tool table from the file.
-        if not table:  # The file or section is missing.
-            return config  # Return the defaults.
-        cls._apply_table(config, table)  # Apply the file settings onto the defaults.
-        _LOG.debug("Loaded linter configuration from %s", path)  # Record the load.
+        if table:  # The file holds a tool section.
+            cls._apply_table(config, table)  # Apply the file settings onto the defaults.
+            _LOG.debug("Loaded linter configuration from %s", path)  # Record the load.
+        stated = config.dictionary_path  # Read the path that the file or the default supplied.
+        configured = stated if stated != _DEFAULT_DICTIONARY else None  # Keep only a path the file stated.
+        config.dictionary_path = resolve_dictionary_path(configured)  # Fall back to a dictionary that exists.
         return config  # Return the merged configuration.
 
     @staticmethod

@@ -4,7 +4,12 @@ from __future__ import annotations  # Postponed annotations keep the type hints 
 
 import pathlib  # Writes a temporary configuration file.
 
-from misthelper_devtools.ste_linter.config import LinterConfig  # The configuration under test.
+import pytest  # Supplies the monkeypatch fixture.
+
+from misthelper_devtools.ste_linter.config import (
+    LinterConfig,  # The configuration under test.
+    resolve_dictionary_path,  # The lookup order under test.
+)
 
 
 def test_defaults() -> None:
@@ -91,3 +96,60 @@ def test_load_missing_file_uses_defaults() -> None:
     """The loader returns defaults when the file is missing."""
     config = LinterConfig.load("does-not-exist.toml")  # Load a missing file.
     assert config.min_score is None  # The defaults have no threshold.
+
+
+def _isolate_dictionary_env(monkeypatch: pytest.MonkeyPatch, home: pathlib.Path) -> None:
+    """Point every dictionary location at an empty temporary home."""
+    monkeypatch.delenv("STE_DICTIONARY_PATH", raising=False)  # Remove any operator override.
+    monkeypatch.setenv("LOCALAPPDATA", str(home / "local"))  # Redirect the Windows location.
+    monkeypatch.setenv("HOME", str(home))  # Redirect the home folder on Linux and macOS.
+    monkeypatch.setenv("USERPROFILE", str(home))  # Redirect the home folder on Windows.
+    monkeypatch.chdir(home)  # Remove the relative repository copy from the lookup.
+
+
+def test_resolve_dictionary_prefers_environment(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The environment variable outranks every file path."""
+    _isolate_dictionary_env(monkeypatch, tmp_path)  # Start from an empty set of locations.
+    wanted = tmp_path / "from-env.json"  # Name the file that the operator chose.
+    wanted.write_text("{}", encoding="utf-8")  # Create the file so the existence test passes.
+    other = tmp_path / "from-toml.json"  # Name a second file that must lose.
+    other.write_text("{}", encoding="utf-8")  # Create the second file as well.
+    monkeypatch.setenv("STE_DICTIONARY_PATH", str(wanted))  # Set the operator override.
+    assert resolve_dictionary_path(str(other)) == str(wanted)  # The environment value wins.
+
+
+def test_resolve_dictionary_uses_configured_path(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The configured path wins when no environment override exists."""
+    _isolate_dictionary_env(monkeypatch, tmp_path)  # Start from an empty set of locations.
+    wanted = tmp_path / "from-toml.json"  # Name the file that the configuration chose.
+    wanted.write_text("{}", encoding="utf-8")  # Create the file so the existence test passes.
+    assert resolve_dictionary_path(str(wanted)) == str(wanted)  # The configured path wins.
+
+
+def test_resolve_dictionary_falls_back_to_user_level(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A missing configured path falls through to the user-level copy."""
+    _isolate_dictionary_env(monkeypatch, tmp_path)  # Start from an empty set of locations.
+    user_copy = tmp_path / "local" / "ste-linter" / "ste_dictionary.json"  # Name the Windows location.
+    user_copy.parent.mkdir(parents=True)  # Create the folder that holds the user-level copy.
+    user_copy.write_text("{}", encoding="utf-8")  # Create the user-level dictionary file.
+    missing = str(tmp_path / "absent.json")  # Name a configured path that does not exist.
+    assert resolve_dictionary_path(missing) == str(user_copy)  # The user-level copy wins.
+
+
+def test_resolve_dictionary_keeps_stated_path_on_miss(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A complete miss keeps the stated path so the report can name it."""
+    _isolate_dictionary_env(monkeypatch, tmp_path)  # Start from an empty set of locations.
+    missing = str(tmp_path / "absent.json")  # Name a configured path that does not exist.
+    assert resolve_dictionary_path(missing) == missing  # The stated path survives the miss.
+
+
+def test_load_resolves_user_level_dictionary(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The loader falls back to the user-level dictionary when the stated file is absent."""
+    _isolate_dictionary_env(monkeypatch, tmp_path)  # Start from an empty set of locations.
+    user_copy = tmp_path / "local" / "ste-linter" / "ste_dictionary.json"  # Name the Windows location.
+    user_copy.parent.mkdir(parents=True)  # Create the folder that holds the user-level copy.
+    user_copy.write_text("{}", encoding="utf-8")  # Create the user-level dictionary file.
+    path = tmp_path / "pyproject.toml"  # Name the temporary configuration file.
+    path.write_text('[tool.ste_linter]\ndictionary = "absent.json"\n', encoding="utf-8")  # State a missing path.
+    config = LinterConfig.load(str(path))  # Load the configuration under test.
+    assert config.dictionary_path == str(user_copy)  # The loader found the user-level copy.
