@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "jsdom": "^27.0.0",
-    "mermaid": "^11.12.1"
+    "jsdom": "^29.1.1",
+    "mermaid": "^12.1.0"
   }
 }

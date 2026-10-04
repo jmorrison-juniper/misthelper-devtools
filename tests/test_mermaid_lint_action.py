@@ -70,5 +70,5 @@ def test_mermaid_package_versions_match_lockfile() -> None:
     package = load_json(PACKAGE_PATH)
     lock = load_json(LOCK_PATH)
 
-    assert package["dependencies"] == {"jsdom": "^27.0.0", "mermaid": "^11.12.1"}
+    assert package["dependencies"] == {"jsdom": "^29.1.1", "mermaid": "^12.1.0"}
     assert lock["packages"][""]["dependencies"] == package["dependencies"]

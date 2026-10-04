@@ -236,6 +236,7 @@ jobs:
           # tip is proof. An answer of no run can be wrong, so the job asks
           # again before it starts a workflow.
           current=''
+          pending_has_items=true
           query="branch=${DEFAULT_BRANCH}&head_sha=${tip}&per_page=1"
           read -r -a pending <<< "${MAIN_WORKFLOWS}"
           check=1
@@ -253,8 +254,13 @@ jobs:
                 missed+=("${workflow}")
               fi
             done
+            if [ "${#missed[@]}" -eq 0 ]; then
+              pending_has_items=false
+              break
+            fi
             pending=("${missed[@]}")
-            if [ "${#pending[@]}" -eq 0 ] || [ "${check}" -ge "${COVERAGE_CHECKS}" ]; then
+            pending_has_items=true
+            if [ "${check}" -ge "${COVERAGE_CHECKS}" ]; then
               break
             fi
             sleep "${COVERAGE_CHECK_INTERVAL}"
@@ -263,17 +269,19 @@ jobs:
 
           started=''
           failed=''
-          for workflow in "${pending[@]}"; do
-            echo "${workflow} showed no run on the tip in ${COVERAGE_CHECKS} checks, so the workflow missed the tip."
-            # One failed call must not stop the other calls.
-            if gh workflow run "${workflow}" --ref "${DEFAULT_BRANCH}"; then
-              echo "Started ${workflow} on ${DEFAULT_BRANCH}."
-              started="${started}${workflow} "
-            else
-              echo "::error::The dispatch call for ${workflow} on ${DEFAULT_BRANCH} failed."
-              failed="${failed}${workflow} "
-            fi
-          done
+          if [ "${pending_has_items}" = true ]; then
+            for workflow in "${pending[@]}"; do
+              echo "${workflow} showed no run on the tip in ${COVERAGE_CHECKS} checks, so the workflow missed the tip."
+              # One failed call must not stop the other calls.
+              if gh workflow run "${workflow}" --ref "${DEFAULT_BRANCH}"; then
+                echo "Started ${workflow} on ${DEFAULT_BRANCH}."
+                started="${started}${workflow} "
+              else
+                echo "::error::The dispatch call for ${workflow} on ${DEFAULT_BRANCH} failed."
+                failed="${failed}${workflow} "
+              fi
+            done
+          fi
 
           {
             echo "## Post-merge dispatch"
