@@ -20,6 +20,10 @@ from .models import Score  # The score type the reporters render.
 class TextReporter:
     """Renders the scores as human-readable text."""
 
+    def __init__(self, dictionary_note: str = "") -> None:
+        """Keep the cause of a dictionary skip, so the score line can name it."""
+        self._dictionary_note = dictionary_note  # An empty note means the cause is not known.
+
     def render(
         self,
         scores: list[Score],
@@ -37,7 +41,7 @@ class TextReporter:
         """Return the text block for one file."""
         lines = [score.path]  # The first line names the file.
         gate = self._gate_label(score.score, min_score)  # The pass or fail label, when a gate is set.
-        dictionary = "used" if score.dictionary_used else "skipped"  # The dictionary state.
+        dictionary = "used" if score.dictionary_used else self._skipped_label()  # The dictionary state.
         lines.append(
             f"  Score: {score.score}/100  (words graded: {score.word_count}, " f"dictionary: {dictionary}){gate}"
         )  # The score line.
@@ -47,6 +51,12 @@ class TextReporter:
         lines.append(f"  Violations ({len(score.violations)}):")  # The violation header.
         lines.extend(self._violation_lines(score))  # The violation lines.
         return "\n".join(lines)  # Return the full block.
+
+    def _skipped_label(self) -> str:
+        """Return the skip label, with its cause when the CLI supplied one."""
+        if not self._dictionary_note:  # The caller gave no cause.
+            return "skipped"  # Keep the short label.
+        return f"skipped ({self._dictionary_note})"  # Name the cause for the operator.
 
     def _gate_label(self, value: int, min_score: int | None) -> str:
         """Return a pass or fail label when a threshold is set, else an empty string."""
@@ -76,6 +86,10 @@ class TextReporter:
 class JsonReporter:
     """Renders the scores as machine-readable JSON."""
 
+    def __init__(self, dictionary_note: str = "") -> None:
+        """Keep the cause of a dictionary skip, so the summary can name it."""
+        self._dictionary_note = dictionary_note  # An empty note means the dictionary ran or the cause is not known.
+
     def render(
         self,
         scores: list[Score],
@@ -93,6 +107,7 @@ class JsonReporter:
                 "files": len(scores),  # The number of files graded.
                 "min_score": min_score,  # The threshold, or null.
                 "passed": passed,  # Whether every file met the threshold.
+                "dictionary_note": self._dictionary_note,  # The cause of a dictionary skip, or empty.
             },
         }  # The full JSON envelope.
         if coverage is not None:  # Add coverage for automation and operators.

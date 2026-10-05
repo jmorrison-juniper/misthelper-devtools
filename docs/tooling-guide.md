@@ -537,11 +537,13 @@ Simplified Technical English outranks each other style rule in the two files.
    release.
 6. Remove a lower-case `agents.md` and each `.github/instructions/*.instructions.md`
    after their rules landed in one of the two files.
-7. Grade the files on a workstation with a dictionary, then let CI grade them
-   without one. Each file must score 80 or above in both modes.
+7. Grade the files in the two modes. The first command uses the dictionary of
+   the workstation. The second command runs the structural rules only, as CI
+   does. Each file must score 80 or above in both modes.
 
 ```sh
 ste-linter --config .ste-linter.toml --min-score 80 README.md AGENTS.md .github/copilot-instructions.md
+ste-linter --config .ste-linter.toml --min-score 80 --no-dictionary README.md AGENTS.md .github/copilot-instructions.md
 agent-instructions-check --commit <commit-sha>
 ```
 

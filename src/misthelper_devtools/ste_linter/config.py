@@ -52,22 +52,24 @@ def user_dictionary_paths() -> tuple[str, ...]:
 
 
 def resolve_dictionary_path(configured: str | None = None) -> str:
-    """Return the first dictionary path that exists, or the configured default."""
-    candidates: list[str] = []  # Collect every candidate in precedence order.
+    """Return the explicit dictionary path, or the first implicit path that exists.
+
+    An explicit path comes from ``STE_DICTIONARY_PATH`` or from the configuration file. The
+    resolver returns an explicit path with no fallback, so a path that does not exist turns the
+    dictionary off. An operator uses this to grade in the structural mode that CI uses.
+    """
     env = os.environ.get(_ENV_DICTIONARY)  # Read the environment override first.
-    if env:  # An empty value means the operator set no override.
-        candidates.append(env)  # The environment value outranks every file path.
-    if configured:  # The configuration file named a path.
-        candidates.append(configured)  # The configured path outranks the built-in default.
-    candidates.append(_DEFAULT_DICTIONARY)  # Try the repository copy next.
-    candidates.extend(user_dictionary_paths())  # Fall back to the user-level copies.
+    explicit = env or configured  # An empty environment value means the operator set no override.
+    if explicit:  # The operator or the configuration file named a path.
+        _LOG.debug("Using the explicit dictionary path %s", explicit)  # Record the choice.
+        return explicit  # Keep the explicit path even when the file does not exist.
+    candidates = [_DEFAULT_DICTIONARY, *user_dictionary_paths()]  # The implicit paths in lookup order.
     for candidate in candidates:  # Walk the candidates in order.
         if os.path.isfile(candidate):  # Stop at the first file that exists.
             _LOG.debug("Resolved dictionary path to %s", candidate)  # Record the choice.
             return candidate  # Give the caller a path that exists.
-    fallback = configured or _DEFAULT_DICTIONARY  # No candidate exists, so keep the stated path.
-    _LOG.debug("No dictionary file found, keeping %s", fallback)  # Record the miss.
-    return fallback  # The caller reports the skip with this path.
+    _LOG.debug("No dictionary file found, keeping %s", _DEFAULT_DICTIONARY)  # Record the miss.
+    return _DEFAULT_DICTIONARY  # The caller reports the skip with this path.
 
 
 @dataclass
@@ -80,6 +82,7 @@ class LinterConfig:
     paragraph_limit: int = 6  # The largest allowed sentence count in a paragraph.
     min_score: int | None = None  # The pass threshold, or None for no gate.
     dictionary_path: str = _DEFAULT_DICTIONARY  # The dictionary file path.
+    dictionary_disabled: bool = False  # True when the operator turned the dictionary checks off.
     prefer_spacy: bool = True  # Whether to use the spaCy backend when it is present.
     weights: dict[str, float] = field(default_factory=dict)  # Per-rule weight overrides.
     section_weights: dict[str, float] = field(default_factory=dict)  # Per-section weight overrides.
@@ -127,7 +130,7 @@ class LinterConfig:
             _LOG.debug("Loaded linter configuration from %s", path)  # Record the load.
         stated = config.dictionary_path  # Read the path that the file or the default supplied.
         configured = stated if stated != _DEFAULT_DICTIONARY else None  # Keep only a path the file stated.
-        config.dictionary_path = resolve_dictionary_path(configured)  # Fall back to a dictionary that exists.
+        config.dictionary_path = resolve_dictionary_path(configured)  # Apply the lookup order.
         return config  # Return the merged configuration.
 
     @staticmethod
