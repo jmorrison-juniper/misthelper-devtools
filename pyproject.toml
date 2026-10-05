@@ -1,6 +1,6 @@
 [project]
 name = "misthelper-devtools"
-version = "0.6.1"
+version = "0.6.2"
 description = "In-house testing and development tooling for MistHelper and the related Mist repositories."
 readme = "README.md"
 requires-python = ">=3.13"
