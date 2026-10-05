@@ -217,6 +217,31 @@ markdown-link-check --exclude 'documentation/wiki/**'
 markdown-link-check documentation
 ```
 
+## Upgrade from release 0.6.1 to release 0.6.2
+
+Release 0.6.2 makes the STE linter more accurate and makes the CI grade
+match a workstation grade. It also removes one shared workflow and amends the
+agent instruction templates.
+
+- The STE linter has a `--no-dictionary` flag. It runs the structural rules
+  only. A dictionary path in the environment variable or in the
+  configuration that does not exist now turns the dictionary off, and the
+  report shows `dictionary: skipped`.
+- The STE linter splits a sentence that starts with inline code, and it reads
+  each list item as a separate block. Some scores can change.
+- `reusable-ste-lint.yml` installs spaCy and the `en_core_web_sm` model, so CI
+  uses the same reference backend as a workstation with the `grammar` extra.
+- Release 0.6.2 removes the shared Copilot assignment workflow. Remove the
+  caller workflows, for example `copilot-auto-assign.yml` and
+  `copilot-label-checkbox.yml`, and the token secret of those callers.
+- The agent instruction templates absorb the candidates of the first
+  rollout. Copy the new `AGENTS.md` over each copy, and run
+  `agent-instructions-check`.
+
+No commands, hook IDs, or caller permissions change. Update each workflow and
+action pin with its `v0.6.2` comment, the pre-commit `rev:`, and any
+`requirements-dev.txt` pin.
+
 ## Upgrade from release 0.6.0 to release 0.6.1
 
 Release 0.6.1 lets the STE linter find a dictionary at user level. Mermaid
@@ -344,7 +369,7 @@ the repository. To use these hooks, add this repository to
 ```yaml
 repos:
   - repo: https://github.com/jmorrison-juniper/misthelper-devtools
-    rev: v0.6.1
+    rev: v0.6.2
     hooks:
       - id: ste-linter
         args: [--config, .ste-linter.toml, --min-score, "80"]
@@ -379,7 +404,7 @@ job name and check name:
 ```yaml
 steps:
   - uses: actions/checkout@v7
-  - uses: jmorrison-juniper/misthelper-devtools/.github/actions/mermaid-lint@<commit-sha> # v0.6.1
+  - uses: jmorrison-juniper/misthelper-devtools/.github/actions/mermaid-lint@<commit-sha> # v0.6.2
     with:
       docs-dir: documentation
       extra-files: README.md
@@ -407,7 +432,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-container-image.yml@<commit-sha> # v0.6.1
+    uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-container-image.yml@<commit-sha> # v0.6.2
 ```
 
 To upgrade a consumer, read the release notes, then change the SHA and the
