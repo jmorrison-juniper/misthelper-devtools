@@ -2,13 +2,16 @@
 
 from __future__ import annotations  # Postponed annotations keep the type hints light.
 
+import json
 import pathlib  # Writes a temporary configuration file.
 
 import pytest  # Supplies the monkeypatch fixture.
 
+from misthelper_devtools.ste_linter.cli import LinterCLI
 from misthelper_devtools.ste_linter.config import (
     LinterConfig,  # The configuration under test.
     resolve_dictionary_path,  # The lookup order under test.
+    user_dictionary_paths,
 )
 
 
@@ -153,3 +156,81 @@ def test_load_resolves_user_level_dictionary(tmp_path: pathlib.Path, monkeypatch
     path.write_text('[tool.ste_linter]\ndictionary = "absent.json"\n', encoding="utf-8")  # State a missing path.
     config = LinterConfig.load(str(path))  # Load the configuration under test.
     assert config.dictionary_path == str(user_copy)  # The loader found the user-level copy.
+
+
+@pytest.mark.parametrize("first_existing", range(6))
+def test_each_dictionary_lookup_tier(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, first_existing: int
+) -> None:
+    _isolate_dictionary_env(monkeypatch, tmp_path)
+    environment = tmp_path / "environment.json"
+    configured = tmp_path / "configured.json"
+    candidates = [str(environment), str(configured), "data/ste_dictionary.json", *user_dictionary_paths()]
+    monkeypatch.setenv("STE_DICTIONARY_PATH", str(environment))
+    for candidate in candidates[first_existing:]:
+        path = pathlib.Path(candidate)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+    assert resolve_dictionary_path(str(configured)) == candidates[first_existing]
+
+
+def test_dictionary_lookup_skips_directories(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _isolate_dictionary_env(monkeypatch, tmp_path)
+    directory = tmp_path / "not-a-file"
+    directory.mkdir()
+    monkeypatch.setenv("STE_DICTIONARY_PATH", str(directory))
+    wanted = tmp_path / "dictionary.json"
+    wanted.write_text("{}", encoding="utf-8")
+    assert resolve_dictionary_path(str(wanted)) == str(wanted)
+
+
+def test_user_dictionary_paths_without_windows_variable(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _isolate_dictionary_env(monkeypatch, tmp_path)
+    monkeypatch.delenv("LOCALAPPDATA")
+    assert user_dictionary_paths() == (
+        str(tmp_path / ".local" / "share" / "ste-linter" / "ste_dictionary.json"),
+        str(tmp_path / ".ste-linter" / "ste_dictionary.json"),
+    )
+
+
+def test_load_finds_dictionary_without_toml(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _isolate_dictionary_env(monkeypatch, tmp_path)
+    wanted = pathlib.Path(user_dictionary_paths()[-1])
+    wanted.parent.mkdir(parents=True)
+    wanted.write_text("{}", encoding="utf-8")
+    assert LinterConfig.load("missing.toml").dictionary_path == str(wanted)
+    assert resolve_dictionary_path() == str(wanted)
+
+
+@pytest.mark.parametrize("override", [None, "explicit.json", "missing.json"])
+def test_cli_dictionary_lookup_and_strict_override(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    override: str | None,
+) -> None:
+    _isolate_dictionary_env(monkeypatch, tmp_path)
+    records = {"entries": [{"keyword": "accuracy", "approved": False, "alternatives": ["precision"]}]}
+    wanted = pathlib.Path(user_dictionary_paths()[-1])
+    wanted.parent.mkdir(parents=True)
+    wanted.write_text(json.dumps(records), encoding="utf-8")
+    pathlib.Path("explicit.json").write_text(json.dumps(records), encoding="utf-8")
+    pathlib.Path("input.md").write_text("Check the accuracy.\n", encoding="utf-8")
+    pathlib.Path("pyproject.toml").write_text("[tool.ste_linter]\nprefer_spacy = false\n", encoding="utf-8")
+    args = ["input.md", "--min-score", "0"]
+    if override is not None:
+        args.extend(["--dictionary", override])
+    assert not pathlib.Path("data/ste_dictionary.json").exists()
+    assert LinterCLI().run(args) == 0
+    output = capsys.readouterr().out
+    if override == "missing.json":
+        assert "dictionary: skipped" in output
+        assert "STE-S1-WORD" not in output
+        assert "Skipped: missing.json (dictionary_unavailable)" in output
+    else:
+        assert "dictionary: used" in output
+        assert "STE-S1-WORD" in output
+    config = LinterCLI()._build_config(LinterCLI()._parse_args(args))
+    assert config.dictionary_path == (override or str(wanted))

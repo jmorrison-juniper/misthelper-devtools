@@ -70,7 +70,7 @@ jobs:
       contents: read
     uses: ./.github/workflows/reusable-ste-lint.yml
     with:
-      files: README.md documentation/*.md src/misthelper_devtools/**/README.md
+      files: README.md docs/*.md documentation/*.md src/misthelper_devtools/**/README.md
 
   # A Mist repository runs the hooks in .pre-commit-hooks.yaml. pre-commit
   # installs this commit in a separate environment and runs each hook, as it

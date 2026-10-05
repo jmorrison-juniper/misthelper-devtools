@@ -132,6 +132,21 @@ class TestIdentifierExtraction:
         ids = validator.extract_identifiers(block)
         assert "lowercase_name" not in ids
 
+    @pytest.mark.parametrize(
+        "name",
+        ["SiteAnalyticsConfigurator", "OrdinaryManager", "MissingManager", "V2Manager", "DataManager_extra"],
+    )
+    def test_dot_qualified_names_are_complete(self, validator, name):
+        assert validator.extract_identifiers(f"flowchart TD\nA[{name}.run]") == [name]
+
+    @pytest.mark.parametrize("name", ["lowerManager", "_PrivateManager", "3DataManager", "éDataManager"])
+    def test_suffix_search_cannot_start_inside_identifier(self, validator, name):
+        assert validator.extract_identifiers(f"flowchart TD\nA[{name}.run]") == []
+
+    @pytest.mark.parametrize("wrapper", ["[{}]", '"{}"', "({})", "{}.run()", "module.{}"])
+    def test_suffix_search_accepts_delimited_identifiers(self, validator, wrapper):
+        assert validator.extract_identifiers(wrapper.format("OrdinaryManager")) == ["OrdinaryManager"]
+
 
 class TestPythonSymbolExtraction:
     """Test Python symbol extraction via AST."""
@@ -439,3 +454,63 @@ def test_repeatable_allow_option_adds_product_terms(tmp_path: Path) -> None:
         )
         == 0
     )
+
+
+@pytest.mark.parametrize("missing", [False, True])
+def test_flowchart_complete_reference_verdict_and_counts(tmp_path, caplog, missing):
+    source = tmp_path / "source.py"
+    source.write_text(
+        "class SiteAnalyticsConfigurator:\n    pass\nclass OrdinaryManager:\n    pass\n", encoding="utf-8"
+    )
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    name = "MissingManager" if missing else "OrdinaryManager"
+    (docs / "diagram.md").write_text(
+        f"```mermaid\nflowchart TD\nA[SiteAnalyticsConfigurator.configure]\nB[{name}.run]\n```\n",
+        encoding="utf-8",
+    )
+    caplog.set_level("INFO")
+    assert lint_diagram_refs.main(["--docs-dir", str(docs), "--extra-files", "--source-files", str(source)]) == int(
+        missing
+    )
+    assert "2 references" in caplog.text
+    assert "1 diagram files" in caplog.text
+    assert "STALE:" in caplog.text if missing else "STALE:" not in caplog.text
+    assert '"SiteAnalyticsConfig"' not in caplog.text
+    if missing:
+        assert '"MissingManager" not found' in caplog.text
+
+
+@pytest.mark.parametrize("input_kind", ["source", "empty-source", "docs", "extra", "allowlist", "unreadable"])
+def test_required_inputs_fail_explicitly(tmp_path, monkeypatch, caplog, input_kind):
+    source = tmp_path / "source.py"
+    source.write_text("class OrdinaryManager:\n    pass\n", encoding="utf-8")
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    diagram = docs / "diagram.md"
+    diagram.write_text("```mermaid\nflowchart TD\nA[OrdinaryManager.run]\n```\n", encoding="utf-8")
+    args = ["--docs-dir", str(docs), "--extra-files", "--source-files", str(source)]
+    missing = str(tmp_path / "missing")
+    if input_kind == "source":
+        args[-1] = missing
+    elif input_kind == "empty-source":
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        args[-1] = str(empty)
+    elif input_kind == "docs":
+        args[1] = missing
+    elif input_kind == "extra":
+        args.insert(3, missing)
+    elif input_kind == "allowlist":
+        args.extend(["--allowlist-file", missing])
+    else:
+        original = Path.read_text
+
+        def read_text(path, *positional, **keywords):
+            if path == diagram:
+                raise PermissionError("input access denied")
+            return original(path, *positional, **keywords)
+
+        monkeypatch.setattr(Path, "read_text", read_text)
+    assert lint_diagram_refs.main(args) == 2
+    assert any(record.levelname == "ERROR" for record in caplog.records)

@@ -6,7 +6,7 @@ repository. It also gives the candidates for a later wave and the tasks for the
 owner.
 
 A repository calls a shared workflow at a pinned commit. See
-[Shared workflows](../README.md#shared-workflows) for the pin rule.
+[Shared workflows](../docs/tooling-guide.md#shared-workflows) for the pin rule.
 
 ## Scope
 

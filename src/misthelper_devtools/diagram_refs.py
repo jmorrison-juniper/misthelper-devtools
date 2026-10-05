@@ -87,8 +87,8 @@ DEFAULT_DOCS_DIR = "documentation/diagrams/"
 DEFAULT_SOURCE_FILES = ["src/"]
 
 CLASS_SUFFIX_PATTERN = re.compile(
-    r"[A-Z][a-zA-Z]+(?:Utils|Manager|Exporter|Config|Runner|Writer"
-    r"|Fetcher|Processor|Checker|Monitor|Emitter|Registry|TUI)"
+    r"(?<!\w)[A-Z][a-zA-Z0-9_]+(?:Utils|Manager|Exporter|Config|Runner|Writer"
+    r"|Fetcher|Processor|Checker|Monitor|Emitter|Registry|TUI)\w*(?!\w)"
 )
 MERMAID_BLOCK_PATTERN = re.compile(r"```mermaid\s*\n(.*?)```", re.DOTALL)
 CLASS_DECLARATION_PATTERN = re.compile(r"class\s+(\w+)")
@@ -158,7 +158,7 @@ class DiagramReferenceValidator:
         return results
 
     def _extract_suffix_matches(self, block: str) -> list[str]:
-        """Extract PascalCase names matching known class suffixes."""
+        """Extract complete identifiers that contain a known class suffix."""
         return CLASS_SUFFIX_PATTERN.findall(block)
 
     def extract_python_symbols(self, source_path: Path) -> set[str]:
@@ -306,6 +306,8 @@ class DiagramReferenceValidator:
             return 2
 
         markdown_files = self._collect_markdown_files(config)
+        if markdown_files is None:
+            return 2
         if not markdown_files:
             logger.error("No markdown files found")
             return 2
@@ -342,6 +344,9 @@ class DiagramReferenceValidator:
             else:
                 logger.error("Source file not found: %s", path)
                 return None
+        if not files:
+            logger.error("No Python source files found")
+            return None
         return files
 
     def _collect_needed_symbols(self, markdown_files: list[Path]) -> set[str]:
@@ -402,17 +407,22 @@ class DiagramReferenceValidator:
         """
         return any(symbol in source_text for symbol in symbols)
 
-    def _collect_markdown_files(self, config: argparse.Namespace) -> list[Path]:
+    def _collect_markdown_files(self, config: argparse.Namespace) -> list[Path] | None:
         """Collect all markdown files to scan."""
         files: list[Path] = []
         docs_dir = Path(config.docs_dir)
-        if docs_dir.exists():
+        if docs_dir.is_dir():
             files.extend(docs_dir.rglob("*.md"))
+        elif docs_dir.exists() or config.docs_dir != DEFAULT_DOCS_DIR:
+            logger.error("Diagram directory not found or not a directory: %s", docs_dir)
+            return None
 
         for extra in config.extra_files:
             path = Path(extra)
-            if path.exists():
-                files.append(path)
+            if not path.is_file():
+                logger.error("Markdown file not found or not a file: %s", path)
+                return None
+            files.append(path)
         return sorted(set(files))
 
     def _report_results(self) -> int:
@@ -424,8 +434,9 @@ class DiagramReferenceValidator:
                 if ref["closest"]:
                     logger.warning("  Closest match: %s", ref["closest"])
             logger.warning(
-                "\nFAILED: %d stale references found across %d diagram files",
+                "\nFAILED: %d stale references found; %d references checked across %d diagram files",
                 len(self.stale_references),
+                self.total_checked,
                 self.files_scanned,
             )
             return 1
@@ -512,7 +523,11 @@ def main(argv: list[str] | None = None) -> int:
     allow_words = frozenset(str(word) for word in args.allow)
     logger.info("Starting the diagram reference check")  # Log before the scan.
     validator = DiagramReferenceValidator(BUILT_IN_ALLOWLIST | extra | allow_words)
-    result = validator.run(args)
+    try:
+        result = validator.run(args)
+    except (OSError, UnicodeError) as error:
+        logger.error("Cannot read required diagram input: %s", error)
+        return 2
     logger.info("Finished the diagram reference check with status %d", result)  # Log after the scan.
     return result
 
