@@ -29,6 +29,7 @@ consumer repository.
 | `.github/workflows/reusable-*.yml` | The shared workflows that the Mist repositories call. See [Shared workflows](#shared-workflows). |
 | `.pre-commit-hooks.yaml` | The pre-commit hooks that the Mist repositories use. See [Pre-commit hooks](#pre-commit-hooks). |
 | `.github/actions/mermaid-lint/` | The shared Mermaid syntax lint action. It parses Mermaid blocks in Markdown files. |
+| `templates/agent-instructions/` | The canonical agent instruction files. Each Mist repository copies them. See [Agent instructions](#agent-instructions). |
 | `src/misthelper_devtools/juniper_skills/` | The skill factory. It reads a Juniper document set and it writes a skill package. |
 | `scripts/juniper_skills/` | The command-line entry points for the skill factory. |
 | `tests/` | The test suite for every tool above. |
@@ -61,10 +62,11 @@ python -m misthelper_devtools.compliance_analyzer src\
 python -m misthelper_devtools.symbol_diff --base main path\to\file.py
 ```
 
-Twenty tools also install as a command.
+Twenty-one tools also install as a command.
 
 | Command | Module |
 | - | - |
+| `agent-instructions-check` | `misthelper_devtools.agent_instructions_check` |
 | `bandit-exclude-check` | `misthelper_devtools.bandit_exclude_check` |
 | `check-citations` | `misthelper_devtools.check_citations` |
 | `codeql-verdict-register` | `misthelper_devtools.codeql_verdict_register` |
@@ -490,6 +492,78 @@ when the install command does not install its tool. Each check name holds the
 caller job and the gate, for example `gates / Ruff (lint)`. The `Gate results`
 check fails when a gate fails, so branch protection can require that one
 check.
+
+## Agent instructions
+
+Each repository of the owner holds two instruction files for a coding agent.
+`AGENTS.md` at the repository root holds the generic rules. Each repository
+holds the same `AGENTS.md`, byte for byte. Copilot, Codex, and Cursor read it
+directly. `.github/copilot-instructions.md` holds the rules for one repository
+only. A repository that has a `CLAUDE.md` keeps a short pointer file there,
+which imports the two files for Claude Code.
+
+The canonical copies are in `templates/agent-instructions/`.
+
+| File | Copy it to | Purpose |
+| - | - | - |
+| `AGENTS.md` | `AGENTS.md` | The generic rules. Copy the file, and do not edit the copy. |
+| `copilot-instructions.md` | `.github/copilot-instructions.md` | The skeleton for the repository file. |
+| `CLAUDE.md` | `CLAUDE.md` | The pointer file for Claude Code. Use it only in a repository that has a `CLAUDE.md`. |
+| `ste-linter.toml` | `.ste-linter.toml` | The shared `[tool.ste_linter]` settings. |
+| `ste-lint.yml` | `.github/workflows/ste-lint.yml` | The caller workflow for `reusable-ste-lint.yml`. |
+
+### Precedence
+
+The repository file can add a rule, and it can make a generic rule more
+strict. It can replace a generic rule only where `AGENTS.md` says so. It
+cannot cancel a writing rule, a safety rule, or a security rule of `AGENTS.md`.
+Simplified Technical English outranks each other style rule in the two files.
+
+### Adopt the files in a repository
+
+1. Copy `templates/agent-instructions/AGENTS.md` to `AGENTS.md` at the root.
+2. Make `.github/copilot-instructions.md` from the skeleton. Replace each
+   placeholder, and remove a section that does not apply. Move each rule for
+   this repository only from the old instruction files.
+3. If the repository has a `CLAUDE.md`, replace its text with the pointer
+   file.
+
+4. Copy `ste-linter.toml` to `.ste-linter.toml`. The file names no dictionary
+   path, so the linter finds a user-level copy on a workstation.
+
+5. Copy `ste-lint.yml` to `.github/workflows/ste-lint.yml`. Change the SHA and
+   the release comment of the `uses:` line together when you adopt a later
+   release.
+6. Remove a lower-case `agents.md` and each `.github/instructions/*.instructions.md`
+   after their rules landed in one of the two files.
+7. Grade the files on a workstation with a dictionary, then let CI grade them
+   without one. Each file must score 80 or above in both modes.
+
+```sh
+ste-linter --config .ste-linter.toml --min-score 80 README.md AGENTS.md .github/copilot-instructions.md
+agent-instructions-check --commit <commit-sha>
+```
+
+`agent-instructions-check` compares the `AGENTS.md` of the repository with
+the canonical copy at the given commit of this repository. It exits with
+status 1 when the two files differ, and it prints the difference. Without
+`--commit`, it reads the canonical copy from `main`. Use `--canonical <path>`
+to compare with a local checkout instead of GitHub, for example in a test.
+
+### Change a generic rule
+
+1. Open an issue in this repository, and change
+   `templates/agent-instructions/AGENTS.md` in a pull request here. The test
+   suite grades the file at the threshold in both modes, so a change that
+   lowers the score fails before it reaches a consumer.
+2. After the merge, copy the new file to each repository in its own pull
+   request. `agent-instructions-check` reports each repository that still
+   holds the previous copy.
+
+Warning: do not edit the `AGENTS.md` copy in a consumer repository, because
+the next copy from this repository can then remove the edit without a report.
+Put a rule for one repository in `.github/copilot-instructions.md`, and put a
+rule for each repository in the canonical copy here.
 
 ## Run the tests
 
