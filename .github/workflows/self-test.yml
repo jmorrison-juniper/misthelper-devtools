@@ -4,7 +4,8 @@ name: Self-test
 # change to a reusable workflow must pass this test before a consumer pins the
 # new commit. Each run that could change the repository uses dry-run. The CI
 # workflow calls reusable-ste-lint.yml on each pull request, so this workflow
-# does not call it.
+# does not call it. That CI call installs the spaCy reference backend and stops
+# when the model does not load, so each pull request tests that path.
 on:
   pull_request:
     paths:

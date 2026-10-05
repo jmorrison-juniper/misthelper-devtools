@@ -245,3 +245,39 @@ class TestAutoMerge:
         """The notice gives the one command that recovers the commits."""
         script = job_script(merge_workflow, "report-orphaned-push")
         assert "git cherry-pick ${merged_head}..${PUSHED_SHA}" in script
+
+
+@pytest.fixture(scope="module")
+def ste_workflow() -> dict[str, Any]:
+    """Parse the shared STE lint workflow."""
+    return load_workflow("reusable-ste-lint.yml")
+
+
+class TestSteLintBackend:
+    """CI grades with the same spaCy backend as a workstation (issue #53)."""
+
+    JOB = "ste-lint"
+
+    def test_the_job_installs_the_grammar_extra_and_a_pinned_model(self, ste_workflow: dict[str, Any]) -> None:
+        """Without the extra and the model, the linter falls back to a backend with a different score."""
+        steps = ste_workflow["jobs"][self.JOB]["steps"]
+        install = next(step for step in steps if "reference backend" in step["name"] and "Install" in step["name"])
+        assert '"./.misthelper-devtools[grammar]"' in install["run"]
+        assert '"spacy>=3.8,<3.9"' in install["run"]
+        model = install["env"]["SPACY_MODEL"]
+        assert model.startswith("en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/")
+        assert "en_core_web_sm-3.8.0-py3-none-any.whl#sha256=" in model
+
+    def test_the_job_stops_when_the_model_does_not_load(self, ste_workflow: dict[str, Any]) -> None:
+        """The fallback has no message, so the job must load the model before it grades."""
+        steps = ste_workflow["jobs"][self.JOB]["steps"]
+        names = [step["name"] for step in steps]
+        confirm = names.index("Confirm the reference backend")
+        assert confirm < names.index("Grade the files")
+        assert "spacy.load('en_core_web_sm')" in steps[confirm]["run"]
+        assert "continue-on-error" not in steps[confirm]
+
+    def test_the_template_prefers_the_spacy_backend(self) -> None:
+        """The workstation reads the template, so it must select the same backend as CI."""
+        template = WORKFLOWS.parents[1] / "templates" / "agent-instructions" / "ste-linter.toml"
+        assert "prefer_spacy = true" in template.read_text(encoding="utf-8")
