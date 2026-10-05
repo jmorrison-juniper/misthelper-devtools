@@ -207,6 +207,20 @@ markdown-link-check --exclude 'documentation/wiki/**'
 markdown-link-check documentation
 ```
 
+## Upgrade from release 0.6.0 to release 0.6.1
+
+Release 0.6.1 lets the STE linter find a dictionary at user level. Mermaid
+references now include the full identifier. The release adds checks for
+required inputs and expands dictionary tests. It refreshes Mermaid and Python
+quality-gate dependencies. It also fixes auto-merge dispatch on Bash 3.
+
+The root README now has six sections. This guide holds the details.
+
+No commands, hook IDs, or caller permissions change. Check each invocation
+against the required-input checks. Then update each workflow and action pin
+with its `v0.6.1` comment, the pre-commit `rev:`, and any `requirements-dev.txt`
+pin.
+
 ## Upgrade from release 0.5.2 to release 0.6.0
 
 Release 0.6.0 adds the `devtools-pin-check` command. The radon job of
@@ -320,7 +334,7 @@ the repository. To use these hooks, add this repository to
 ```yaml
 repos:
   - repo: https://github.com/jmorrison-juniper/misthelper-devtools
-    rev: v0.6.0
+    rev: v0.6.1
     hooks:
       - id: ste-linter
         args: [--config, .ste-linter.toml, --min-score, "80"]
@@ -356,7 +370,7 @@ job name and check name:
 ```yaml
 steps:
   - uses: actions/checkout@v7
-  - uses: jmorrison-juniper/misthelper-devtools/.github/actions/mermaid-lint@<commit-sha> # v0.6.0
+  - uses: jmorrison-juniper/misthelper-devtools/.github/actions/mermaid-lint@<commit-sha> # v0.6.1
     with:
       docs-dir: documentation
       extra-files: README.md
@@ -384,7 +398,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-container-image.yml@<commit-sha> # v0.6.0
+    uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-container-image.yml@<commit-sha> # v0.6.1
 ```
 
 To upgrade a consumer, read the release notes, then change the SHA and the
