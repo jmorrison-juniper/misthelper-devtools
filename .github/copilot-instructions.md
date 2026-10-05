@@ -69,7 +69,7 @@ coverage tests of the analyzers, and `tests/fixtures/` holds sample inputs. The 
 holds the guard tests that read the repository files: the workflows, the hook manifest, and the
 templates.
 
-The files `.github/workflows/reusable-*.yml` are the 10 shared workflows. The header comment of
+The files `.github/workflows/reusable-*.yml` are the 8 shared workflows. The header comment of
 each one holds the caller example and the permissions. The folder `.github/actions/mermaid-lint/`
 holds the composite action, and the file `.pre-commit-hooks.yaml` holds the hook manifest. A consumer pins a full commit SHA
 with a `# vX.Y.Z` comment, so a merged change reaches a consumer only at its next pin.
@@ -185,7 +185,7 @@ Documentation rules of this repository:
 | `documentation/mist-repository-tooling-inventory.md` | The tools and shared workflows of each consumer. |
 | `.github/workflows/ci.yml` | The gates and the `ci-result` aggregator. |
 | `.github/workflows/self-test.yml` | The dry run of each shared workflow. |
-| `.github/workflows/reusable-*.yml` | The 10 shared workflows that the consumers call. |
+| `.github/workflows/reusable-*.yml` | The 8 shared workflows that the consumers call. |
 | `.github/actions/mermaid-lint/` | The shared Mermaid syntax lint action. |
 | `.pre-commit-hooks.yaml` | The hook manifest for the consumers. |
 | `templates/agent-instructions/` | The canonical agent instruction files. |
