@@ -74,8 +74,23 @@ python -m misthelper_devtools.ste_linter.dictionary.extract path/to/ASD-STE100.p
 ```
 
 The tool writes `data/ste_dictionary.json`, which git ignores. Without the file,
-the linter runs the structural checks only and says the dictionary checks were
-skipped.
+the linter searches for a user-level copy. Each lookup tests for a file in this
+order:
+
+1. `--dictionary PATH`: use this path only, with no fallback.
+2. The `STE_DICTIONARY_PATH` environment variable.
+3. The `dictionary` key in `[tool.ste_linter]`.
+4. `data/ste_dictionary.json` in the current directory.
+5. `%LOCALAPPDATA%/ste-linter/ste_dictionary.json`, when `LOCALAPPDATA` is set.
+6. `~/.local/share/ste-linter/ste_dictionary.json`.
+7. `~/.ste-linter/ste_dictionary.json`.
+
+Steps 2 through 7 skip missing files and try the next path. Keep one licensed
+copy in a user-level location so that each worktree can reach it.
+If no file exists, the linter runs the structural checks only and reports
+`dictionary: skipped`. A found dictionary enables `STE-S1-WORD` and `STE-S1-POS`
+and reports `dictionary: used`. An invalid `--dictionary` path reports the skip;
+it never falls back to another file.
 
 ## More information
 
