@@ -18,7 +18,7 @@ Mist code. It did not read a repository of another owner, for example
 | - | - | - | - | - | - | - |
 | MistHelper | The source of most shared workflows and tools. | Not changed here. | Calls the shared Copilot, linked issue, and container workflows. Runs `complexity-gate`. Keeps its own test quality baseline. | Pins `v0.4.0`. Calls the shared auto-merge, gate issue, stranded branch, and STE lint workflows. Keeps its own analyzer settings and benchmarks. | Pins `v0.5.2`. Calls the shared CodeQL workflow, the Mermaid action, the new commands, and the two hooks. Deletes its copies of the tools. | Pins `v0.6.0`. |
 | MistCircuitStats | Quality gates with an inline radon script, gate issues, auto-merge, linked issue close, container build | Calls the shared workflows. Uses `complexity-gate`. | Pins `v0.3.0`. | Pins `v0.4.0`. Dependabot keeps Python 3.13 and the CodeQL `v4` tag. | Calls the shared Python gate and CodeQL workflows. Pins `v0.5.2`. | Pins `v0.6.0`. Calls the shared stranded branch and STE lint workflows. Gets the orphaned-push report. |
-| MistHelper-Go | Quality gates, gate issues, auto-merge, linked issue close, Copilot assign, container build | Calls the shared workflows. | Go 1.27.1, so the govulncheck gate passes. The release image uses the shared container workflow. Pins `v0.3.0`. | Pins `v0.4.0`. Dependabot keeps the CodeQL `v4` tag. | Calls the shared CodeQL workflow. Pins `v0.5.2`. | Pins `v0.6.0`. Calls the shared stranded branch and STE lint workflows. Gets the orphaned-push report. |
+| MistHelper-Go | Quality gates, gate issues, auto-merge, linked issue close, container build | Calls the shared workflows. | Go 1.27.1, so the govulncheck gate passes. The release image uses the shared container workflow. Pins `v0.3.0`. | Pins `v0.4.0`. Dependabot keeps the CodeQL `v4` tag. | Calls the shared CodeQL workflow. Pins `v0.5.2`. | Pins `v0.6.0`. Calls the shared stranded branch and STE lint workflows. Gets the orphaned-push report. |
 | MistSiteDashboard | Two container build workflows | Calls the shared container workflow. | One build workflow. Dependabot updates the actions. Pins `v0.3.0`. | Python 3.13. Pins `v0.4.0`. | Pins `v0.5.2`. | Pins `v0.6.0`. Calls the shared stranded branch, STE lint, and Python gate workflows. |
 | MistGuestAuthorizations | Container build, release | Calls the shared container workflow. | The release image uses the shared container workflow. Dependabot updates the actions. Pins `v0.3.0`. | Python 3.13. Pins `v0.4.0`. | Pins `v0.5.2`. | Pins `v0.6.0`. Calls the shared stranded branch, STE lint, and Python gate workflows. |
 | MistOrgLicensingComparison | Container build | Calls the shared container workflow. | Dependabot updates the actions. Pins `v0.3.0`. | Pins `v0.4.0`. | Pins `v0.5.2`. | Pins `v0.6.0`. Calls the shared stranded branch, STE lint, and Python gate workflows. |
@@ -55,14 +55,15 @@ issues found that issue and opened no second issue. In Wave 2,
 jmorrison-juniper/MistHelper-Go#46 moved the workflow to Go 1.27.1 and
 `golang.org/x/crypto` to v0.57.0. The gate now passes.
 
-Note: release `v0.2.0` of `reusable-copilot-assign.yml` sent the assignment
-with `GITHUB_TOKEN` and the login `copilot`. GitHub ignored that login and
+Note: release `v0.2.0` of the shared Copilot assignment workflow sent the
+assignment with `GITHUB_TOKEN` and the login `copilot`. GitHub ignored that login and
 returned no error, so the job added the in-progress label to an issue that had
 no assignee. The old MistHelper copy has the same fault: issue
 jmorrison-juniper/MistHelper#2295 has the `copilot` and `in-progress` labels
 and no assignee. Release `v0.3.0` sends the login `copilot-swe-agent[bot]`
 with the `assign-token` secret, reads the assignees in the response, and
-writes the cause on the issue. `self-test.yml` runs it with dry-run.
+writes the cause on the issue. Release `v0.6.2` removes the workflow. Read
+[Copilot assignment](#copilot-assignment).
 
 Note: in MistCircuitStats and MistHelper-Go, the dispatch job of
 `reusable-auto-merge.yml` ran after each merge. The merge job runs only for a
@@ -77,14 +78,14 @@ moved the MistHelper workflows to the shared copies.
 
 | Repository | Pull request | Merge commit | Change and check |
 | - | - | - | - |
-| misthelper-devtools | #6 | `e0bcb68` | `reusable-copilot-assign.yml` sends a user token and reads the assignees in the response. `self-test.yml` runs each result with dry-run. Release `v0.3.0` is this commit. |
+| misthelper-devtools | #6 | `e0bcb68` | The shared Copilot assignment workflow sends a user token and reads the assignees in the response. `self-test.yml` runs each result with dry-run. Release `v0.3.0` is this commit. |
 | misthelper-devtools | #7 | `52f9152` | Dependabot updates the actions that the shared workflows use. |
 | misthelper-devtools | #8 | `68ad430` | The first Dependabot update of those actions. |
 | MistHelper-Go | jmorrison-juniper/MistHelper-Go#46 | `2c21d66` | Go 1.27.1 and `golang.org/x/crypto` v0.57.0. govulncheck found three reachable advisories in v0.53.0, and it finds none now. Issue jmorrison-juniper/MistHelper-Go#38 closed. |
 | MistHelper-Go | jmorrison-juniper/MistHelper-Go#43 | `712fbe2` | A Dependabot update of `modernc.org/sqlite`. |
 | MistHelper-Go | jmorrison-juniper/MistHelper-Go#47 | `885a165` | `mistapi-go` v0.4.108. The inventory call gives no value for the new `disconnectedBefore` filter. |
 | MistHelper-Go | jmorrison-juniper/MistHelper-Go#25 | `e3004b3` | A Dependabot update of `actions/setup-go`. After these merges, Dependabot closed five other update pull requests. |
-| MistHelper-Go | jmorrison-juniper/MistHelper-Go#48 | `6312dca` | Pins `v0.3.0`. The Copilot callers give the `COPILOT_ASSIGN_TOKEN` secret, and the release image uses the shared container workflow. Dependabot also updates the base image. On a test issue, the assignment wrote one comment with the cause and added no label. |
+| MistHelper-Go | jmorrison-juniper/MistHelper-Go#48 | `6312dca` | Pins `v0.3.0`. The Copilot callers give a user token secret, and the release image uses the shared container workflow. Dependabot also updates the base image. On a test issue, the assignment wrote one comment with the cause and added no label. |
 | MistSiteDashboard | jmorrison-juniper/MistSiteDashboard#6 | `2ee1073` | One build workflow instead of two. The main run pushed one image with the short SHA, version, `main`, and `latest` tags. |
 | MistSiteDashboard | jmorrison-juniper/MistSiteDashboard#7 | `366850f` | Adds `dependabot.yml` for the actions. |
 | MistSiteDashboard | jmorrison-juniper/MistSiteDashboard#8 | `1a8a4e0` | The first Dependabot update of the actions. |
@@ -284,15 +285,12 @@ version. The three consumers name no CodeQL action now, so they hold no rule.
 
 ### Copilot assignment
 
-GitHub assigns the Copilot cloud agent only for a user token. Since release
-`v0.3.0`, the workflow sends the token from the `assign-token` secret, and it
-reads the assignees in the response. Without the secret, the workflow adds no
-label, and it writes the cause in one comment on the issue.
-
-The account has the Copilot Free plan, and the cloud agent needs a paid plan.
-For MistHelper, MistHelper-Go, and this repository, the list of actors that can
-take an issue holds only the owner. So the agent cannot take an issue, even
-with a token.
+Release `v0.6.2` removes the shared Copilot assignment workflow. The owner
+cannot use the Copilot cloud agent, so the workflow served no consumer. A
+consumer removes its caller workflows, for example `copilot-auto-assign.yml`
+and `copilot-label-checkbox.yml`, and the token secret of the caller. The
+issues jmorrison-juniper/MistHelper#3900 and jmorrison-juniper/MistHelper-Go#69
+record that change.
 
 ### Package layout
 
@@ -406,7 +404,6 @@ that gives an `AsyncMistAPIClient` and sets `use_async_api` to false gets an
 | `reusable-quality-gate-issues.yml` | The `create_failure_issues` and `close_resolved_issues` jobs | MistHelper, MistCircuitStats, MistHelper-Go, MistWANPerformance, MistSiteDashboard, MistGuestAuthorizations, MistOrgLicensingComparison, MistCircuitStats-Redis |
 | `reusable-auto-merge.yml` | The jobs of the MistHelper `auto-merge.yml`, with its orphaned-push report | MistHelper, MistCircuitStats, MistHelper-Go |
 | `reusable-close-linked-issues.yml` | The old copy of the MistHelper `close-linked-issues.yml` | MistHelper, MistCircuitStats, MistHelper-Go |
-| `reusable-copilot-assign.yml` | `copilot-auto-assign.yml` and `copilot-label-checkbox.yml` | MistHelper, MistHelper-Go |
 | `reusable-stranded-branch-report.yml` | The job of the MistHelper `stranded-branch-report.yml` | Each repository in the [Scope](#scope) table |
 | `reusable-ste-lint.yml` | The job of the MistHelper `ste-lint.yml` | Each repository in the [Scope](#scope) table, and misthelper-devtools |
 | `reusable-python-quality-gates.yml` | The gate jobs of each Python quality gate workflow, and the MistHelper template `.github/quality-gates-portable.yml` | MistCircuitStats, MistWANPerformance, starlink-dashboard, MistSiteDashboard, MistGuestAuthorizations, MistOrgLicensingComparison, MistCircuitStats-Redis |
@@ -432,11 +429,6 @@ makes each release. MistHelper, MistCircuitStats, and MistHelper-Go set
 - `GITHUB_TOKEN` cannot merge a pull request that edits a workflow file. The
   merge failed with no reason on the pull request. The shared workflow writes a
   notice. The MistHelper fix is jmorrison-juniper/MistHelper#1954.
-
-- In MistHelper-Go, the checkbox workflow adds the `copilot` label with
-  `GITHUB_TOKEN`. GitHub starts no workflow from that label event, so the
-  assign workflow cannot run for a checkbox issue. The shared workflow assigns
-  the agent in the same run.
 
 - The old jobs for gate issues used a free text search, so they could match
   any open issue that holds the same words. The shared workflow compares the
@@ -549,21 +541,14 @@ MistHelper also keeps these files and jobs:
 
 These tasks need the account owner. A workflow cannot do them.
 
-1. Buy a Copilot plan that includes the cloud agent, for example Copilot Pro.
-   Enable the cloud agent for the account. Then save a user token as the
-   `COPILOT_ASSIGN_TOKEN` secret in MistHelper and in MistHelper-Go. Until then,
-   each assignment run writes one comment with the cause. The issues
-   jmorrison-juniper/MistHelper#3650 and jmorrison-juniper/MistHelper-Go#57
-   track this task.
-
-2. At each devtools release, change the `requirements-dev.txt` pin by hand in
+1. At each devtools release, change the `requirements-dev.txt` pin by hand in
    the six repositories that the [Dependabot](#dependabot) section names. Also
    change the install line in the MistWANPerformance `agents.md`. Dependabot
    changes only the workflow pins. Since `v0.6.0`, the radon job and the
    ste-lint job write a warning when you forget a `requirements-dev.txt` pin.
    The warning gives the new text of the line. Issue #36 added this check.
 
-3. Examine the branches in jmorrison-juniper/MistHelper#3529:
+2. Examine the branches in jmorrison-juniper/MistHelper#3529:
    `preservation/2746-pr3011-turn0`, `refactor/2926-portal-handlers-c`, and
    `fix/2746-fm-http-status`. Each branch holds work that no pull request
    holds. Open a pull request for each branch that you keep, and delete each

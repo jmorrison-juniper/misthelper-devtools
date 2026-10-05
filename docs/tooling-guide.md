@@ -369,7 +369,6 @@ file holds a full caller example and the permissions that the caller must give.
 | `reusable-quality-gate-issues.yml` | Opens one issue for each failed gate and closes it after the gate passes. |
 | `reusable-auto-merge.yml` | Enables auto-merge for a labeled pull request. After the merge, it starts the main workflows that the merge did not start. With `report-orphaned-push`, it writes a notice on a merged pull request when a later push adds a commit to its branch. |
 | `reusable-close-linked-issues.yml` | Closes each issue that a merged pull request links. A sweep finds the auto-merged pull requests. |
-| `reusable-copilot-assign.yml` | Assigns the Copilot cloud agent to an issue with a user token. It adds the in-progress label only when the agent is an assignee, and otherwise writes the cause on the issue. |
 | `reusable-stranded-branch-report.yml` | Runs `stranded-branch-report` and keeps one issue with each branch that holds work with no pull request. It closes the issue after a pull request holds every branch. |
 | `reusable-ste-lint.yml` | Runs `ste-linter` on the documentation files of the caller. It fails when a file scores below the threshold, and it writes the report to the job summary. |
 | `reusable-python-quality-gates.yml` | Runs each Python gate that the caller turns on: ruff, ruff format, black, mypy, pytest, bandit, pip-audit, pylint, radon with `complexity-gate`, vulture, pydocstyle, interrogate, and pydoclint. Its `results` output goes to `reusable-quality-gate-issues.yml`. |
@@ -465,14 +464,6 @@ CodeQL workflow, keeps the same configuration. So the open alerts stay open,
 and a pull request does not report a missing configuration. The check name
 changes, for example from `Analyze (python)` to `codeql / Analyze (python)`.
 The `CodeQL` check of code scanning keeps its name.
-
-Note: GitHub assigns the Copilot cloud agent only for a user token, for
-example a fine-grained personal access token. For `GITHUB_TOKEN`, GitHub
-ignores the agent login and returns no error. Put the token in a repository
-secret, and pass that secret to `reusable-copilot-assign.yml` as
-`assign-token`. Without the secret, the job writes one comment on the issue
-that tells how to set it up. The header of the workflow gives the token
-permissions.
 
 Note: `reusable-stranded-branch-report.yml`, `reusable-ste-lint.yml`, and the
 radon gate of `reusable-python-quality-gates.yml` check out this repository at
