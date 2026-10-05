@@ -54,6 +54,13 @@ python -m pip install -e ".[dev,grammar]"
 python -m spacy download en_core_web_sm
 ```
 
+The spaCy backend with the `en_core_web_sm` model is the reference backend.
+The `.ste-linter.toml` template sets `prefer_spacy = true`, and
+`reusable-ste-lint.yml` installs the `grammar` extra and model 3.8.0. The job
+stops when the model does not load. The standard-library backend can give a
+score 1 or 2 points different, so install the model before you compare a local
+score with CI.
+
 ## Run a tool
 
 ```powershell
