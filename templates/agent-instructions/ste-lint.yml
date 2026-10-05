@@ -1,0 +1,45 @@
+# ================================================================
+# STE lint -- grade the agent instructions and the README
+# ================================================================
+# Copy this file to `.github/workflows/ste-lint.yml` in a repository. It calls
+# the shared `reusable-ste-lint.yml` workflow of misthelper-devtools, which
+# grades each named file with `ste-linter` and fails when a file scores below
+# `min-score`. The job has no ASD-STE100 dictionary, so it runs the structural
+# rules only. Grade the same files with a dictionary on your own machine too.
+#
+# The `uses:` line pins a full commit SHA of misthelper-devtools, and the
+# comment after it names the release. This template pins the v0.6.1 commit.
+# Re-pin the SHA and the comment together when you adopt a later release, and
+# let Dependabot move the pin with a `github-actions` entry in
+# `.github/dependabot.yml`.
+# ================================================================
+name: STE lint
+
+# The workflow has no `paths` filter. Branch protection can require the
+# `STE compliance` check, and a filtered workflow never starts on a pull
+# request that changes other files, so the check never reports and the pull
+# request blocks. The job costs about one minute.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# One event starts one run: the push trigger is scoped to `main`, and a pull
+# request starts its own run. A new commit cancels the previous run on a
+# branch, but never on `main`.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions: {}
+
+jobs:
+  ste-lint:
+    permissions:
+      contents: read
+    uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-ste-lint.yml@0a7f18bbaceb224f88f31e36ac8c0cd61d69a1b5 # v0.6.1
+    with:
+      files: README.md AGENTS.md .github/copilot-instructions.md
+      config: .ste-linter.toml
+      min-score: 80

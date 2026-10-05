@@ -43,6 +43,7 @@ Homepage = "https://github.com/jmorrison-juniper/misthelper-devtools"
 Product = "https://github.com/jmorrison-juniper/MistHelper"
 
 [project.scripts]
+agent-instructions-check = "misthelper_devtools.agent_instructions_check:main"
 bandit-exclude-check = "misthelper_devtools.bandit_exclude_check:main"
 check-citations = "misthelper_devtools.check_citations:main"
 codeql-verdict-register = "misthelper_devtools.codeql_verdict_register:main"
