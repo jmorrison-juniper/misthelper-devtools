@@ -74,28 +74,6 @@ build-backend = "hatchling.build"
 # `src` or `tools` package, so a generic name here would collide with it.
 packages = ["src/misthelper_devtools"]
 
-[tool.ste_linter]
-# Default settings for the STE writing linter. See src/misthelper_devtools/ste_linter/README.md.
-min_score = 80
-dictionary = "data/ste_dictionary.json"
-prefer_spacy = true
-# Approved technical terms the dictionary rules must not flag. These are correct
-# programming and networking words that are not in the general ASD-STE100
-# vocabulary. The allowlist raises the signal so the linter flags real prose words,
-# not normal software terms. Keep the list sorted and lower case.
-allowlist = [
-    "api", "async", "attribute", "backend", "boolean", "buffer", "build", "cache",
-    "call", "callable", "checksum", "cli", "commit", "config", "csv", "daemon",
-    "debug", "decorator", "dispatch", "dns", "endpoint", "enum", "env", "exception",
-    "file", "firmware", "frontend", "getter", "gui", "hash", "http", "https", "id",
-    "int", "iterable", "json", "kwarg", "lan", "lint", "list", "log", "mac",
-    "metadata", "middleware", "mock", "module", "namespace", "org", "param",
-    "parser", "payload", "pip", "proxy", "query", "regex", "repo", "retry", "return",
-    "run", "schema", "session", "setter", "socket", "sql", "ssh", "stub", "tcp",
-    "thread", "timeout", "timestamp", "token", "trace", "traceback", "tui", "tuple",
-    "udp", "url", "uuid", "venv", "vpn", "wan", "wrapper",
-]
-
 [tool.pytest.ini_options]
 # `src` holds the package. The repository root holds `scripts`, which the skill
 # installer tests import.

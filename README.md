@@ -33,7 +33,8 @@ See the [install guide](docs/tooling-guide.md#install), the
 The package is in `src/misthelper_devtools/`. The tests are in `tests/`.
 Shared workflows are in `.github/workflows/`.
 The canonical [agent instructions](docs/tooling-guide.md#agent-instructions)
-are in `templates/agent-instructions/`.
+are in `templates/agent-instructions/`, and this repository reads its copy in
+`AGENTS.md` and its specific rules in `.github/copilot-instructions.md`.
 Detailed guidance is in [docs/tooling-guide.md](docs/tooling-guide.md).
 The [tooling inventory](documentation/mist-repository-tooling-inventory.md)
 lists each tool and its consumers.
