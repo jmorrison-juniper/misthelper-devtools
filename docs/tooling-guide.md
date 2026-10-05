@@ -30,6 +30,7 @@ consumer repository.
 | `.pre-commit-hooks.yaml` | The pre-commit hooks that the Mist repositories use. See [Pre-commit hooks](#pre-commit-hooks). |
 | `.github/actions/mermaid-lint/` | The shared Mermaid syntax lint action. It parses Mermaid blocks in Markdown files. |
 | `templates/agent-instructions/` | The canonical agent instruction files. Each Mist repository copies them. See [Agent instructions](#agent-instructions). |
+| `AGENTS.md` and `.github/copilot-instructions.md` | The agent instructions of this repository: the generic copy and the repository-specific file. |
 | `src/misthelper_devtools/juniper_skills/` | The skill factory. It reads a Juniper document set and it writes a skill package. |
 | `scripts/juniper_skills/` | The command-line entry points for the skill factory. |
 | `tests/` | The test suite for every tool above. |
@@ -550,6 +551,14 @@ status 1 when the two files differ, and it prints the difference. Without
 `--commit`, it reads the canonical copy from `main`. Use `--canonical <path>`
 to compare with a local checkout instead of GitHub, for example in a test.
 
+### This repository
+
+This repository follows the same model. The root `AGENTS.md` is a copy of the template, and
+`tests/test_repository_agent_instructions.py` fails when the two files differ. The file
+`.github/copilot-instructions.md` holds the rules for this repository only, and `.ste-linter.toml`
+is a copy of the template. The STE job of `ci.yml` grades the two instruction files with the
+documentation.
+
 ### Change a generic rule
 
 1. Open an issue in this repository, and change
@@ -582,7 +591,7 @@ python -m ruff check .
 python -m black --check .
 python -m mypy -p misthelper_devtools --config-file pyproject.toml
 python -m pytest
-ste-linter --min-score 80 README.md docs/*.md documentation/*.md src/misthelper_devtools/ste_linter/README.md src/misthelper_devtools/test_quality_analyzer/README.md
+ste-linter --config .ste-linter.toml --min-score 80 README.md AGENTS.md .github/copilot-instructions.md docs/*.md documentation/*.md src/misthelper_devtools/ste_linter/README.md src/misthelper_devtools/test_quality_analyzer/README.md
 actionlint
 ```
 
@@ -591,7 +600,9 @@ the gate read the `juniper_skills` sub-package only, because the other modules
 held 51 known annotation defects. Pull request #17 repaired them and widened
 the scope.
 
-The STE command reads the same files as the CI workflow.
+The STE command reads the same files and the same `.ste-linter.toml` settings as the CI
+workflow. The repository holds no `[tool.ste_linter]` table in `pyproject.toml`, so
+`.ste-linter.toml` is the one source of the linter settings.
 
 In the CI workflow, [actionlint](https://github.com/rhysd/actionlint) and
 shellcheck read each workflow file, because a defect in a shared workflow

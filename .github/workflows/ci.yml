@@ -62,15 +62,17 @@ jobs:
       - name: Check the workflow files
         run: ${{ steps.get_actionlint.outputs.executable }} -color
 
-  # The documentation of this repository meets the same STE rules that the
-  # shared workflow checks in each Mist repository. This job also tests the
-  # shared workflow on each pull request.
+  # The documentation and the agent instructions of this repository meet the
+  # same STE rules that the shared workflow checks in each Mist repository.
+  # The job reads `.ste-linter.toml`, the same settings that a consumer copies.
+  # This job also tests the shared workflow on each pull request.
   ste-lint:
     permissions:
       contents: read
     uses: ./.github/workflows/reusable-ste-lint.yml
     with:
-      files: README.md docs/*.md documentation/*.md src/misthelper_devtools/**/README.md
+      files: README.md AGENTS.md .github/copilot-instructions.md docs/*.md documentation/*.md src/misthelper_devtools/**/README.md
+      config: .ste-linter.toml
 
   # A Mist repository runs the hooks in .pre-commit-hooks.yaml. pre-commit
   # installs this commit in a separate environment and runs each hook, as it
