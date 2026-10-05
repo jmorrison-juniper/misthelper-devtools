@@ -77,20 +77,32 @@ The tool writes `data/ste_dictionary.json`, which git ignores. Without the file,
 the linter searches for a user-level copy. Each lookup tests for a file in this
 order:
 
-1. `--dictionary PATH`: use this path only, with no fallback.
-2. The `STE_DICTIONARY_PATH` environment variable.
-3. The `dictionary` key in `[tool.ste_linter]`.
-4. `data/ste_dictionary.json` in the current directory.
-5. `%LOCALAPPDATA%/ste-linter/ste_dictionary.json`, when `LOCALAPPDATA` is set.
-6. `~/.local/share/ste-linter/ste_dictionary.json`.
-7. `~/.ste-linter/ste_dictionary.json`.
+1. `--no-dictionary`: use no dictionary.
+2. `--dictionary PATH`: use this path only.
+3. The `STE_DICTIONARY_PATH` environment variable: use this path only.
+4. The `dictionary` key in `[tool.ste_linter]`: use this path only.
+5. `data/ste_dictionary.json` in the current directory.
+6. `%LOCALAPPDATA%/ste-linter/ste_dictionary.json`, when `LOCALAPPDATA` is set.
+7. `~/.local/share/ste-linter/ste_dictionary.json`.
+8. `~/.ste-linter/ste_dictionary.json`.
 
-Steps 2 through 7 skip missing files and try the next path. Keep one licensed
-copy in a user-level location so that each worktree can reach it.
-If no file exists, the linter runs the structural checks only and reports
-`dictionary: skipped`. A found dictionary enables `STE-S1-WORD` and `STE-S1-POS`
-and reports `dictionary: used`. An invalid `--dictionary` path reports the skip;
-it never falls back to another file.
+Steps 1 through 4 are explicit. An explicit path that does not exist turns the
+dictionary off, and the linter does not try the next step. Steps 5 through 8
+skip a missing file and try the next path. Keep one licensed copy in a
+user-level location so that each worktree can reach it.
+
+A found dictionary enables `STE-S1-WORD` and `STE-S1-POS` and reports
+`dictionary: used`. Without a dictionary, the linter runs the structural checks
+only. The report then gives the cause, for example
+`dictionary: skipped (path not found: /nonexistent)`.
+
+To grade a file as CI grades it, give `--no-dictionary`:
+
+```sh
+ste-linter --config .ste-linter.toml --min-score 80 --no-dictionary README.md
+```
+
+`STE_DICTIONARY_PATH=/nonexistent` gives the same result.
 
 ## More information
 

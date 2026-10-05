@@ -37,6 +37,8 @@ _SUPPORTED = frozenset({".md", ".py"})
 class LinterCLI:
     """Runs the linter from the command line."""
 
+    _dictionary_note: str = ""  # The cause of a dictionary skip, which the report prints.
+
     def run(self, argv: list[str] | None = None) -> int:
         """Parse the arguments, grade the files, and return the exit code."""
         args = self._parse_args(argv)  # Read the command-line arguments.
@@ -52,7 +54,13 @@ class LinterCLI:
         parser.add_argument("path", nargs="+", help="One or more .md or .py files to grade.")  # The inputs.
         parser.add_argument("--format", choices=["text", "json"], default="text", help="Report format.")
         parser.add_argument("--min-score", type=int, default=None, help="The pass threshold, 0 to 100.")
-        parser.add_argument("--dictionary", default=None, help="The dictionary file path.")  # The override.
+        source = parser.add_mutually_exclusive_group()  # A run names a dictionary or turns it off, not both.
+        source.add_argument("--dictionary", default=None, help="The dictionary file path, with no fallback.")
+        source.add_argument(
+            "--no-dictionary",
+            action="store_true",
+            help="Run the structural rules only, as CI does without the licensed dictionary.",
+        )
         parser.add_argument("--config", default="pyproject.toml", help="The configuration file path.")
         parser.add_argument("--select", action="append", default=[], help="Only run these rule ids.")
         parser.add_argument("--ignore", action="append", default=[], help="Do not run these rule ids.")
@@ -77,6 +85,7 @@ class LinterCLI:
             config.min_score = args.min_score  # Use the command-line threshold.
         if args.dictionary is not None:  # The user set a dictionary path.
             config.dictionary_path = args.dictionary  # Use the command-line path.
+        config.dictionary_disabled = args.no_dictionary  # Turn the dictionary checks off on request.
         if args.grade_logging_strings:  # The user opted in to logging messages for this run.
             config.grade_logging_strings = True  # Enable logging strings without editing TOML.
         if args.grade_user_facing_strings:  # The user opted in to prompts and printed text for this run.
@@ -97,9 +106,7 @@ class LinterCLI:
         coverage = AnalyzerCoverageTracker("ste_linter")  # Track files that the linter reads or skips.
         backend = get_backend(config.prefer_spacy)  # Pick the analysis backend.
         grammar = GrammarAnalyzer()  # The shared grammar helper.
-        dictionary = Dictionary.load(config.dictionary_path)  # Load the dictionary, or None.
-        if dictionary is None:  # The dictionary can be absent in a minimal checkout.
-            coverage.record_skip(config.dictionary_path, "dictionary_unavailable")  # Report reduced measurement.
+        dictionary = self._load_dictionary(config, coverage)  # Load the dictionary, or None.
         rules = load_rules(config)  # Build the active rule list.
         builder = DocumentBuilder(config)  # The document builder needs the string grading switches.
         scorer = ScoringModel()  # The scoring model.
@@ -112,6 +119,23 @@ class LinterCLI:
             else:  # The path graded cleanly.
                 scores.append(score)  # Keep the score.
         return scores, usage_error, coverage.summary()  # Return scores, error flag, and coverage.
+
+    def _load_dictionary(self, config: LinterConfig, coverage: AnalyzerCoverageTracker) -> Dictionary | None:
+        """Return the dictionary, or None, and record the cause of a skip for the report."""
+        path = config.dictionary_path  # The path that the lookup order selected.
+        if config.dictionary_disabled:  # The operator asked for the structural rules only.
+            self._dictionary_note = "turned off by --no-dictionary"  # Name the flag in the report.
+            coverage.record_skip(path, "dictionary_disabled")  # Report reduced measurement.
+            return None  # Run no dictionary rule.
+        if not os.path.isfile(path):  # An explicit path that does not exist turns the dictionary off.
+            self._dictionary_note = f"path not found: {path}"  # Name the missing path in the report.
+            coverage.record_skip(path, "dictionary_unavailable")  # Report reduced measurement.
+            return None  # Run no dictionary rule.
+        dictionary = Dictionary.load(path)  # Read the dictionary file.
+        if dictionary is None:  # The file exists, but it does not parse.
+            self._dictionary_note = f"file not readable: {path}"  # Name the bad file in the report.
+            coverage.record_skip(path, "dictionary_unavailable")  # Report reduced measurement.
+        return dictionary  # Give the caller the dictionary or None.
 
     def _grade_one(
         self,
@@ -155,9 +179,10 @@ class LinterCLI:
     ) -> None:
         """Print the report in the chosen format."""
         if args.format == "json":  # The user asked for JSON.
-            print(JsonReporter().render(scores, config.min_score, args.quiet, coverage))  # Print JSON.
+            reporter: JsonReporter | TextReporter = JsonReporter(self._dictionary_note)  # Write JSON.
         else:  # The default is the text report.
-            print(TextReporter().render(scores, config.min_score, args.quiet, coverage))  # Print text.
+            reporter = TextReporter(self._dictionary_note)  # Write text.
+        print(reporter.render(scores, config.min_score, args.quiet, coverage))  # Print the report.
 
     def _exit_code(self, scores: list[Score], config: LinterConfig, usage_error: bool) -> int:
         """Return the process exit code from the scores and the threshold."""

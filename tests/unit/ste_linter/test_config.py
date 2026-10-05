@@ -129,14 +129,44 @@ def test_resolve_dictionary_uses_configured_path(tmp_path: pathlib.Path, monkeyp
     assert resolve_dictionary_path(str(wanted)) == str(wanted)  # The configured path wins.
 
 
-def test_resolve_dictionary_falls_back_to_user_level(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A missing configured path falls through to the user-level copy."""
-    _isolate_dictionary_env(monkeypatch, tmp_path)  # Start from an empty set of locations.
-    user_copy = tmp_path / "local" / "ste-linter" / "ste_dictionary.json"  # Name the Windows location.
+def _write_user_copy(home: pathlib.Path) -> pathlib.Path:
+    """Create the Windows user-level dictionary under the temporary home, and return its path."""
+    user_copy = home / "local" / "ste-linter" / "ste_dictionary.json"  # Name the Windows location.
     user_copy.parent.mkdir(parents=True)  # Create the folder that holds the user-level copy.
     user_copy.write_text("{}", encoding="utf-8")  # Create the user-level dictionary file.
+    return user_copy  # Give the caller the path that an implicit lookup finds.
+
+
+def test_resolve_dictionary_missing_configured_path_has_no_fallback(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A configured path that does not exist does not fall through to the user-level copy."""
+    _isolate_dictionary_env(monkeypatch, tmp_path)  # Start from an empty set of locations.
+    _write_user_copy(tmp_path)  # Create a user-level copy that must lose.
     missing = str(tmp_path / "absent.json")  # Name a configured path that does not exist.
-    assert resolve_dictionary_path(missing) == str(user_copy)  # The user-level copy wins.
+    assert resolve_dictionary_path(missing) == missing  # The explicit path wins, so the dictionary is off.
+
+
+def test_resolve_dictionary_missing_environment_path_has_no_fallback(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An environment path that does not exist outranks the configured path and the user-level copy."""
+    _isolate_dictionary_env(monkeypatch, tmp_path)  # Start from an empty set of locations.
+    _write_user_copy(tmp_path)  # Create a user-level copy that must lose.
+    configured = tmp_path / "configured.json"  # Name a configured file that exists.
+    configured.write_text("{}", encoding="utf-8")  # Create the configured file, which must lose too.
+    monkeypatch.setenv("STE_DICTIONARY_PATH", "/nonexistent")  # Set the CI-parity override.
+    assert resolve_dictionary_path(str(configured)) == "/nonexistent"  # The missing override wins.
+
+
+def test_resolve_dictionary_empty_environment_is_no_override(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An empty environment value means that the operator set no override."""
+    _isolate_dictionary_env(monkeypatch, tmp_path)  # Start from an empty set of locations.
+    user_copy = _write_user_copy(tmp_path)  # Create the user-level copy that the lookup finds.
+    monkeypatch.setenv("STE_DICTIONARY_PATH", "")  # Set an empty override.
+    assert resolve_dictionary_path() == str(user_copy)  # The implicit lookup runs.
 
 
 def test_resolve_dictionary_keeps_stated_path_on_miss(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -146,42 +176,36 @@ def test_resolve_dictionary_keeps_stated_path_on_miss(tmp_path: pathlib.Path, mo
     assert resolve_dictionary_path(missing) == missing  # The stated path survives the miss.
 
 
-def test_load_resolves_user_level_dictionary(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The loader falls back to the user-level dictionary when the stated file is absent."""
+def test_load_keeps_missing_configured_dictionary(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The loader keeps a missing configured path, so the configuration key turns the dictionary off."""
     _isolate_dictionary_env(monkeypatch, tmp_path)  # Start from an empty set of locations.
-    user_copy = tmp_path / "local" / "ste-linter" / "ste_dictionary.json"  # Name the Windows location.
-    user_copy.parent.mkdir(parents=True)  # Create the folder that holds the user-level copy.
-    user_copy.write_text("{}", encoding="utf-8")  # Create the user-level dictionary file.
+    _write_user_copy(tmp_path)  # Create a user-level copy that must lose.
     path = tmp_path / "pyproject.toml"  # Name the temporary configuration file.
     path.write_text('[tool.ste_linter]\ndictionary = "absent.json"\n', encoding="utf-8")  # State a missing path.
     config = LinterConfig.load(str(path))  # Load the configuration under test.
-    assert config.dictionary_path == str(user_copy)  # The loader found the user-level copy.
+    assert config.dictionary_path == "absent.json"  # The loader kept the explicit path.
 
 
-@pytest.mark.parametrize("first_existing", range(6))
-def test_each_dictionary_lookup_tier(
+@pytest.mark.parametrize("first_existing", range(4))
+def test_each_implicit_dictionary_lookup_tier(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, first_existing: int
 ) -> None:
-    _isolate_dictionary_env(monkeypatch, tmp_path)
-    environment = tmp_path / "environment.json"
-    configured = tmp_path / "configured.json"
-    candidates = [str(environment), str(configured), "data/ste_dictionary.json", *user_dictionary_paths()]
-    monkeypatch.setenv("STE_DICTIONARY_PATH", str(environment))
-    for candidate in candidates[first_existing:]:
-        path = pathlib.Path(candidate)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("{}", encoding="utf-8")
-    assert resolve_dictionary_path(str(configured)) == candidates[first_existing]
+    """With no explicit path, the first implicit location that exists wins."""
+    _isolate_dictionary_env(monkeypatch, tmp_path)  # Start from an empty set of locations.
+    candidates = ["data/ste_dictionary.json", *user_dictionary_paths()]  # The implicit lookup order.
+    for candidate in candidates[first_existing:]:  # Create this tier and each lower tier.
+        path = pathlib.Path(candidate)  # Build the path of the tier.
+        path.parent.mkdir(parents=True, exist_ok=True)  # Create the folder of the tier.
+        path.write_text("{}", encoding="utf-8")  # Create the dictionary file of the tier.
+    assert resolve_dictionary_path() == candidates[first_existing]  # The highest tier that exists wins.
 
 
-def test_dictionary_lookup_skips_directories(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _isolate_dictionary_env(monkeypatch, tmp_path)
-    directory = tmp_path / "not-a-file"
-    directory.mkdir()
-    monkeypatch.setenv("STE_DICTIONARY_PATH", str(directory))
-    wanted = tmp_path / "dictionary.json"
-    wanted.write_text("{}", encoding="utf-8")
-    assert resolve_dictionary_path(str(wanted)) == str(wanted)
+def test_implicit_lookup_skips_directories(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An implicit location that is a folder does not count as a dictionary file."""
+    _isolate_dictionary_env(monkeypatch, tmp_path)  # Start from an empty set of locations.
+    (tmp_path / "data" / "ste_dictionary.json").mkdir(parents=True)  # Put a folder at the repository location.
+    user_copy = _write_user_copy(tmp_path)  # Create the user-level copy that the lookup finds.
+    assert resolve_dictionary_path() == str(user_copy)  # The lookup skipped the folder.
 
 
 def test_user_dictionary_paths_without_windows_variable(
@@ -226,7 +250,7 @@ def test_cli_dictionary_lookup_and_strict_override(
     assert LinterCLI().run(args) == 0
     output = capsys.readouterr().out
     if override == "missing.json":
-        assert "dictionary: skipped" in output
+        assert "dictionary: skipped (path not found: missing.json)" in output
         assert "STE-S1-WORD" not in output
         assert "Skipped: missing.json (dictionary_unavailable)" in output
     else:
@@ -234,3 +258,70 @@ def test_cli_dictionary_lookup_and_strict_override(
         assert "STE-S1-WORD" in output
     config = LinterCLI()._build_config(LinterCLI()._parse_args(args))
     assert config.dictionary_path == (override or str(wanted))
+
+
+def _write_cli_inputs() -> None:
+    """Create a user-level dictionary, an input file, and a configuration in the current folder."""
+    records = {"entries": [{"keyword": "accuracy", "approved": False, "alternatives": ["precision"]}]}
+    wanted = pathlib.Path(user_dictionary_paths()[-1])  # Name the simple home location.
+    wanted.parent.mkdir(parents=True)  # Create the folder of the user-level copy.
+    wanted.write_text(json.dumps(records), encoding="utf-8")  # Create a dictionary that the lookup finds.
+    pathlib.Path("input.md").write_text("Check the accuracy.\n", encoding="utf-8")  # Write a graded word.
+    pathlib.Path("pyproject.toml").write_text("[tool.ste_linter]\nprefer_spacy = false\n", encoding="utf-8")
+
+
+def test_cli_environment_path_not_found_skips_dictionary(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """STE_DICTIONARY_PATH=/nonexistent turns the dictionary off with no HOME override."""
+    _isolate_dictionary_env(monkeypatch, tmp_path)  # Start from an empty set of locations.
+    _write_cli_inputs()  # Create a user-level dictionary that must lose.
+    monkeypatch.setenv("STE_DICTIONARY_PATH", "/nonexistent")  # Set the CI-parity override.
+    assert LinterCLI().run(["input.md", "--min-score", "0"]) == 0  # Grade the file.
+    output = capsys.readouterr().out  # Read the report.
+    assert "dictionary: skipped (path not found: /nonexistent)" in output  # The report names the cause.
+    assert "STE-S1-WORD" not in output  # No dictionary rule ran.
+
+
+def test_cli_no_dictionary_flag_skips_dictionary(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The --no-dictionary flag turns off a dictionary that the lookup finds."""
+    _isolate_dictionary_env(monkeypatch, tmp_path)  # Start from an empty set of locations.
+    _write_cli_inputs()  # Create a user-level dictionary that must lose.
+    assert LinterCLI().run(["input.md", "--min-score", "0", "--no-dictionary"]) == 0  # Grade the file.
+    output = capsys.readouterr().out  # Read the report.
+    assert "dictionary: skipped (turned off by --no-dictionary)" in output  # The report names the flag.
+    assert "STE-S1-WORD" not in output  # No dictionary rule ran.
+    assert "(dictionary_disabled)" in output  # The coverage block records the skip.
+
+
+def test_cli_no_dictionary_flag_reports_json_note(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The JSON summary names the cause of a dictionary skip."""
+    _isolate_dictionary_env(monkeypatch, tmp_path)  # Start from an empty set of locations.
+    _write_cli_inputs()  # Create the inputs.
+    LinterCLI().run(["input.md", "--no-dictionary", "--format", "json"])  # Grade with JSON output.
+    payload = json.loads(capsys.readouterr().out)  # Parse the report.
+    assert payload["results"][0]["dictionary_used"] is False  # No dictionary rule ran.
+    assert payload["summary"]["dictionary_note"] == "turned off by --no-dictionary"  # The cause is named.
+
+
+def test_cli_rejects_dictionary_and_no_dictionary_together(capsys: pytest.CaptureFixture[str]) -> None:
+    """A run cannot name a dictionary and turn it off at the same time."""
+    with pytest.raises(SystemExit) as stop:  # argparse stops on the conflict.
+        LinterCLI().run(["input.md", "--dictionary", "a.json", "--no-dictionary"])  # Give both options.
+    assert stop.value.code == 2  # The usage error code.
+    assert "not allowed with" in capsys.readouterr().err  # argparse names the conflict.
+
+
+def test_cli_unreadable_dictionary_reports_cause(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A dictionary file that does not parse is skipped, and the report names the file."""
+    _isolate_dictionary_env(monkeypatch, tmp_path)  # Start from an empty set of locations.
+    _write_cli_inputs()  # Create the inputs.
+    pathlib.Path("broken.json").write_text("{not json", encoding="utf-8")  # Write a file that does not parse.
+    LinterCLI().run(["input.md", "--dictionary", "broken.json"])  # Grade with the broken file.
+    assert "dictionary: skipped (file not readable: broken.json)" in capsys.readouterr().out  # The cause.
