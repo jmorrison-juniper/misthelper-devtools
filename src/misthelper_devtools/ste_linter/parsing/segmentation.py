@@ -48,11 +48,18 @@ _ABBREVIATIONS = frozenset(
     }
 )
 
+# Stands for one inline code span that the Markdown parser removed. The parser
+# cannot delete the span with no trace, because a sentence that starts with code
+# then joins the previous sentence (issue #52). The segmenter reads the mark as a
+# sentence start and removes it from the sentence text, so it is never a word.
+CODE_MARK = "\x01"
+
 # Matches a sentence-ending mark (., !, or ?) that is followed by whitespace and a
-# capital letter, a digit, an opening quote or bracket, an inline code mark, or
-# the end of the text. A technical sentence often starts with a code span, and
-# such a sentence needs a boundary as much as one that starts with a capital.
-_BOUNDARY = re.compile(r"([.!?])(\s+)(?=[A-Z0-9`\"'(\[]|$)")
+# capital letter, a digit, an opening quote or bracket, an inline code mark, a
+# removed code span, or the end of the text. A technical sentence often starts
+# with a code span, and such a sentence needs a boundary as much as one that
+# starts with a capital.
+_BOUNDARY = re.compile(r"([.!?])(\s+)(?=[A-Z0-9`\"'(\[\x01]|$)")
 
 # Matches the end of a docstring field entry. A Google-style block writes one
 # entry for each name, and a name starts in lower case. The sentence rule above
@@ -89,16 +96,25 @@ class Segmenter:
         start = 0  # The start index of the current sentence within the text.
         for match in self._boundaries(text):  # Walk each candidate boundary.
             end = match.end(1)  # The index just after the punctuation mark.
-            candidate = text[start:end].strip()  # The sentence text without outer spaces.
+            candidate, leading = self._trim(text[start:end])  # The sentence text without outer spaces.
             if candidate and not self._ends_with_abbreviation(candidate):  # A real boundary.
-                leading = len(text[start:end]) - len(text[start:end].lstrip())  # Count trimmed spaces.
                 sentences.append((candidate, base_offset + start + leading))  # Record the sentence.
                 start = match.end()  # The next sentence starts after the whitespace.
-        tail = text[start:].strip()  # Any text after the last boundary is a sentence.
+        tail, leading = self._trim(text[start:])  # Any text after the last boundary is a sentence.
         if tail:  # Only add a non-empty tail.
-            leading = len(text[start:]) - len(text[start:].lstrip())  # Count trimmed spaces.
             sentences.append((tail, base_offset + start + leading))  # Record the final sentence.
         return sentences  # Return the sentence list.
+
+    def _trim(self, piece: str) -> tuple[str, int]:
+        """Return ``piece`` without code marks and outer spaces, and the count of trimmed leading characters.
+
+        Why:
+            A code mark stands for a removed code span and is never a word.
+            The replacement keeps the length, so the leading count still maps
+            the sentence back to its offset in the span text.
+        """
+        plain = piece.replace(CODE_MARK, " ")  # A removed code span reads as a space.
+        return plain.strip(), len(plain) - len(plain.lstrip())  # The sentence and its leading spaces.
 
     def _boundaries(self, text: str) -> list[re.Match[str]]:
         """Return every sentence boundary of one paragraph, in reading order.

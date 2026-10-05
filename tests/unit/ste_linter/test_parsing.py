@@ -5,7 +5,7 @@ from __future__ import annotations  # Postponed annotations keep the type hints 
 from misthelper_devtools.ste_linter.config import LinterConfig  # The parser configuration under test.
 from misthelper_devtools.ste_linter.parsing.markdown import MarkdownParser  # The Markdown parser under test.
 from misthelper_devtools.ste_linter.parsing.python_source import PythonSourceParser  # The Python parser under test.
-from misthelper_devtools.ste_linter.parsing.segmentation import Segmenter  # The segmenter under test.
+from misthelper_devtools.ste_linter.parsing.segmentation import CODE_MARK, Segmenter  # The segmenter under test.
 from misthelper_devtools.ste_linter.parsing.wordcount import WordCounter  # The word counter under test.
 
 
@@ -164,3 +164,27 @@ def test_document_builder_marks_mode(build_doc) -> None:
     modes = {sentence.text.split()[0]: sentence.mode for sentence in document.sentences}  # Map first word.
     assert modes["Set"] == "procedural"  # The step is procedural.
     assert modes["The"] == "descriptive"  # The description is descriptive.
+
+
+def test_segmenter_strips_a_code_mark_from_the_sentence() -> None:
+    """A removed code span starts a sentence but is never part of its text."""
+    text = f"The tool stops. {CODE_MARK} checks the code."  # The parser output for a leading code span.
+    sentences = Segmenter().split_sentences(text)  # Split the two sentences.
+    assert [sentence for sentence, _ in sentences] == ["The tool stops.", "checks the code."]  # No mark is left.
+    assert sentences[1][1] == text.index("checks")  # The offset points at the first word of the second sentence.
+
+
+def test_markdown_makes_each_list_item_a_block() -> None:
+    """A list item with no end mark must not join the next item."""
+    spans = MarkdownParser().parse("Intro text.\n- First item\n- Second item\n  wraps here\n")  # One line, two items.
+    assert [span.text for span in spans] == ["Intro text.", "First item", "Second item\n  wraps here"]  # Three blocks.
+    assert [span.start_line for span in spans] == [1, 2, 3]  # Each block keeps its source line.
+
+
+def test_document_builder_counts_the_issue_52_shapes_one_by_one(build_doc, fixtures_dir) -> None:
+    """Issue #52: a sentence that starts with code, or a list item, is one sentence alone."""
+    text = (fixtures_dir / "segmentation_inline_code.md").read_text(encoding="utf-8")  # The regression shapes.
+    document = build_doc(text)  # Parse the fixture.
+    assert len(document.sentences) == 12  # Before the repair, the parser found 7 sentences.
+    assert max(sentence.word_count for sentence in document.sentences) <= 14  # No false long sentence remains.
+    assert not any(CODE_MARK in sentence.text for sentence in document.sentences)  # No mark leaks into a sentence.

@@ -11,6 +11,7 @@ from __future__ import annotations  # Postponed annotations keep the type hints 
 import re  # Drives the line tests and the inline cleaning.
 
 from ..models import ProseSpan  # The output type for each prose block.
+from .segmentation import CODE_MARK  # Stands for a removed code span, so a sentence can start with code.
 
 # Matches the start or end of a fenced code block, with backticks or tildes.
 _FENCE = re.compile(r"^\s*(```|~~~)")
@@ -66,6 +67,8 @@ class MarkdownParser:
             if in_fence or self._is_skippable(raw):  # Code, headings, tables, or blank markup.
                 block_start = self._flush(spans, buffer, block_start)  # End the current block.
                 continue  # Skip the line.
+            if _LIST_MARKER.match(raw):  # Each list item is its own block, with or without an end mark.
+                block_start = self._flush(spans, buffer, block_start)  # End the previous item or paragraph.
             cleaned = self._clean_inline(raw)  # Remove inline code, links, and markup.
             if not buffer:  # This line starts a new block.
                 block_start = number  # Record the block start line.
@@ -97,7 +100,7 @@ class MarkdownParser:
         line = _IMAGE.sub(" ", line)  # Remove inline images whole.
         line = _INLINE_LINK.sub(r"\1", line)  # Replace a link with its visible text.
         line = _REF_LINK.sub(r"\1", line)  # Replace a reference link with its text.
-        line = _INLINE_CODE.sub(" ", line)  # Remove inline code spans.
+        line = _INLINE_CODE.sub(CODE_MARK, line)  # Mark each removed code span for the segmenter.
         line = _HTML_TAG.sub(" ", line)  # Remove HTML tags.
         line = _EMPHASIS.sub("", line)  # Remove emphasis and strike markers.
         return line  # Return the cleaned line.
