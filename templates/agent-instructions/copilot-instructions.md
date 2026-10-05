@@ -39,7 +39,8 @@ suppress it.
 ## Architecture and conventions
 
 The primary packages or classes, the data flow, and the naming conventions of this repository.
-Also the hot files that only one agent changes at a time. Does not belong here: the five-item rule, the
+Also the hot files that only one agent changes at a time, and the file where Spec Kit writes its
+context when the repository holds `.specify/`. Does not belong here: the five-item rule, the
 inline comment rule, or the action logging rule.
 
 ## Safety in this repository

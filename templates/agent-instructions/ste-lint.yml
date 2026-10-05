@@ -8,7 +8,7 @@
 # rules only. Grade the same files with a dictionary on your own machine too.
 #
 # The `uses:` line pins a full commit SHA of misthelper-devtools, and the
-# comment after it names the release. This template pins the v0.6.1 commit.
+# comment after it names the release.
 # Re-pin the SHA and the comment together when you adopt a later release, and
 # let Dependabot move the pin with a `github-actions` entry in
 # `.github/dependabot.yml`.

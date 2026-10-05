@@ -521,6 +521,9 @@ Simplified Technical English outranks each other style rule in the two files.
 ### Adopt the files in a repository
 
 1. Copy `templates/agent-instructions/AGENTS.md` to `AGENTS.md` at the root.
+   If the repository tracks a lower-case `agents.md`, first run
+   `git mv agents.md AGENTS.md`. On a file system that ignores case, `cp`
+   writes into the tracked lower-case file, and Git records no rename.
 2. Make `.github/copilot-instructions.md` from the skeleton. Replace each
    placeholder, and remove a section that does not apply. Move each rule for
    this repository only from the old instruction files.
@@ -533,8 +536,8 @@ Simplified Technical English outranks each other style rule in the two files.
 5. Copy `ste-lint.yml` to `.github/workflows/ste-lint.yml`. Change the SHA and
    the release comment of the `uses:` line together when you adopt a later
    release.
-6. Remove a lower-case `agents.md` and each `.github/instructions/*.instructions.md`
-   after their rules landed in one of the two files.
+6. Remove each `.github/instructions/*.instructions.md` after its rules
+   landed in one of the two files.
 7. Grade the files in the two modes. The first command uses the dictionary of
    the workstation. The second command runs the structural rules only, as CI
    does. Each file must score 80 or above in both modes.
