@@ -223,6 +223,18 @@ markdown-link-check --exclude 'documentation/wiki/**'
 markdown-link-check documentation
 ```
 
+## Upgrade from release 0.6.2 to release 0.6.3
+
+Release 0.6.3 makes `speckit-task-audit` find feature records in grouped
+managed routes. The audit reports feature, task-file, and task-marker counts.
+It rejects nested feature identities and unreadable required inputs with exit
+code 2. It supports full report paths for nested allow-list entries and keeps
+direct-name allow-list entries for existing records.
+
+No commands, hook IDs, or caller permissions change. Update each workflow and
+action pin with its `v0.6.3` comment, the pre-commit `rev:`, and any
+`requirements-dev.txt` pin.
+
 ## Upgrade from release 0.6.1 to release 0.6.2
 
 Release 0.6.2 makes the STE linter more accurate and makes the CI grade
@@ -375,7 +387,7 @@ the repository. To use these hooks, add this repository to
 ```yaml
 repos:
   - repo: https://github.com/jmorrison-juniper/misthelper-devtools
-    rev: v0.6.2
+    rev: v0.6.3
     hooks:
       - id: ste-linter
         args: [--config, .ste-linter.toml, --min-score, "80"]
@@ -410,7 +422,7 @@ job name and check name:
 ```yaml
 steps:
   - uses: actions/checkout@v7
-  - uses: jmorrison-juniper/misthelper-devtools/.github/actions/mermaid-lint@<commit-sha> # v0.6.2
+  - uses: jmorrison-juniper/misthelper-devtools/.github/actions/mermaid-lint@<commit-sha> # v0.6.3
     with:
       docs-dir: documentation
       extra-files: README.md
@@ -438,7 +450,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-container-image.yml@<commit-sha> # v0.6.2
+    uses: jmorrison-juniper/misthelper-devtools/.github/workflows/reusable-container-image.yml@<commit-sha> # v0.6.3
 ```
 
 To upgrade a consumer, read the release notes, then change the SHA and the
