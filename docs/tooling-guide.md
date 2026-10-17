@@ -96,6 +96,12 @@ Twenty-one tools also install as a command.
 | `wan-port-report` | `misthelper_devtools.wan_port_report` |
 | `worktree-cleanup` | `misthelper_devtools.worktree_cleanup` |
 
+The `speckit-task-audit` command scans direct feature folders and marked records under
+`numbered`, `live`, `skills`, and `indexes`.
+It reports feature, task-file, and task-marker counts.
+Use the full `specs/...` report path to allow one nested record.
+It exits with code 2 when it cannot read a required input or finds nested feature identities.
+
 ```powershell
 ste-linter path\to\file.md
 test-quality-analyzer --roots tests
