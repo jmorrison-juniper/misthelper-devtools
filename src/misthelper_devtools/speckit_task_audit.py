@@ -1,6 +1,10 @@
 """Audit SpecKit task records for unchecked work.
 
 Why: a delivered specification must not keep open task boxes.
+
+Usage::
+
+    speckit-task-audit --root path/to/repository
 """
 
 from __future__ import annotations  # Keep type hints stable on supported Python releases.
@@ -8,6 +12,7 @@ from __future__ import annotations  # Keep type hints stable on supported Python
 import argparse  # Parse the command line for local and CI use.
 import logging  # Record each audit action for operator review.
 import re  # Match status lines and checkbox markers without a Markdown parser.
+import sys  # Send input failures to the command error stream.
 from dataclasses import dataclass  # Keep audit records explicit and typed.
 from pathlib import Path  # Keep path handling portable across Windows and Linux.
 
@@ -23,6 +28,76 @@ CITATION_RE = re.compile(  # Find proof paths only in evidence notes, not in tas
 )
 COMPLETE_WORDS = ("implemented", "complete", "delivered", "merged")  # Treat these states as shipped.
 INCOMPLETE_WORDS = ("partly", "partial", "specified", "specification", "draft")  # Treat these states as open.
+MANAGED_ROOT_NAMES = frozenset({"indexes", "live", "numbered", "skills"})  # Skip managed route containers.
+
+
+class AuditInputError(Exception):
+    """Report an unreadable or invalid audit input.
+
+    Why: the command must fail clearly instead of reporting a partial scan.
+    """
+
+
+class SpecDirectoryDiscovery:
+    """Find legacy and grouped SpecKit feature directories.
+
+    Why: managed route folders are containers, not feature records.
+    """
+
+    def __init__(self, specs_dir: Path) -> None:
+        self._specs_dir = specs_dir  # Store the root used to label each record.
+
+    def discover(self) -> list[Path]:
+        logger.info("Discovering SpecKit feature records under %s", self._specs_dir)  # Log before traversal.
+        records: list[Path] = []  # Collect direct and nested feature directories.
+        for directory in self._children(self._specs_dir):  # Preserve direct legacy feature records.
+            is_legacy_root = directory.name not in MANAGED_ROOT_NAMES  # Keep old direct feature folders.
+            self._walk(directory, records, is_legacy_root)  # Discover grouped records beneath route containers.
+        self._reject_nested_identities(records)  # Stop when a feature contains another feature record.
+        logger.debug("Discovered %s SpecKit feature records", len(records))  # Report the examined record count.
+        return sorted(records)  # Keep reports stable across operating systems.
+
+    def _walk(self, directory: Path, records: list[Path], is_legacy_root: bool) -> bool:
+        children = self._children(directory)  # Read children before classifying a possible group directory.
+        has_marker = self._has_feature_marker(directory)  # Detect this directory's feature files.
+        has_descendant_marker = False  # Track feature files below this directory.
+        for child in children:  # Search nested route groups and validate readable folders.
+            child_has_marker = self._walk(child, records, False)  # Nested records require feature markers.
+            has_descendant_marker = child_has_marker or has_descendant_marker  # Preserve any nested marker.
+        is_legacy_without_nested_record = is_legacy_root and not has_descendant_marker  # Keep old missing-file reports.
+        if has_marker or is_legacy_without_nested_record:  # Identify records without treating groups as features.
+            records.append(directory)  # Include this directory in the audit.
+        return has_marker or has_descendant_marker  # Let parents distinguish groups from legacy records.
+
+    def _children(self, directory: Path) -> list[Path]:
+        try:
+            children = (  # Exclude symbolic links so traversal remains inside the repository tree.
+                child for child in directory.iterdir() if child.is_dir() and not child.is_symlink()
+            )
+            return sorted(children)  # Visit child folders in stable order.
+        except OSError as error:
+            raise AuditInputError(f"Cannot scan SpecKit directory {directory}: {error}") from error  # Fail closed.
+
+    @staticmethod
+    def _has_feature_marker(directory: Path) -> bool:
+        has_spec = (directory / "spec.md").is_file()  # A specification file marks a feature directory.
+        has_tasks = (directory / "tasks.md").is_file()  # A task file also marks a feature directory.
+        return has_spec or has_tasks  # Ignore route folders without feature files.
+
+    def _reject_nested_identities(self, records: list[Path]) -> None:
+        record_set = set(records)  # Use discovered paths to detect a feature inside another feature.
+        for record in records:  # Validate each record against its directory ancestors.
+            for parent in record.parents:  # Only records below a feature can form an invalid identity.
+                if parent in record_set:  # A parent and child cannot both represent independent features.
+                    parent_label = self._label(parent)  # Format the parent as a repository-relative path.
+                    record_label = self._label(record)  # Format the child as a repository-relative path.
+                    raise AuditInputError(
+                        f"Nested feature identity: {parent_label} contains {record_label}"
+                    )  # Stop before returning a partial audit.
+
+    def _label(self, directory: Path) -> str:
+        relative = directory.relative_to(self._specs_dir).as_posix()  # Keep labels portable and repository-relative.
+        return f"specs/{relative}"  # Match the audit report path format.
 
 
 @dataclass(frozen=True)
@@ -55,7 +130,7 @@ class SpecFinding:
     Why: one record keeps the report and the gate decision together.
     """
 
-    name: str  # Use the directory name as the stable allow-list key.
+    relative_path: str  # Keep the record identity unique within grouped routes.
     status: str  # Keep the status text for the human report.
     counts: TaskCounts  # Keep all task counts together for later checks.
     missing_tasks: bool  # Report a missing task file as a record problem.
@@ -96,7 +171,10 @@ class CitationValidator:
 
     def find_errors(self, path: Path) -> tuple[CitationFinding, ...]:
         logger.info("Validating checked task citations in %s", path)  # Log the file before path checks.
-        lines = path.read_text(encoding="utf-8").splitlines()  # Read lines so reports can name line numbers.
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()  # Read lines so reports can name line numbers.
+        except OSError as error:
+            raise AuditInputError(f"Cannot read required task file {path}: {error}") from error  # Fail closed.
         errors = tuple(self._errors_from_lines(path, lines))  # Collect missing paths outside fenced blocks.
         logger.debug("Found %s missing checked-task citations in %s", len(errors), path)  # Log the count.
         return errors  # Return immutable findings so callers do not mutate audit results.
@@ -167,10 +245,14 @@ class AllowList:
         entries = {line.strip() for line in lines if line.strip() and not line.startswith("#")}  # Keep keys.
         return entries  # Return the normalized entries for lookup.
 
-    def contains(self, spec_dir: Path) -> bool:
-        key = spec_dir.name  # The directory name is the preferred stable key.
-        path_key = spec_dir.as_posix()  # A path key lets users paste a report line into the file.
-        return key in self._entries or path_key in self._entries  # Accept either key form.
+    def contains(self, spec_dir: Path, specs_dir: Path) -> bool:
+        name_key = spec_dir.name  # The directory name is the preferred stable key.
+        relative_key = spec_dir.relative_to(specs_dir).as_posix()  # Allow a stable nested record key.
+        report_key = f"specs/{relative_key}"  # Let users copy the report path into the allow list.
+        path_key = spec_dir.as_posix()  # Keep existing absolute path keys valid.
+        path_keys = (relative_key, report_key, path_key)  # Match route-specific keys for unique records.
+        keys = (*path_keys, name_key) if "/" not in relative_key else path_keys  # Keep basename keys flat-only.
+        return any(key in self._entries for key in keys)  # Match all supported key forms.
 
 
 class TaskFileScanner:
@@ -181,7 +263,10 @@ class TaskFileScanner:
 
     def scan(self, path: Path) -> TaskCounts:
         logger.info("Scanning task file %s", path)  # Log the file that the scanner reads.
-        text = path.read_text(encoding="utf-8")  # Read one file so the scanner can count each line.
+        try:
+            text = path.read_text(encoding="utf-8")  # Read one file so the scanner can count each line.
+        except OSError as error:
+            raise AuditInputError(f"Cannot read required task file {path}: {error}") from error  # Fail closed.
         counts = self._count_lines(text.splitlines())  # Count only valid boxes outside code fences.
         logger.debug("Scanned %s with %s unchecked tasks", path, counts.unchecked)  # Log the result.
         return counts  # Return counts for the reporter and the gate.
@@ -228,7 +313,10 @@ class SpecTaskAudit:
 
     def run(self) -> int:
         logger.info("Starting the SpecKit task audit under %s", self._root)  # Log the audit start.
-        findings = self._findings()  # Measure every specification directory.
+        try:
+            findings = self._findings()  # Measure every specification directory.
+        except OSError as error:
+            raise AuditInputError(f"Cannot read required SpecKit audit input: {error}") from error  # Fail closed.
         self._report(findings)  # Print a human-readable report for CI logs.
         failures = [finding for finding in findings if finding.blocks_merge]  # Select blocking drift.
         logger.debug("The SpecKit task audit found %s blocking specs", len(failures))  # Log failure count.
@@ -236,25 +324,31 @@ class SpecTaskAudit:
 
     def _findings(self) -> list[SpecFinding]:
         specs_dir = self._root / "specs"  # Specs live below this directory by project convention.
-        spec_dirs = sorted(path for path in specs_dir.iterdir() if path.is_dir())  # Inspect each spec folder.
-        findings = [self._finding_for(spec_dir) for spec_dir in spec_dirs]  # Build one finding per folder.
+        spec_dirs = SpecDirectoryDiscovery(specs_dir).discover()  # Find direct and grouped feature records.
+        findings = [self._finding_for(spec_dir, specs_dir) for spec_dir in spec_dirs]  # Audit every record.
         return findings  # Return all findings so the report includes missing files.
 
-    def _finding_for(self, spec_dir: Path) -> SpecFinding:
+    def _finding_for(self, spec_dir: Path, specs_dir: Path) -> SpecFinding:
         status = self._status_for(spec_dir)  # Read the status line before task validation.
         tasks_path = spec_dir / "tasks.md"  # The task record uses this fixed file name.
-        allowed = self._allow_list.contains(spec_dir)  # Check whether the spec is an approved exception.
+        allowed = self._allow_list.contains(spec_dir, specs_dir)  # Check whether the spec is an approved exception.
+        relative_path = spec_dir.relative_to(specs_dir).as_posix()  # Preserve grouped identity in all findings.
         if not tasks_path.exists():  # Missing task records get a finding with zero counts.
-            return SpecFinding(spec_dir.name, status, TaskCounts(0, 0, 0), True, allowed)  # Report missing file.
+            return SpecFinding(relative_path, status, TaskCounts(0, 0, 0), True, allowed)  # Report missing file.
         counts = self._scanner.scan(tasks_path)  # Count valid boxes outside code fences.
         citations = self._citation_validator.find_errors(tasks_path)  # Validate checked-task proof paths.
-        return SpecFinding(spec_dir.name, status, counts, False, allowed, citations)  # Return the finding.
+        return SpecFinding(relative_path, status, counts, False, allowed, citations)  # Return the finding.
 
     def _status_for(self, spec_dir: Path) -> str:
         spec_path = spec_dir / "spec.md"  # The status line lives in the feature specification.
         if not spec_path.exists():  # A spec folder can exist before a spec file is written.
             return "Unknown"  # Unknown status must not fail as complete.
-        text = spec_path.read_text(encoding="utf-8")  # Read the spec file to find the status line.
+        try:
+            text = spec_path.read_text(encoding="utf-8")  # Read the spec file to find the status line.
+        except OSError as error:
+            raise AuditInputError(
+                f"Cannot read required specification file {spec_path}: {error}"
+            ) from error  # Stop when a required feature file is unreadable.
         match = STATUS_RE.search(text)  # Search for the standard SpecKit status field.
         return match.group("status").strip() if match else "Unknown"  # Return a safe default when absent.
 
@@ -263,9 +357,23 @@ class SpecTaskAudit:
         missing = [finding for finding in findings if finding.missing_tasks]  # Report folders with no tasks.
         citations = [finding for finding in findings if finding.citation_errors]  # Report missing proof files.
         print("SpecKit task audit")  # Start with a stable heading for CI logs.
+        self._print_scan_summary(findings)  # Show the number of records and task markers examined.
         self._print_open_findings(open_findings)  # Print each unchecked-task finding.
         self._print_missing_findings(missing)  # Print each missing task record.
         self._print_citation_findings(citations)  # Print each unresolved checked-task proof path.
+
+    @staticmethod
+    def _print_scan_summary(findings: list[SpecFinding]) -> None:
+        task_files = sum(not finding.missing_tasks for finding in findings)  # Count readable task records.
+        checked = sum(finding.counts.checked for finding in findings)  # Count completed task markers.
+        unchecked = sum(finding.counts.unchecked for finding in findings)  # Count open task markers.
+        malformed = sum(finding.counts.malformed for finding in findings)  # Count invalid task markers.
+        marker_count = checked + unchecked + malformed  # Include malformed markers in the examined total.
+        print(
+            f"Examined {len(findings)} feature record(s), {task_files} task file(s), "
+            f"and {marker_count} task marker(s): {checked} checked, {unchecked} unchecked, "
+            f"{malformed} malformed."
+        )  # Give operators exact scan counts and task state.
 
     def _print_open_findings(self, findings: list[SpecFinding]) -> None:
         if not findings:  # A clean tree needs a clear report line.
@@ -273,18 +381,20 @@ class SpecTaskAudit:
             return  # Stop before the loop so the report stays short.
         for finding in findings:  # Print every spec with an unchecked task.
             marker = "allowed" if finding.allowed else "open"  # Show whether the allow list covers it.
-            print(f"specs/{finding.name}: {finding.counts.unchecked} unchecked tasks ({marker})")  # Report count.
+            print(
+                f"specs/{finding.relative_path}: {finding.counts.unchecked} unchecked tasks ({marker})"
+            )  # Report count.
 
     def _print_missing_findings(self, findings: list[SpecFinding]) -> None:
         for finding in findings:  # Print each missing task file for repair visibility.
-            print(f"specs/{finding.name}: missing tasks.md")  # Name the missing task record.
+            print(f"specs/{finding.relative_path}: missing tasks.md")  # Name the missing task record.
 
     def _print_citation_findings(self, findings: list[SpecFinding]) -> None:
         for finding in findings:  # Print each spec that has an unresolved checked-task citation.
             marker = "allowed" if finding.allowed else "missing"  # Show whether the allow list covers it.
             for error in finding.citation_errors:  # Print each missing proof path with its source line.
                 line = error.line_number  # Keep the print statement readable and below the line limit.
-                print(f"specs/{finding.name}: line {line}: {error.citation} ({marker})")  # Report path.
+                print(f"specs/{finding.relative_path}: line {line}: {error.citation} ({marker})")  # Report path.
 
 
 class Command:
@@ -294,14 +404,19 @@ class Command:
     """
 
     @classmethod
-    def main(cls) -> int:
+    def main(cls, argv: list[str] | None = None) -> int:
         parser = cls._parser()  # Build the parser near the entry point.
-        args = parser.parse_args()  # Read the operator options from the command line.
+        args = parser.parse_args(argv)  # Read the operator options from the command line.
         level = logging.INFO if args.verbose else logging.WARNING  # Keep normal reports concise unless asked.
         logging.basicConfig(level=level, format="%(levelname)s:%(message)s")  # Enable action logs for operators.
-        allow_list = AllowList.from_path(args.allow_list)  # Load optional exceptions before the audit.
-        audit = SpecTaskAudit(args.root, allow_list)  # Build the audit with the selected root.
-        return audit.run()  # Return the audit exit code to the shell.
+        try:
+            allow_list = AllowList.from_path(args.allow_list)  # Load optional exceptions before the audit.
+            audit = SpecTaskAudit(args.root, allow_list)  # Build the audit with the selected root.
+            return audit.run()  # Return the audit exit code to the shell.
+        except (AuditInputError, OSError) as error:
+            logger.error("The SpecKit task audit stopped: %s", error)  # Preserve the full input error context.
+            print(f"Error: {error}", file=sys.stderr)  # Tell the operator why the audit did not finish.
+            return 2  # Distinguish an invalid input from task drift.
 
     @staticmethod
     def _parser() -> argparse.ArgumentParser:
