@@ -120,6 +120,23 @@ Five module-level detectors register themselves with `DetectorRegistry` on impor
 | `detection/missing_failure_mode.py` | `missing_failure_mode` | Happy-path-only tests missing error/exception coverage. |
 | `detection/missing_edge_case.py` | `missing_edge_case` | Heuristic — no zero, empty, or negative test inputs. |
 
+### Unittest assertions
+
+The weak assertion detector recognizes standard `unittest.TestCase` assertion
+methods, including `assertEqual`, `assertTrue`, and `assertIn`. It resolves
+unittest import aliases and local TestCase inheritance, including
+`IsolatedAsyncioTestCase`. It does not resolve imported custom base classes.
+An arbitrary method with an `assert` prefix does not count.
+
+`assertRaises` and `assertRaisesRegex` count in a `with` statement or when they
+receive a callable. An unused exception context does not count. Broad exception
+checks retain the `weak_pytest_raises_exception` rule identifier for both
+frameworks. `assertIsNotNone` retains the `weak_is_not_none` warning.
+
+Mock assertions include `assert_not_called` and argument checks. Assertions in
+nested helper functions, classes, and lambdas do not count toward the outer test.
+The detector does not execute tests or follow helper calls.
+
 ## Configuration
 
 `config.toml` in the package holds the default rules. A repository can keep
