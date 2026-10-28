@@ -85,6 +85,9 @@ class FunctionIndex:
         self.source_roots = source_roots_for(repository_root)  # Resolve once, so every read uses one root.
         self.by_qualname: dict[str, FunctionNode] = {}  # "Class.method" to its node.
         self.by_name: dict[str, list[FunctionNode]] = {}  # Plain name to every match.
+        self._classes_by_name: dict[str, list[ast.ClassDef]] = {}  # Names map to every class definition.
+        self._method_owners: dict[int, ast.ClassDef] = {}  # Function node identity maps to its owning class.
+        self._methods_by_owner: dict[tuple[int, str], FunctionNode] = {}  # Exact class identity maps each method.
         self._build()
 
     def _build(self) -> None:
@@ -107,10 +110,14 @@ class FunctionIndex:
         for node in ast.walk(tree):
             if not isinstance(node, ast.ClassDef):
                 continue
+            self._classes_by_name.setdefault(node.name, []).append(node)  # Preserve duplicates for safe resolution.
+            class_identity = id(node)  # Node identity distinguishes classes with the same spelling.
             for child in node.body:
                 if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     self.by_qualname[f"{node.name}.{child.name}"] = child
                     self.by_name.setdefault(child.name, []).append(child)
+                    self._method_owners[id(child)] = node  # Record exact ownership for self and cls calls.
+                    self._methods_by_owner[(class_identity, child.name)] = child
                     methods.add(id(child))  # Remember it, so the next pass skips it.
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and id(node) not in methods:
@@ -146,49 +153,307 @@ class PromptWalker:
         if node is None:
             return [], "handler not found"
         found: list[str] = []  # Prompts in the order the walk meets them.
-        self._walk(node, found, depth=0, seen=set())
+        _CallTraversal(self.index, found).walk_callable(node, depth=0)
         return found, "ok"
 
-    def _walk(self, node: ast.AST, found: list[str], depth: int, seen: set[str]) -> None:
-        """Follow calls from one function and record each prompt it reaches."""
-        if depth > MAX_DEPTH:
-            return  # A deeper walk reaches unrelated code and reports noise.
-        for child in ast.walk(node):
-            if not isinstance(child, ast.Call):
-                continue
-            name = self._call_name(child)
-            if name is None:
-                continue
-            plain = name.rsplit(".", 1)[-1]
-            if plain in PROMPT_HELPERS:
-                found.append(PROMPT_HELPERS[plain])  # A known helper names its own kind.
-                continue
-            if plain in RAW_INPUT_NAMES:
-                found.append("raw")  # A bare input call needs an answer of some kind.
-                continue
-            if plain in seen:
-                continue  # A repeated call adds nothing and can loop forever.
-            target = self.index.lookup(name)
-            if target is not None:
-                seen.add(plain)  # Record the visit before the descent, so recursion ends.
-                self._walk(target, found, depth + 1, seen)
+
+class _CallResolver:
+    """Resolve only callable and receiver targets supported by source evidence."""
+
+    def __init__(self, index: FunctionIndex) -> None:
+        """Store the source index used to resolve classes and functions."""
+        self.index = index
+
+    def target_for(
+        self,
+        call: ast.Call,
+        owner: ast.ClassDef | None,
+        receivers: dict[str, ast.ClassDef],
+    ) -> FunctionNode | None:
+        """Return a proven target for a bare, constructed, or class-bound call."""
+        func = call.func
+        if isinstance(func, ast.Name):
+            if func.id in self.index._classes_by_name:
+                return None
+            return self.index.lookup(func.id)
+        if not isinstance(func, ast.Attribute):
+            return None
+        if isinstance(func.value, ast.Name) and func.value.id in {"self", "cls"}:
+            class_node = owner
+        else:
+            class_node = self.class_for_value(func.value, receivers)
+        if class_node is None:
+            return None
+        return self.index._methods_by_owner.get((id(class_node), func.attr))
+
+    def class_for_value(self, value: ast.AST, receivers: dict[str, ast.ClassDef]) -> ast.ClassDef | None:
+        """Return a unique class for a local receiver or dotted constructor."""
+        if isinstance(value, ast.Name):
+            return receivers.get(value.id) or self._unique_class(value.id)
+        if isinstance(value, ast.Call):
+            return self.class_for_constructor(value.func)
+        if isinstance(value, ast.Attribute):
+            return self._unique_class(value.attr)
+        return None
+
+    def class_for_constructor(self, constructor: ast.expr) -> ast.ClassDef | None:
+        """Return a unique class named by a direct constructor expression."""
+        if isinstance(constructor, ast.Name):
+            return self._unique_class(constructor.id)
+        if isinstance(constructor, ast.Attribute):
+            return self._unique_class(constructor.attr)
+        return None
+
+    def _unique_class(self, name: str) -> ast.ClassDef | None:
+        """Return a class only when its simple name identifies one definition."""
+        matches = self.index._classes_by_name.get(name, [])
+        return matches[0] if len(matches) == 1 else None
 
     @staticmethod
-    def _call_name(call: ast.Call) -> str | None:
-        """Return the dotted name of a call, or None when it has no name."""
+    def call_name(call: ast.Call) -> str | None:
+        """Return a dotted name for a call expression with a named function."""
         func = call.func
         if isinstance(func, ast.Name):
             return func.id
-        if isinstance(func, ast.Attribute):
-            parts = [func.attr]  # Build the dotted name from the tail backward.
-            node = func.value
-            while isinstance(node, ast.Attribute):
-                parts.append(node.attr)
-                node = node.value
-            if isinstance(node, ast.Name):
-                parts.append(node.id)
-            return ".".join(reversed(parts))
-        return None
+        if not isinstance(func, ast.Attribute):
+            return None
+        parts = [func.attr]  # Build the dotted name from the tail backward.
+        node = func.value
+        while isinstance(node, ast.Attribute):
+            parts.append(node.attr)
+            node = node.value
+        if isinstance(node, ast.Name):
+            parts.append(node.id)
+        return ".".join(reversed(parts)) if isinstance(node, ast.Name) else None
+
+
+class _CallTraversal:
+    """Visit statements and calls in source order with a path-local recursion guard."""
+
+    def __init__(self, index: FunctionIndex, found: list[str]) -> None:
+        """Store shared report state and the resolver for this audit."""
+        self.index = index
+        self.found = found
+        self.resolver = _CallResolver(index)
+        self.active: set[int] = set()
+
+    def walk_callable(self, node: FunctionNode, depth: int) -> None:
+        """Visit one callable unless its depth or active path blocks descent."""
+        identity = id(node)
+        if depth > MAX_DEPTH or identity in self.active:
+            return
+        self.active.add(identity)
+        try:
+            owner = self.index._method_owners.get(identity)
+            self.visit_statements(node.body, depth, owner, {})
+        finally:
+            self.active.remove(identity)
+
+    def visit_statements(
+        self,
+        statements: list[ast.stmt],
+        depth: int,
+        owner: ast.ClassDef | None,
+        receivers: dict[str, ast.ClassDef],
+    ) -> None:
+        """Visit one statement list in its recorded source order."""
+        for statement in statements:
+            self.visit_statement(statement, depth, owner, receivers)
+
+    def visit_statement(
+        self,
+        statement: ast.stmt,
+        depth: int,
+        owner: ast.ClassDef | None,
+        receivers: dict[str, ast.ClassDef],
+    ) -> None:
+        """Visit one statement and update only its supported local bindings."""
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            return
+        if isinstance(statement, (ast.Assign, ast.AnnAssign)):
+            _visit_assignment(statement, self, depth, owner, receivers)
+            return
+        if isinstance(statement, (ast.If, ast.For, ast.AsyncFor, ast.While)):
+            _visit_control_statement(statement, self, depth, owner, receivers)
+            return
+        if isinstance(statement, ast.Try):
+            _visit_try_statement(statement, self, depth, owner, receivers)
+            return
+        if isinstance(statement, (ast.With, ast.AsyncWith)):
+            _visit_with_statement(statement, self, depth, owner, receivers)
+            return
+        _visit_generic_statement(statement, self, depth, owner, receivers)
+
+    def visit_expression(
+        self,
+        node: ast.AST,
+        depth: int,
+        owner: ast.ClassDef | None,
+        receivers: dict[str, ast.ClassDef],
+    ) -> None:
+        """Visit nested expressions before resolving the enclosing call."""
+        if isinstance(node, ast.stmt):
+            return
+        if isinstance(node, ast.Call):
+            _visit_call_expression(node, self, depth, owner, receivers)
+            return
+        if isinstance(node, ast.NamedExpr):
+            _visit_named_expression(node, self, depth, owner, receivers)
+            return
+        for child in ast.iter_child_nodes(node):
+            self.visit_expression(child, depth, owner, receivers)
+
+
+def _visit_assignment(
+    statement: ast.Assign | ast.AnnAssign,
+    traversal: _CallTraversal,
+    depth: int,
+    owner: ast.ClassDef | None,
+    receivers: dict[str, ast.ClassDef],
+) -> None:
+    """Update receiver bindings after visiting an assignment value."""
+    value = statement.value
+    if value is not None:
+        traversal.visit_expression(value, depth, owner, receivers)
+    class_node = traversal.resolver.class_for_value(value, receivers) if value else None
+    targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+    for target in targets:
+        for child in ast.walk(target):
+            if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store):
+                if class_node is None:
+                    receivers.pop(child.id, None)
+                else:
+                    receivers[child.id] = class_node
+
+
+def _visit_generic_statement(
+    statement: ast.stmt,
+    traversal: _CallTraversal,
+    depth: int,
+    owner: ast.ClassDef | None,
+    receivers: dict[str, ast.ClassDef],
+) -> None:
+    """Visit a statement's children and clear bindings changed by control flow."""
+    for child in ast.iter_child_nodes(statement):
+        if isinstance(child, ast.stmt):
+            traversal.visit_statements([child], depth, owner, receivers.copy())
+        else:
+            traversal.visit_expression(child, depth, owner, receivers)
+
+
+def _visit_try_statement(
+    statement: ast.Try,
+    traversal: _CallTraversal,
+    depth: int,
+    owner: ast.ClassDef | None,
+    receivers: dict[str, ast.ClassDef],
+) -> None:
+    """Visit each try suite sequentially with isolated branch evidence."""
+    traversal.visit_statements(statement.body, depth, owner, receivers.copy())
+    for handler in statement.handlers:
+        handler_receivers = receivers.copy()
+        if handler.name is not None:
+            handler_receivers.pop(handler.name, None)
+        traversal.visit_statements(handler.body, depth, owner, handler_receivers)
+    traversal.visit_statements(statement.orelse, depth, owner, receivers.copy())
+    traversal.visit_statements(statement.finalbody, depth, owner, receivers.copy())
+    for name in _stored_names(statement):
+        receivers.pop(name, None)
+
+
+def _visit_with_statement(
+    statement: ast.With | ast.AsyncWith,
+    traversal: _CallTraversal,
+    depth: int,
+    owner: ast.ClassDef | None,
+    receivers: dict[str, ast.ClassDef],
+) -> None:
+    """Visit a with suite in order and retain its same-scope assignments."""
+    for item in statement.items:
+        traversal.visit_expression(item.context_expr, depth, owner, receivers)
+        if item.optional_vars is not None:
+            for name in _stored_names(item.optional_vars):
+                receivers.pop(name, None)
+    traversal.visit_statements(statement.body, depth, owner, receivers)
+
+
+def _visit_call_expression(
+    call: ast.Call,
+    traversal: _CallTraversal,
+    depth: int,
+    owner: ast.ClassDef | None,
+    receivers: dict[str, ast.ClassDef],
+) -> None:
+    """Visit call inputs in Python order, then record or follow the call."""
+    traversal.visit_expression(call.func, depth, owner, receivers)
+    arguments = [*call.args, *(keyword.value for keyword in call.keywords)]
+    for argument in arguments:
+        traversal.visit_expression(argument, depth, owner, receivers)
+    name = traversal.resolver.call_name(call)
+    plain = name.rsplit(".", 1)[-1] if name is not None else None
+    if plain is None and isinstance(call.func, ast.Attribute):
+        plain = call.func.attr
+    if plain is None:
+        return
+    if plain in PROMPT_HELPERS:
+        traversal.found.append(PROMPT_HELPERS[plain])
+    elif plain in RAW_INPUT_NAMES:
+        traversal.found.append("raw")
+    else:
+        target = traversal.resolver.target_for(call, owner, receivers)
+        if target is not None:
+            traversal.walk_callable(target, depth + 1)
+
+
+def _visit_named_expression(
+    expression: ast.NamedExpr,
+    traversal: _CallTraversal,
+    depth: int,
+    owner: ast.ClassDef | None,
+    receivers: dict[str, ast.ClassDef],
+) -> None:
+    """Update a receiver binding after evaluating a named expression."""
+    traversal.visit_expression(expression.value, depth, owner, receivers)
+    class_node = traversal.resolver.class_for_value(expression.value, receivers)
+    if isinstance(expression.target, ast.Name):
+        if class_node is None:
+            receivers.pop(expression.target.id, None)
+        else:
+            receivers[expression.target.id] = class_node
+
+
+def _visit_control_statement(
+    statement: ast.If | ast.For | ast.AsyncFor | ast.While,
+    traversal: _CallTraversal,
+    depth: int,
+    owner: ast.ClassDef | None,
+    receivers: dict[str, ast.ClassDef],
+) -> None:
+    """Visit each control-flow branch with an isolated receiver map."""
+    if isinstance(statement, ast.If):
+        traversal.visit_expression(statement.test, depth, owner, receivers)
+        branch_receivers = receivers.copy()
+        traversal.visit_statements(statement.body, depth, owner, branch_receivers)
+        traversal.visit_statements(statement.orelse, depth, owner, receivers.copy())
+    elif isinstance(statement, (ast.For, ast.AsyncFor)):
+        traversal.visit_expression(statement.iter, depth, owner, receivers)
+        branch_receivers = receivers.copy()
+        for name in _stored_names(statement.target):
+            branch_receivers.pop(name, None)
+        traversal.visit_statements(statement.body, depth, owner, branch_receivers)
+        traversal.visit_statements(statement.orelse, depth, owner, receivers.copy())
+    else:
+        traversal.visit_expression(statement.test, depth, owner, receivers)
+        branch_receivers = receivers.copy()
+        traversal.visit_statements(statement.body, depth, owner, branch_receivers)
+        traversal.visit_statements(statement.orelse, depth, owner, receivers.copy())
+    for name in _stored_names(statement):
+        receivers.pop(name, None)
+
+
+def _stored_names(node: ast.AST) -> set[str]:
+    """Return simple names that an assignment or control-flow node writes."""
+    return {child.id for child in ast.walk(node) if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store)}
 
 
 def read_menu_handlers(repository_root: pathlib.Path | str | None = None) -> dict[str, str]:
