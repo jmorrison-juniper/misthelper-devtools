@@ -85,6 +85,7 @@ class FunctionIndex:
         self.source_roots = source_roots_for(repository_root)  # Resolve once, so every read uses one root.
         self.by_qualname: dict[str, FunctionNode] = {}  # "Class.method" to its node.
         self.by_name: dict[str, list[FunctionNode]] = {}  # Plain name to every match.
+        self.owner_by_id: dict[int, str] = {}  # Keep each method's owning class for receiver calls.
         self._build()
 
     def _build(self) -> None:
@@ -111,6 +112,7 @@ class FunctionIndex:
                 if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     self.by_qualname[f"{node.name}.{child.name}"] = child
                     self.by_name.setdefault(child.name, []).append(child)
+                    self.owner_by_id[id(child)] = node.name  # Resolve self and cls calls in this class.
                     methods.add(id(child))  # Remember it, so the next pass skips it.
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and id(node) not in methods:
@@ -132,6 +134,10 @@ class FunctionIndex:
         matches = self.by_name.get(plain, [])
         return matches[0] if len(matches) == 1 else None
 
+    def owner_for(self, node: ast.AST) -> str | None:
+        """Return the class that owns a method node."""
+        return self.owner_by_id.get(id(node))
+
 
 class PromptWalker:
     """Collect the prompts one handler reaches, in call order."""
@@ -146,17 +152,25 @@ class PromptWalker:
         if node is None:
             return [], "handler not found"
         found: list[str] = []  # Prompts in the order the walk meets them.
-        self._walk(node, found, depth=0, seen=set())
+        self._walk(node, found, depth=0, active=set())
         return found, "ok"
 
-    def _walk(self, node: ast.AST, found: list[str], depth: int, seen: set[str]) -> None:
+    def _walk(self, node: ast.AST, found: list[str], depth: int, active: set[int]) -> None:
         """Follow calls from one function and record each prompt it reaches."""
         if depth > MAX_DEPTH:
             return  # A deeper walk reaches unrelated code and reports noise.
-        for child in ast.walk(node):
-            if not isinstance(child, ast.Call):
-                continue
-            name = self._call_name(child)
+        node_id = id(node)
+        if node_id in active:
+            return  # Stop a recursive call without suppressing a later repeated call.
+        active.add(node_id)  # Track only the active path, so each completed call can repeat.
+        owner = self.index.owner_for(node)
+        instances = self._instance_classes(node)
+        calls = sorted(
+            (child for child in ast.walk(node) if isinstance(child, ast.Call)),
+            key=lambda call: (call.end_lineno, call.end_col_offset),
+        )  # Visit calls in source order, including nested calls.
+        for call in calls:
+            name = self._call_name(call, owner, instances)
             if name is None:
                 continue
             plain = name.rsplit(".", 1)[-1]
@@ -166,15 +180,35 @@ class PromptWalker:
             if plain in RAW_INPUT_NAMES:
                 found.append("raw")  # A bare input call needs an answer of some kind.
                 continue
-            if plain in seen:
-                continue  # A repeated call adds nothing and can loop forever.
             target = self.index.lookup(name)
-            if target is not None:
-                seen.add(plain)  # Record the visit before the descent, so recursion ends.
-                self._walk(target, found, depth + 1, seen)
+            if target is not None and id(target) not in active:
+                self._walk(target, found, depth + 1, active)
+        active.remove(node_id)  # Allow a later call to visit this function again.
+
+    def _instance_classes(self, node: ast.AST) -> dict[str, str]:
+        """Map local variables to the classes used to construct their values."""
+        instances: dict[str, str] = {}  # Bind local names to their constructed classes.
+        owner = self.index.owner_for(node)
+        assignments = sorted(
+            (child for child in ast.walk(node) if isinstance(child, ast.Assign) or isinstance(child, ast.AnnAssign)),
+            key=lambda assignment: (assignment.lineno, assignment.col_offset),
+        )  # Keep the last visible assignment when a local is reused.
+        for assignment in assignments:
+            value = assignment.value
+            if not isinstance(value, ast.Call):
+                continue
+            constructor = self._call_name(value, owner, instances)
+            if constructor is None:
+                continue
+            class_name = constructor.rsplit(".", 1)[-1]
+            targets = assignment.targets if isinstance(assignment, ast.Assign) else [assignment.target]
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    instances[target.id] = class_name  # Resolve methods on constructed local objects.
+        return instances
 
     @staticmethod
-    def _call_name(call: ast.Call) -> str | None:
+    def _call_name(call: ast.Call, owner: str | None = None, instances: dict[str, str] | None = None) -> str | None:
         """Return the dotted name of a call, or None when it has no name."""
         func = call.func
         if isinstance(func, ast.Name):
@@ -186,7 +220,20 @@ class PromptWalker:
                 parts.append(node.attr)
                 node = node.value
             if isinstance(node, ast.Name):
+                if node.id in {"self", "cls"} and owner is not None:
+                    return f"{owner}.{func.attr}"
+                if instances is not None and node.id in instances:
+                    return f"{instances[node.id]}.{func.attr}"
                 parts.append(node.id)
+            elif isinstance(node, ast.Call):  # WHY: a direct constructor call gives the receiver class.
+                constructor = node.func  # WHY: the class expression names the requested method owner.
+                constructor_parts: list[str] = []  # WHY: retain qualified class names when present.
+                while isinstance(constructor, ast.Attribute):  # WHY: collect each module or class segment.
+                    constructor_parts.append(constructor.attr)  # WHY: preserve the qualified name.
+                    constructor = constructor.value  # WHY: continue toward the root name.
+                if isinstance(constructor, ast.Name):  # WHY: a rooted class expression is resolvable.
+                    constructor_parts.append(constructor.id)  # WHY: include the root module or class.
+                    return ".".join([*reversed(constructor_parts), *reversed(parts)])  # WHY: resolve class method.
             return ".".join(reversed(parts))
         return None
 
