@@ -44,7 +44,7 @@ lists each tool and its consumers.
 Run the tools during development and before a pull request merge.
 CI runs the quality gates on each pull request and each push to `main`.
 Consumers must [pin a full commit SHA](docs/tooling-guide.md#use-a-tool-from-another-repository).
-Read the [upgrade notes](docs/tooling-guide.md#upgrade-from-release-062-to-release-063)
+Read the [upgrade notes](docs/tooling-guide.md#upgrade-from-release-063-to-release-064)
 before changing a pin.
 
 # Why
