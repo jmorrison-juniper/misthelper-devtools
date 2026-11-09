@@ -775,11 +775,30 @@ class SourceDrivenCoverageSlicer:
             return False
         instance_names: set[str] = set()
         for statement in node.body:
+            instance_names.difference_update(
+                self._statement_bindings(statement)
+            )  # Nested writes invalidate proof without guessing which branch executes.
             if isinstance(statement, ast.Assign):
                 self._update_fixture_instances(statement, instance_names, source_class_names)
             if isinstance(statement, ast.Return):
                 return self._returns_source_instance(statement.value, instance_names, source_class_names)
         return False
+
+    def _statement_bindings(self, statement: ast.stmt) -> set[str]:
+        """Return names that a statement can bind or delete, including nested branches."""
+        bindings: set[str] = set()
+        for child in ast.walk(statement):
+            if isinstance(child, ast.Name) and isinstance(child.ctx, (ast.Store, ast.Del)):
+                bindings.add(child.id)
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                bindings.add(child.name)
+            if isinstance(child, ast.alias):
+                bindings.add(child.asname or child.name.split(".")[0])
+            if isinstance(child, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)) and child.name:
+                bindings.add(child.name)
+            if isinstance(child, ast.MatchMapping) and child.rest:
+                bindings.add(child.rest)
+        return bindings
 
     def _update_fixture_instances(
         self, node: ast.Assign, instance_names: set[str], source_class_names: set[str]

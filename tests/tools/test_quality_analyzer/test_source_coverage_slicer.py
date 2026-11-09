@@ -130,6 +130,42 @@ def test_fake_refusal(manager):
     assert "missing_fm_http_4xx" in [finding.rule_id for finding in findings]
 
 
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        "instance: object = FakeManager()",
+        "if True:\n        instance = FakeManager()",
+        "if True:\n        del instance\n        instance = FakeManager()",
+        "with open(__file__):\n        instance = FakeManager()",
+    ],
+)
+def test_fixture_instance_rebinding_removes_source_evidence(tmp_path: Path, replacement: str) -> None:
+    """Intervening writes cannot preserve proof of the original source instance."""
+    source = f"""\
+import pytest
+from subject import Manager
+
+class FakeManager:
+    def request(self):
+        return {{"status_code": 403}}
+
+@pytest.fixture
+def manager():
+    instance = Manager()
+    {replacement}
+    return instance
+
+def test_fake_refusal(manager):
+    assert type(manager) is FakeManager
+    assert manager.request()["status_code"] == 403
+"""
+    test_path, tree, test_source = _case(tmp_path, source)
+
+    assert SourceDrivenCoverageSlicer(test_path, tree).source_text() == ""
+    findings = MissingFailureModeDetector().detect(test_path, tree, test_source)
+    assert "missing_fm_http_4xx" in [finding.rule_id for finding in findings]
+
+
 def test_unused_fixture_and_fixture_name_override_do_not_match_parameter(tmp_path: Path) -> None:
     """Fixture use follows pytest's declared name and requires a source call."""
     source = """\
