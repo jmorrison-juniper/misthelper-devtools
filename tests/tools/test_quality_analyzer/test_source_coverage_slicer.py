@@ -166,6 +166,94 @@ def test_fake_refusal(manager):
     assert "missing_fm_http_4xx" in [finding.rule_id for finding in findings]
 
 
+@pytest.mark.parametrize(
+    ("module_mark", "class_mark", "class_body", "bases"),
+    [
+        ("", '@pytest.mark.parametrize("manager", [FakeManager()])', "", ""),
+        ("", "", "    @pytest.fixture\n    def manager(self):\n        return FakeManager()\n", ""),
+        ("", "", '    @pytest.fixture(name="manager")\n    def fake(self):\n        return FakeManager()\n', ""),
+        ('pytestmark = pytest.mark.parametrize("manager", [FakeManager()])', "", "", ""),
+        ("", "", '    pytestmark = pytest.mark.parametrize("manager", [FakeManager()])\n', ""),
+        ("", "", "", "(BaseTests)"),
+    ],
+)
+def test_class_fixture_scope_override_excludes_fake_coverage(
+    tmp_path: Path, module_mark: str, class_mark: str, class_body: str, bases: str
+) -> None:
+    """Class fixtures, parameters, and unresolved bases invalidate module fixture proof."""
+    source = f"""\
+import pytest
+from subject import Manager
+
+class FakeManager:
+    def request(self):
+        return {{"status_code": 403}}
+
+class BaseTests:
+    @pytest.fixture
+    def manager(self):
+        return FakeManager()
+
+@pytest.fixture
+def manager():
+    return Manager()
+
+{module_mark}
+{class_mark}
+class TestFake{bases}:
+{class_body}
+    def test_refusal(self, manager):
+        assert type(manager) is FakeManager
+        assert manager.request()["status_code"] == 403
+"""
+    test_path, tree, test_source = _case(tmp_path, source)
+
+    assert SourceDrivenCoverageSlicer(test_path, tree).source_text() == ""
+    findings = MissingFailureModeDetector().detect(test_path, tree, test_source)
+    assert "missing_fm_http_4xx" in [finding.rule_id for finding in findings]
+
+
+@pytest.mark.parametrize("mark", ["", '@pytest.mark.parametrize("other", [403])'])
+def test_class_method_keeps_unmodified_module_fixture(tmp_path: Path, mark: str) -> None:
+    """An unrelated class parameter must not hide a genuine module source fixture."""
+    source = f"""\
+import pytest
+from subject import Manager
+
+@pytest.fixture
+def manager():
+    return Manager()
+
+{mark}
+class TestSource:
+    def test_request(self, manager, other=403):
+        manager.request()
+"""
+    assert "def test_request" in _slice(tmp_path, source)
+
+
+def test_nested_class_cannot_assume_module_fixture_scope(tmp_path: Path) -> None:
+    """Unresolved nested class owners must not inherit module fixture proof."""
+    source = """\
+import pytest
+from subject import Manager
+
+@pytest.fixture
+def manager():
+    return Manager()
+
+class TestOuter:
+    @pytest.fixture
+    def manager(self):
+        return object()
+
+    class TestInner:
+        def test_request(self, manager):
+            manager.request()
+"""
+    assert _slice(tmp_path, source) == ""
+
+
 def test_unused_fixture_and_fixture_name_override_do_not_match_parameter(tmp_path: Path) -> None:
     """Fixture use follows pytest's declared name and requires a source call."""
     source = """\

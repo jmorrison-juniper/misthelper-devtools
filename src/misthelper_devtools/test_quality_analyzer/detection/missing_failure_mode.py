@@ -822,17 +822,34 @@ class SourceDrivenCoverageSlicer:
 
     def _calls_source_fixture(self, node: ast.FunctionDef) -> bool:
         """Require a matching, unshadowed pytest parameter to call a source fixture."""
+        if id(node) not in self._test_class_owners and node not in self._tree.body:
+            return False  # Nested scopes cannot reuse module fixture proof without an owner.
         parameters = [*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs]
         for parameter in parameters:
             if parameter.arg not in self._source_fixtures or self._parameter_is_shadowed(node, parameter.arg):
                 continue
-            if self._parameter_is_parametrized(node, parameter.arg):
+            if self._fixture_scope_overrides(node, parameter.arg):
                 continue
             if any(
                 self._call_uses_parameter(call, parameter.arg) for call in ast.walk(node) if isinstance(call, ast.Call)
             ):
                 return True
         return False
+
+    def _fixture_scope_overrides(self, node: ast.FunctionDef, name: str) -> bool:
+        """Reject class overrides and parameters before using a module fixture."""
+        scopes: list[ast.FunctionDef | ast.ClassDef | ast.Module] = [node, self._tree]
+        owner = self._test_class_owners.get(id(node))
+        if owner is not None:
+            if owner.bases:  # Inherited fixtures require resolution beyond same-module fixture proof.
+                return True
+            scopes.append(owner)
+            for member in owner.body:
+                if isinstance(member, ast.FunctionDef) and self._pytest_fixture_name(member) == name:
+                    return True
+                if name in self._statement_bindings(member):
+                    return True
+        return any(self._parameter_is_parametrized(scope, name) for scope in scopes)
 
     def _parameter_is_shadowed(self, node: ast.FunctionDef, name: str) -> bool:
         """Reject a fixture parameter that is assigned inside the selected test."""
@@ -841,9 +858,16 @@ class SourceDrivenCoverageSlicer:
             for child in ast.walk(node)
         )
 
-    def _parameter_is_parametrized(self, node: ast.FunctionDef, name: str) -> bool:
-        """Reject a fixture parameter replaced by a literal pytest parametrize argument."""
-        for decorator in node.decorator_list:
+    def _parameter_is_parametrized(self, node: ast.FunctionDef | ast.ClassDef | ast.Module, name: str) -> bool:
+        """Reject parameter replacement from decorators or scope-level pytest marks."""
+        marks: list[ast.AST] = list(node.decorator_list) if not isinstance(node, ast.Module) else []
+        marks.extend(
+            statement
+            for statement in node.body
+            if isinstance(statement, (ast.Assign, ast.AnnAssign))
+            and "pytestmark" in self._statement_bindings(statement)
+        )
+        for decorator in marks:
             for call in (child for child in ast.walk(decorator) if isinstance(child, ast.Call)):
                 if not isinstance(call.func, ast.Attribute) or call.func.attr != "parametrize":
                     continue
