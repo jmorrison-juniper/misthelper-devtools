@@ -5,6 +5,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 from misthelper_devtools.test_quality_analyzer.detection.missing_failure_mode import (
     MissingFailureModeDetector,
     SourceDrivenCoverageSlicer,
@@ -95,6 +97,37 @@ def test_request(manager):
 """
 
     assert _slice(tmp_path, source) == ""
+
+
+@pytest.mark.parametrize("parameters", ["Manager", "*, Manager"])
+@pytest.mark.parametrize("construction", ["return Manager()", "instance = Manager()\n    return instance"])
+def test_fixture_parameter_hides_imported_source_class(tmp_path: Path, parameters: str, construction: str) -> None:
+    """A fixture dependency can replace a source alias with a fake class."""
+    source = f"""\
+import pytest
+from subject import Manager
+
+class FakeManager:
+    def request(self):
+        return 403
+
+@pytest.fixture(name="Manager")
+def fake_manager_type():
+    return FakeManager
+
+@pytest.fixture
+def manager({parameters}):
+    {construction}
+
+def test_fake_refusal(manager):
+    assert manager.request() == 403
+    assert {{"status_code": 403}}["status_code"] == 403
+"""
+    test_path, tree, test_source = _case(tmp_path, source)
+
+    assert SourceDrivenCoverageSlicer(test_path, tree).source_text() == ""
+    findings = MissingFailureModeDetector().detect(test_path, tree, test_source)
+    assert "missing_fm_http_4xx" in [finding.rule_id for finding in findings]
 
 
 def test_unused_fixture_and_fixture_name_override_do_not_match_parameter(tmp_path: Path) -> None:

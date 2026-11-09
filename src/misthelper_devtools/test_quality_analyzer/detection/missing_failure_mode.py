@@ -763,7 +763,14 @@ class SourceDrivenCoverageSlicer:
 
     def _fixture_returns_source_instance(self, node: ast.FunctionDef) -> bool:
         """Require a direct source-class construction on an executable return path."""
-        source_class_names = {name for name in self._source_class_names if not self._parameter_is_shadowed(node, name)}
+        parameter_names = {
+            argument.arg for argument in ast.walk(node.args) if isinstance(argument, ast.arg)
+        }  # Fixture dependencies bind locally before the fixture body executes.
+        source_class_names = {
+            name
+            for name in self._source_class_names
+            if name not in parameter_names and not self._parameter_is_shadowed(node, name)
+        }
         if not source_class_names:
             return False
         instance_names: set[str] = set()
