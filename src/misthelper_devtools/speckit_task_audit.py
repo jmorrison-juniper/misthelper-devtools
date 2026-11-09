@@ -24,6 +24,8 @@ MALFORMED_RE = re.compile(  # Match a bracketed marker that is not a link, a leg
     r"^\s*- \[(?P<mark>[^\]]*)\](?![(\[:])(?P<rest>.*)$"
 )
 TASK_ID_RE = re.compile(r"\bT\d+\b")  # A task identifier marks a bracketed bullet as a task attempt.
+LABEL_RE = re.compile(r"^[A-WYZ][A-Z0-9]*$")  # Spec Kit legend labels such as P, B, or US1.
+LEADING_TASK_ID_RE = re.compile(r"^\s*T\d+\b")  # A task ID right after the bracket marks a task attempt.
 FENCE_RE = re.compile(r"^\s*(```|~~~)")  # Ignore examples inside fenced code blocks.
 STATUS_RE = re.compile(r"^\*\*Status\*\*:\s*(?P<status>.+)$", re.MULTILINE)  # Read the spec state.
 CITATION_RE = re.compile(  # Find proof paths only in evidence notes, not in task descriptions.
@@ -303,7 +305,9 @@ class TaskFileScanner:
         if not match:  # A line with no bracket marker is prose.
             return False  # Leave non-task lines unchanged.
         mark = match.group("mark")  # Read the text between the brackets.
-        if not mark.strip() or (len(mark) == 1 and not mark.isalnum()):  # Empty or symbol boxes are bad boxes.
+        if LABEL_RE.match(mark):  # An uppercase label such as P or US1 is a legend, not a box.
+            return bool(LEADING_TASK_ID_RE.match(match.group("rest")))  # Only a label that stands in for a box.
+        if not mark.strip() or len(mark) == 1:  # Empty or one-character boxes such as [z] are bad boxes.
             return True  # Report the broken box syntax.
         return bool(TASK_ID_RE.search(match.group("rest")))  # A task ID shows a task, not a legend.
 

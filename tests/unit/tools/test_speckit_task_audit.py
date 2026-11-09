@@ -76,6 +76,24 @@ class TestSpecTaskAudit:
         counts = TaskFileScanner().scan(path)
         assert counts.malformed_lines == (2, 3, 4)  # Only real task attempts count.
 
+    def test_lowercase_box_is_malformed_and_phase_legend_is_not(self, tmp_path: Path) -> None:
+        path = tmp_path / "tasks.md"
+        path.write_text(
+            "- [z] Do this task\n- [P] tasks in Phase 6 (`T025`) can run in parallel\n- [P] T001 bad\n",
+            encoding="utf-8",
+        )  # Mix a bad box, a legend that cites a task ID, and a label used as a box.
+        assert TaskFileScanner().scan(path).malformed_lines == (1, 3)  # The legend on line 2 stays clean.
+
+    def test_report_prints_the_file_and_line_of_each_malformed_marker(self, tmp_path: Path, capsys) -> None:
+        self._write_spec(tmp_path, "100-bad", "Draft")  # Use a draft so the exit policy is unchanged.
+        self._write_tasks(tmp_path, "100-bad", "- [X] T001 Done\n- [z] Bad\n- [P] legend T002 ok\n")
+        result = SpecTaskAudit(tmp_path, AllowList(set())).run()  # Run the real report.
+        output = capsys.readouterr().out  # Capture the printed report.
+        assert "specs/100-bad/tasks.md:2: malformed task marker" in output  # Path and line are printed.
+        assert "tasks.md:3:" not in output  # The legend is not reported.
+        assert "1 malformed." in output  # The summary counts only the real defect.
+        assert result == 0  # Malformed markers alone must not change the exit code.
+
     def test_nested_lists_count_as_tasks(self, tmp_path: Path) -> None:
         path = tmp_path / "tasks.md"  # Keep this scanner edge case small.
         path.write_text("  - [ ] T001 Nested\n", encoding="utf-8")  # Write a nested task box.
