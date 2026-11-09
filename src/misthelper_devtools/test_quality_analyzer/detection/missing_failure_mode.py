@@ -902,7 +902,12 @@ class SourceDrivenCoverageSlicer:
         """Return True when a test function calls source under test."""
         source_roots = set(self._source_call_roots)  # Start with module-level source imports.
         source_roots.update(self._local_source_roots(node))  # Add source imports scoped inside this test function.
-        calls = (child for child in ast.walk(node) if isinstance(child, ast.Call))
+        parameter_names = {argument.arg for argument in ast.walk(node.args) if isinstance(argument, ast.arg)}
+        calls = (
+            child
+            for child in ast.walk(node)
+            if isinstance(child, ast.Call) and self._call_root(child.func) not in parameter_names
+        )  # Parameters replace imported callable and helper bindings inside the test.
         if any(self._call_drives_source(call, source_roots) for call in calls):
             return True
         return self._calls_source_fixture(node)

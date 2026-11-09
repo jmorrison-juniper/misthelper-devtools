@@ -65,6 +65,35 @@ def test_request(manager):
     )
 
 
+@pytest.mark.parametrize("uses_fixture", [True, False])
+def test_direct_source_function_respects_fixture_parameter_shadowing(tmp_path: Path, uses_fixture: bool) -> None:
+    """A fake callable parameter must not count as an imported source function."""
+    source = f"""\
+import pytest
+from subject import fetch
+
+class FakeResponse:
+    status_code = 403
+
+@pytest.fixture(name="fetch")
+def fake_fetch():
+    return lambda: FakeResponse()
+
+def test_refusal({ "fetch" if uses_fixture else "" }):
+    response = fetch()
+    assert response.status_code == 403
+"""
+    test_path, tree, test_source = _case(tmp_path, source)
+    (tmp_path / "subject.py").write_text(
+        "import mistapi\n\ndef fetch():\n    return mistapi.api.request()\n", encoding="utf-8"
+    )
+    sliced = SourceDrivenCoverageSlicer(test_path, tree).source_text()
+    findings = MissingFailureModeDetector().detect(test_path, tree, test_source)
+
+    assert bool(sliced) is not uses_fixture
+    assert ("missing_fm_http_4xx" in [finding.rule_id for finding in findings]) is uses_fixture
+
+
 def test_fixture_returning_imported_source_instance_selects_parameter_call(tmp_path: Path) -> None:
     """A pytest fixture must prove its returned imported source instance."""
     source = """\
