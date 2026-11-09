@@ -61,6 +61,21 @@ class TestSpecTaskAudit:
         assert counts.checked == 0  # A malformed marker must not become a done task.
         assert counts.malformed == 1  # The scanner must report the malformed marker.
 
+    def test_links_and_legends_are_not_malformed(self, tmp_path: Path) -> None:
+        path = tmp_path / "tasks.md"
+        path.write_text(
+            "- [P] tasks = different files\n- [Issue #3300](https://example.com/3300).\n"
+            "- [ref][id]\n- [Label]: text\n",
+            encoding="utf-8",
+        )  # Write legend and link bullets.
+        assert TaskFileScanner().scan(path).malformed == 0  # None of them is a task marker.
+
+    def test_malformed_markers_report_their_lines(self, tmp_path: Path, capsys) -> None:
+        path = tmp_path / "tasks.md"
+        path.write_text("- [P] legend\n- [] T001 a\n- [-] b\n- [todo] T002 c\n", encoding="utf-8")  # Mix.
+        counts = TaskFileScanner().scan(path)
+        assert counts.malformed_lines == (2, 3, 4)  # Only real task attempts count.
+
     def test_nested_lists_count_as_tasks(self, tmp_path: Path) -> None:
         path = tmp_path / "tasks.md"  # Keep this scanner edge case small.
         path.write_text("  - [ ] T001 Nested\n", encoding="utf-8")  # Write a nested task box.

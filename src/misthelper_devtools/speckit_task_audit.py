@@ -20,6 +20,10 @@ logger = logging.getLogger(__name__)  # Use a module logger so tests can identif
 
 LOGGER = logging.getLogger(__name__)  # Use a module logger so callers can configure output.
 CHECKBOX_RE = re.compile(r"^\s*- \[([ xX])\]")  # Count task boxes and nested task boxes only.
+MALFORMED_RE = re.compile(  # Match a bracketed marker that is not a link, a legend, or a valid task box.
+    r"^\s*- \[(?P<mark>[^\]]*)\](?![(\[:])(?P<rest>.*)$"
+)
+TASK_ID_RE = re.compile(r"\bT\d+\b")  # A task identifier marks a bracketed bullet as a task attempt.
 FENCE_RE = re.compile(r"^\s*(```|~~~)")  # Ignore examples inside fenced code blocks.
 STATUS_RE = re.compile(r"^\*\*Status\*\*:\s*(?P<status>.+)$", re.MULTILINE)  # Read the spec state.
 CITATION_RE = re.compile(  # Find proof paths only in evidence notes, not in task descriptions.
@@ -110,6 +114,7 @@ class TaskCounts:
     checked: int  # Count finished tasks so drift reports show the total state.
     unchecked: int  # Count open tasks so the gate can find drift.
     malformed: int  # Count malformed boxes so authors can repair bad syntax.
+    malformed_lines: tuple[int, ...] = ()  # Keep each malformed line number so authors can find it.
 
 
 @dataclass(frozen=True)
@@ -274,29 +279,33 @@ class TaskFileScanner:
     def _count_lines(self, lines: list[str]) -> TaskCounts:
         checked = 0  # Track checked task boxes for the report total.
         unchecked = 0  # Track unchecked task boxes for the drift decision.
-        malformed = 0  # Track malformed task boxes for a repair hint.
+        malformed_lines: list[int] = []  # Track malformed task line numbers for a repair hint.
         in_fence = False  # Track fenced code so examples do not count.
-        for line in lines:  # Read the task file in order.
+        for line_number, line in enumerate(lines, start=1):  # Read the task file in order.
             in_fence = self._toggle_fence(line, in_fence)  # Update code-fence state before count checks.
             if in_fence or FENCE_RE.match(line):  # Skip fence lines and the lines inside the fence.
                 continue  # Leave code examples out of the task count.
-            checked, unchecked, malformed = self._count_line(line, checked, unchecked, malformed)  # Add line.
-        return TaskCounts(checked=checked, unchecked=unchecked, malformed=malformed)  # Return the count set.
+            match = CHECKBOX_RE.match(line)  # Match only well-formed task boxes.
+            if match:  # A valid box is either open or done.
+                checked, unchecked = (checked + 1, unchecked) if match.group(1) != " " else (checked, unchecked + 1)
+            elif self._is_malformed(line):  # A task attempt with a bad box needs a repair.
+                malformed_lines.append(line_number)  # Record the line for the report.
+        return TaskCounts(checked, unchecked, len(malformed_lines), tuple(malformed_lines))  # Return the counts.
 
     def _toggle_fence(self, line: str, in_fence: bool) -> bool:
         if FENCE_RE.match(line):  # A fence marker flips the scanner state.
             return not in_fence  # Enter or leave the fenced code block.
         return in_fence  # Keep the current state for normal lines.
 
-    def _count_line(self, line: str, checked: int, unchecked: int, malformed: int) -> tuple[int, int, int]:
-        match = CHECKBOX_RE.match(line)  # Match only well-formed task boxes.
-        if match and match.group(1) == " ":  # A blank mark means the task is open.
-            return checked, unchecked + 1, malformed  # Add one unchecked task.
-        if match:  # A lowercase or uppercase x means the task is done.
-            return checked + 1, unchecked, malformed  # Add one checked task.
-        if re.match(r"^\s*- \[[^\]]*\]", line):  # A bracketed marker that is not valid is malformed.
-            return checked, unchecked, malformed + 1  # Report the malformed marker.
-        return checked, unchecked, malformed  # Leave non-task lines unchanged.
+    @staticmethod
+    def _is_malformed(line: str) -> bool:
+        match = MALFORMED_RE.match(line)  # Skip Markdown links, reference links, and label bullets.
+        if not match:  # A line with no bracket marker is prose.
+            return False  # Leave non-task lines unchanged.
+        mark = match.group("mark")  # Read the text between the brackets.
+        if not mark.strip() or (len(mark) == 1 and not mark.isalnum()):  # Empty or symbol boxes are bad boxes.
+            return True  # Report the broken box syntax.
+        return bool(TASK_ID_RE.search(match.group("rest")))  # A task ID shows a task, not a legend.
 
 
 class SpecTaskAudit:
@@ -361,6 +370,7 @@ class SpecTaskAudit:
         self._print_open_findings(open_findings)  # Print each unchecked-task finding.
         self._print_missing_findings(missing)  # Print each missing task record.
         self._print_citation_findings(citations)  # Print each unresolved checked-task proof path.
+        self._print_malformed_findings(findings)  # Print each malformed task marker with its line.
 
     @staticmethod
     def _print_scan_summary(findings: list[SpecFinding]) -> None:
@@ -388,6 +398,11 @@ class SpecTaskAudit:
     def _print_missing_findings(self, findings: list[SpecFinding]) -> None:
         for finding in findings:  # Print each missing task file for repair visibility.
             print(f"specs/{finding.relative_path}: missing tasks.md")  # Name the missing task record.
+
+    def _print_malformed_findings(self, findings: list[SpecFinding]) -> None:
+        for finding in findings:  # Print each malformed marker so an author can repair it.
+            for line_number in finding.counts.malformed_lines:  # Name each source line.
+                print(f"specs/{finding.relative_path}/tasks.md:{line_number}: malformed task marker")  # Report.
 
     def _print_citation_findings(self, findings: list[SpecFinding]) -> None:
         for finding in findings:  # Print each spec that has an unresolved checked-task citation.
