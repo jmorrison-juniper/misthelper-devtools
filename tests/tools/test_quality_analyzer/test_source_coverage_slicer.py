@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from misthelper_devtools.test_quality_analyzer.detection.missing_failure_mode import (
+    FailureModeApplicabilityInferer,
     MissingFailureModeDetector,
     SourceDrivenCoverageSlicer,
 )
@@ -65,6 +66,85 @@ def test_request(manager):
         str(source_path) in record.getMessage() and "was never closed" in record.getMessage()
         for record in caplog.records
     )
+
+
+@pytest.mark.parametrize("relative", [True, False])
+@pytest.mark.parametrize(("status_code", "missing_rule"), [(403, "missing_fm_http_4xx"), (503, "missing_fm_http_5xx")])
+def test_nested_project_fake_response_does_not_count_as_source_coverage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative: bool, status_code: int, missing_rule: str
+) -> None:
+    """A fake response cannot cover an imported source call for either path form."""
+    test_source = f"""\
+from subject import fetch
+
+class FakeResponse:
+    status_code = {status_code}
+
+def test_fake_response():
+    response = FakeResponse()
+    assert response.status_code == {status_code}
+"""
+    test_path, tree, _ = _case(tmp_path, test_source)
+    (tmp_path / "subject.py").write_text(
+        "import requests\n\ndef fetch():\n    return requests.get('https://example.invalid')\n", encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path.parent)
+    analyzed_path = test_path.relative_to(tmp_path.parent) if relative else test_path
+
+    findings = MissingFailureModeDetector().detect(analyzed_path, tree, test_source)
+    sliced = SourceDrivenCoverageSlicer(analyzed_path, tree).source_text()
+
+    assert sliced == ""
+    assert missing_rule in [finding.rule_id for finding in findings]
+
+
+@pytest.mark.parametrize("relative", [True, False])
+def test_nested_project_direct_source_call_is_selected_for_both_path_forms(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative: bool
+) -> None:
+    """A real imported call remains source-driven for both path forms."""
+    test_source = """\
+from subject import fetch
+
+def test_source_request():
+    fetch()
+"""
+    test_path, tree, _ = _case(tmp_path, test_source)
+    (tmp_path / "subject.py").write_text(
+        "import requests\n\ndef fetch():\n    return requests.get('https://example.invalid')\n", encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path.parent)
+    analyzed_path = test_path.relative_to(tmp_path.parent) if relative else test_path
+
+    assert "def test_source_request" in SourceDrivenCoverageSlicer(analyzed_path, tree).source_text()
+
+
+@pytest.mark.parametrize("relative", [True, False])
+def test_analyzer_fixture_paths_keep_local_source_contract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative: bool
+) -> None:
+    """Local source in analyzer fixtures remains allowed outside a tests directory."""
+    fixture_path = tmp_path / "src/misthelper_devtools/test_quality_analyzer/fixtures/good/test_local.py"
+    fixture_path.parent.mkdir(parents=True)
+    fixture_source = """\
+import requests
+
+def local_subject():
+    return requests.get("https://example.invalid")
+
+def test_local():
+    local_subject()
+"""
+    fixture_path.write_text(fixture_source, encoding="utf-8")
+    tree = ast.parse(fixture_source)
+    monkeypatch.chdir(tmp_path.parent)
+    analyzed_path = fixture_path.relative_to(tmp_path.parent) if relative else fixture_path
+
+    applicability = FailureModeApplicabilityInferer(analyzed_path, tree)
+    slicer = SourceDrivenCoverageSlicer(analyzed_path, tree)
+
+    assert applicability._allows_local_source()
+    assert "def test_local" in slicer.source_text()
 
 
 @pytest.mark.parametrize("uses_fixture", [True, False])

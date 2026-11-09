@@ -46,6 +46,11 @@ _SOURCE_EXCEPTION_MODULES = frozenset({"aiohttp", "httpx", "requests"})  # Libra
 _SOURCE_JSON_MODULES = frozenset({"json"})  # JSON parser modules that can fail on malformed bodies.
 
 
+def _resolve_test_path(test_path: Path) -> Path:
+    """Resolve a test path from the invocation directory before checking its project root."""
+    return test_path.resolve() if test_path.is_absolute() else (Path.cwd() / test_path).resolve()
+
+
 @dataclass
 class FailureModeRisk:
     """Store failure modes that can occur in the source under test."""
@@ -366,7 +371,7 @@ class FailureModeApplicabilityInferer:
         return self._risk_from_source(source)  # Analyzer fixtures keep their historical coverage contract.
 
     def _allows_local_source(self) -> bool:
-        resolved = (self._root / self._test_path).resolve() if not self._test_path.is_absolute() else self._test_path
+        resolved = _resolve_test_path(self._test_path)
         try:
             resolved.relative_to((self._root / "tests").resolve())  # Real tests usually define local helpers.
             return False  # Do not infer failure-mode scope from real test helper functions.
@@ -1029,7 +1034,7 @@ class SourceDrivenCoverageSlicer:
 
     def _allows_local_source(self) -> bool:
         """Return True when the test path belongs to the analyzer fixture corpus."""
-        resolved = (self._root / self._test_path).resolve() if not self._test_path.is_absolute() else self._test_path
+        resolved = _resolve_test_path(self._test_path)
         try:
             resolved.relative_to((self._root / "tests").resolve())  # Real repository tests live under tests/.
             return False  # Real tests must call imported product source.
