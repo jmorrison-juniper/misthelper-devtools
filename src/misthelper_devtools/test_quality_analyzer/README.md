@@ -120,6 +120,16 @@ Five module-level detectors register themselves with `DetectorRegistry` on impor
 | `detection/missing_failure_mode.py` | `missing_failure_mode` | Happy-path-only tests missing error/exception coverage. |
 | `detection/missing_edge_case.py` | `missing_edge_case` | Heuristic — no zero, empty, or negative test inputs. |
 
+### Source-driven failure coverage
+
+The missing-failure-mode detector selects tests that call repository source directly or through a same-module pytest
+fixture. A fixture qualifies when it returns an instance of an imported source class. An annotation, a setup call, or an
+unused fixture does not qualify.
+
+For a selected test method, the detector includes only referenced static helpers from its class. It excludes sibling
+tests, unused helpers, and helpers from other classes. A status argument counts only for its matching module or class
+helper.
+
 ### Unittest assertions
 
 The weak assertion detector recognizes standard `unittest.TestCase` assertion

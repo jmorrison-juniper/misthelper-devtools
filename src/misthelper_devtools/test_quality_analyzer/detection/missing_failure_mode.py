@@ -17,6 +17,7 @@ Sub-rules and markers:
 from __future__ import annotations  # Postponed annotations for cleaner typing.
 
 import ast  # AST inspection for import + literal scanning.
+import copy  # Preserve the source tree while normalizing proved helper calls.
 import logging  # Principle VII structured logging.
 import re  # Regex for status numbers inside explicit HTTP exception messages.
 from dataclasses import dataclass  # Store inferred failure-mode obligations.
@@ -91,7 +92,7 @@ class HttpStatusCoverageInferer(ast.NodeVisitor):
     def __init__(self) -> None:
         """Initialize an empty coverage result."""
         self.coverage = HttpStatusCoverage()  # Accumulate one result while visiting the tree.
-        self._status_arg_positions: dict[str, tuple[int, ...]] = {}  # Map local functions to status arg positions.
+        self._status_arg_positions: dict[str, tuple[int, ...]] = {}  # Keep helper ownership in each signature key.
         self._integer_constants: dict[str, int] = {}  # Map module constants to status-code integers.
 
     @classmethod
@@ -159,8 +160,8 @@ class HttpStatusCoverageInferer(ast.NodeVisitor):
         self._mark_status_family(node.args[1])  # Mark integer values assigned to the status parameter set.
 
     def _visit_status_position_args(self, node: ast.Call) -> None:
-        """Record positional arguments passed to local status-code parameters."""
-        call_name = self._call_name(node.func)  # Resolve simple local helper calls only.
+        """Record positional arguments passed to module or qualified class status helpers."""
+        call_name = self._status_call_key(node.func)  # Keep same-named class helpers distinct.
         if call_name not in self._status_arg_positions:  # Unknown helpers do not prove a status context.
             return
         for position in self._status_arg_positions[call_name]:  # Only parameters named for status can prove coverage.
@@ -177,16 +178,35 @@ class HttpStatusCoverageInferer(ast.NodeVisitor):
                 self._mark_status_text(text)  # Mark only explicit `HTTP 503` style messages.
 
     def _collect_status_arg_positions(self, tree: ast.Module) -> dict[str, tuple[int, ...]]:
-        """Return local function positions whose parameter name is status-like."""
-        positions: dict[str, tuple[int, ...]] = {}  # Build lookup by local helper name.
-        for node in tree.body:  # Only top-level test helpers are needed for status response factories.
-            if isinstance(node, ast.FunctionDef):  # Function definitions can name status-code parameters.
-                status_positions = tuple(
-                    index for index, argument in enumerate(node.args.args) if self._is_status_name(argument.arg)
-                )  # Record positions with names such as `status_code`.
-                if status_positions:  # Helpers without status parameters are irrelevant.
-                    positions[node.name] = status_positions  # Save by function name for call-site lookup.
-        return positions  # Return the complete local-helper map.
+        """Return status parameter positions with class-qualified method identities."""
+        positions: dict[str, tuple[int, ...]] = {}  # Store only helpers with status-like parameters.
+        for node in tree.body:  # Preserve the existing module-helper contract.
+            if isinstance(node, ast.FunctionDef):  # Module helpers retain their simple call names.
+                self._add_status_positions(positions, node.name, node)  # Record a module-level helper.
+            if isinstance(node, ast.ClassDef):  # Class methods require their owning class in the key.
+                for member in node.body:  # Ignore unrelated nested classes and module definitions.
+                    if isinstance(member, ast.FunctionDef):  # Only direct class methods can be resolved.
+                        self._add_status_positions(positions, f"{node.name}.{member.name}", member)
+        return positions  # Return the completed, ownership-aware map.
+
+    def _add_status_positions(
+        self, positions: dict[str, tuple[int, ...]], identity: str, node: ast.FunctionDef
+    ) -> None:
+        """Add one helper signature when a positional parameter names a status."""
+        status_positions = tuple(  # Keep only positional arguments with status-like names.
+            index for index, argument in enumerate(node.args.args) if self._is_status_name(argument.arg)
+        )
+        if status_positions:  # Helpers without status parameters cannot establish coverage.
+            positions[identity] = status_positions  # Preserve the caller's full helper identity.
+
+    def _status_call_key(self, node: ast.AST) -> str:
+        """Return a key only for bare module calls or explicit class-qualified calls."""
+        if isinstance(node, ast.Name):  # Keep existing module-level helper matching.
+            return node.id
+        if not isinstance(node, ast.Attribute) or not isinstance(node.value, ast.Name):
+            return ""
+        identity = f"{node.value.id}.{node.attr}"  # Require explicit class qualification, not an object attribute.
+        return identity if identity in self._status_arg_positions else ""
 
     def _collect_integer_constants(self, tree: ast.Module) -> dict[str, int]:
         """Return module constants that bind one integer value."""
@@ -443,6 +463,10 @@ class SourceDrivenCoverageSlicer:
         self._test_path = test_path  # Keep the file path so fixture files can use local source functions.
         self._tree = tree  # Keep the parsed test module for import and call inspection.
         self._root = FailureModeApplicabilityInferer(test_path, tree)._repository_root(test_path)  # Reuse root logic.
+        self._source_class_names = self._collect_imported_source_class_names()  # Require imported source class proof.
+        self._pytest_fixtures = self._collect_pytest_fixtures()  # Resolve names using pytest decorator semantics.
+        self._source_fixtures = self._collect_source_fixtures()  # Keep fixtures with executable source returns.
+        self._test_class_owners = self._collect_test_class_owners()  # Retain class identity for static helpers.
         self._source_call_roots = self._collect_source_call_roots()  # Resolve imported source aliases once.
         self._local_source_names = self._collect_local_source_names()  # Resolve fixture-local SUT names once.
         self._source_driver_names = self._collect_source_driver_names()  # Resolve local helpers that call source.
@@ -455,16 +479,31 @@ class SourceDrivenCoverageSlicer:
 
     def _source_with_dependencies(self, node: ast.FunctionDef) -> str:
         """Return a test function plus local definitions that it uses."""
-        nodes = [*self._dependency_nodes(node), node]  # Put helper definitions before the test body.
+        owner = self._test_class_owners.get(id(node))  # Keep a method's class identity for helper resolution.
+        class_helpers = self._class_helper_nodes(owner, node)  # Select only static helpers called by this method.
+        test_node = copy.deepcopy(node)  # Normalize proved static calls without changing the analyzed tree.
+        self._normalize_class_helper_calls(test_node, owner, {helper.name for helper in class_helpers})
+        dependencies = self._dependency_nodes(node, class_helpers, {owner.name} if owner else set())
+        nodes = [*dependencies]  # Put module helper definitions before class-scoped helpers.
+        if owner and class_helpers:  # Keep only referenced members, never the full enclosing test class.
+            class_body: list[ast.stmt] = [*class_helpers]
+            nodes.append(ast.ClassDef(name=owner.name, bases=[], keywords=[], body=class_body, decorator_list=[]))
+        nodes.append(test_node)  # Preserve only the selected test function or method.
         return "\n\n".join(ast.unparse(item) for item in nodes)  # Convert the closure back to Python source.
 
-    def _dependency_nodes(self, node: ast.AST) -> list[ast.stmt]:
+    def _dependency_nodes(
+        self, node: ast.AST, extra_nodes: list[ast.FunctionDef], excluded_names: set[str]
+    ) -> list[ast.stmt]:
         """Return top-level definitions referenced by a node, recursively."""
         dependencies: list[ast.stmt] = []  # Preserve discovery order for readable synthetic source.
         seen: set[str] = set()  # Avoid repeated helper or constant definitions.
         queue = list(self._referenced_names(node))  # Start with names used directly by the test.
+        for extra_node in extra_nodes:  # A selected static helper can use module-level definitions.
+            queue.extend(self._referenced_names(extra_node))  # Add only names from proven helper definitions.
         while queue:  # Follow helper-to-helper and helper-to-class references.
             name = queue.pop(0)  # Process names breadth-first for stable output.
+            if name in excluded_names:  # Do not re-add the enclosing class with unrelated members.
+                continue
             if name in seen or name not in self._top_level_defs:  # Skip repeated or external names.
                 continue
             seen.add(name)  # Mark this top-level definition as emitted.
@@ -473,6 +512,79 @@ class SourceDrivenCoverageSlicer:
             queue.extend(item for item in self._referenced_names(dependency) if item not in seen)  # Recurse.
         return dependencies  # Return every local definition used by the test.
 
+    def _class_helper_nodes(self, owner: ast.ClassDef | None, node: ast.FunctionDef) -> list[ast.FunctionDef]:
+        """Return the transitive closure of referenced static helpers in one test class."""
+        if owner is None:  # Module-level tests have no owning class.
+            return []
+        helpers = {
+            member.name: member
+            for member in owner.body
+            if isinstance(member, ast.FunctionDef) and self._is_static_method(member)
+        }
+        selected: list[ast.FunctionDef] = []  # Preserve helper order for stable synthetic source.
+        seen: set[str] = set()  # Stop recursive helper cycles and duplicate references.
+        queue = list(self._class_helper_calls(node, owner.name))  # Start from calls in the selected test only.
+        while queue:  # Follow only static helper calls within the same class.
+            name = queue.pop(0)
+            if name in seen or name not in helpers:
+                continue
+            seen.add(name)
+            helper = helpers[name]
+            selected.append(helper)
+            queue.extend(self._class_helper_calls(helper, owner.name))
+        return selected
+
+    def _class_helper_calls(self, node: ast.AST, owner_name: str) -> set[str]:
+        """Return calls explicitly owned by self, cls, or the test class."""
+        names: set[str] = set()
+        for call in (child for child in ast.walk(node) if isinstance(child, ast.Call)):
+            target = call.func
+            if not isinstance(target, ast.Attribute) or not isinstance(target.value, ast.Name):
+                continue
+            if target.value.id in {"self", "cls", owner_name}:
+                names.add(target.attr)
+        return names
+
+    def _normalize_class_helper_calls(
+        self, node: ast.FunctionDef, owner: ast.ClassDef | None, helper_names: set[str]
+    ) -> None:
+        """Qualify only proven static calls through the selected test instance."""
+        if owner is None or not helper_names:
+            return
+        for call in (child for child in ast.walk(node) if isinstance(child, ast.Call)):
+            target = call.func
+            if (
+                isinstance(target, ast.Attribute)
+                and isinstance(target.value, ast.Name)
+                and target.value.id == "self"
+                and target.attr in helper_names
+            ):
+                target.value = ast.Name(id=owner.name, ctx=ast.Load())
+
+    def _is_static_method(self, node: ast.stmt) -> bool:
+        """Return True only for a directly declared static method."""
+        return isinstance(node, ast.FunctionDef) and any(
+            isinstance(decorator, ast.Name) and decorator.id == "staticmethod" for decorator in node.decorator_list
+        )
+
+    def _is_test_class(self, node: ast.ClassDef) -> bool:
+        """Return True when a class owns pytest test methods and must stay sliced."""
+        return any(isinstance(member, ast.FunctionDef) and member.name.startswith("test_") for member in node.body)
+
+    def _collect_test_class_owners(self) -> dict[int, ast.ClassDef]:
+        """Map each direct test method to its declaring class."""
+        owners: dict[int, ast.ClassDef] = {}
+        for node in self._tree.body:
+            if isinstance(node, ast.ClassDef):
+                owners.update(
+                    {
+                        id(member): node
+                        for member in node.body
+                        if isinstance(member, ast.FunctionDef) and member.name.startswith("test_")
+                    }
+                )
+        return owners
+
     def _referenced_names(self, node: ast.AST) -> set[str]:
         """Return loaded names referenced by one AST node."""
         return {child.id for child in ast.walk(node) if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load)}
@@ -480,8 +592,15 @@ class SourceDrivenCoverageSlicer:
     def _collect_top_level_defs(self) -> dict[str, ast.stmt]:
         """Return top-level helpers, fake classes, and constants by name."""
         definitions: dict[str, ast.stmt] = {}  # Accumulate definitions that test closures can use.
+        fixture_nodes = {id(node) for node in self._pytest_fixtures.values()}  # Fixture setup is not test evidence.
         for node in self._tree.body:  # Only module-level definitions are reusable across tests.
-            if isinstance(node, (ast.FunctionDef, ast.ClassDef)):  # Helpers and fake response classes.
+            if (
+                isinstance(node, ast.FunctionDef)
+                and not node.name.startswith("test_")
+                and id(node) not in fixture_nodes
+            ):  # Keep reusable helpers, not fixtures or sibling tests.
+                definitions[node.name] = node  # Store by declared name.
+            if isinstance(node, ast.ClassDef) and not self._is_test_class(node):
                 definitions[node.name] = node  # Store by declared name.
             if isinstance(node, ast.Assign):  # Constants used in parametrize decorators or response bodies.
                 for target in node.targets:  # One assignment can bind several names.
@@ -497,13 +616,237 @@ class SourceDrivenCoverageSlicer:
             node for node in ast.walk(self._tree) if isinstance(node, ast.FunctionDef) and node.name.startswith("test_")
         ]
 
+    def _collect_imported_source_class_names(self) -> set[str]:
+        """Return unshadowed aliases for classes declared in repository source modules."""
+        names: set[str] = set()
+        for node in self._tree.body:
+            if not isinstance(node, ast.ImportFrom) or not node.module:
+                continue
+            module_path = self._module_path(node.module)
+            if module_path is None:
+                continue
+            try:
+                source_tree = ast.parse(module_path.read_text(encoding="utf-8"))
+            except (OSError, SyntaxError):
+                continue
+            class_names = {item.name for item in source_tree.body if isinstance(item, ast.ClassDef)}
+            for alias in node.names:
+                local_name = alias.asname or alias.name
+                if alias.name in class_names and self._source_import_is_unshadowed(local_name, node):
+                    names.add(local_name)
+        return names
+
+    def _source_import_is_unshadowed(self, local_name: str, import_node: ast.ImportFrom) -> bool:
+        """Reject a source-class alias replaced by another module-level binding."""
+        if self._module_level_rebinds(local_name):
+            return False
+        for node in self._tree.body:
+            if node is import_node:
+                continue
+            if isinstance(node, ast.Import) and any(
+                (alias.asname or alias.name.split(".")[0]) == local_name for alias in node.names
+            ):
+                return False
+            if isinstance(node, ast.ImportFrom) and any(
+                (alias.asname or alias.name) == local_name for alias in node.names
+            ):
+                return False
+        return True
+
+    def _collect_pytest_fixtures(self) -> dict[str, ast.FunctionDef]:
+        """Return same-module pytest fixtures by their declared pytest names."""
+        fixtures: dict[str, ast.FunctionDef] = {}
+        for node in self._tree.body:
+            if not isinstance(node, ast.FunctionDef):
+                continue
+            fixture_name = self._pytest_fixture_name(node)
+            if fixture_name:
+                fixtures[fixture_name] = node
+        return fixtures
+
+    def _pytest_fixture_name(self, node: ast.FunctionDef) -> str | None:
+        """Return a fixture's effective name only when its decorator resolves to pytest."""
+        for decorator in node.decorator_list:
+            target = decorator.func if isinstance(decorator, ast.Call) else decorator
+            if self._is_pytest_fixture_target(target):
+                has_override, declared_name = self._fixture_name_argument(decorator)
+                if has_override:
+                    return declared_name
+                return node.name
+        return None
+
+    def _is_pytest_fixture_target(self, target: ast.AST) -> bool:
+        """Resolve a fixture decorator through one unshadowed pytest import."""
+        if isinstance(target, ast.Name):
+            return self._is_pytest_import(target.id, "fixture")
+        return (
+            isinstance(target, ast.Attribute)
+            and target.attr == "fixture"
+            and isinstance(target.value, ast.Name)
+            and self._is_pytest_import(target.value.id, None)
+        )
+
+    def _is_pytest_import(self, local_name: str, symbol: str | None) -> bool:
+        """Return True when one module binding imports the expected pytest name."""
+        matches = 0
+        for node in self._tree.body:
+            if isinstance(node, ast.Import):
+                result = self._matches_pytest_module_import(node, local_name, symbol)
+                if result < 0:
+                    return False
+                matches += result
+            if isinstance(node, ast.ImportFrom):
+                result = self._matches_pytest_symbol_import(node, local_name, symbol)
+                if result < 0:
+                    return False
+                matches += result
+        return matches == 1 and not self._module_level_rebinds(local_name)
+
+    def _matches_pytest_module_import(self, node: ast.Import, local_name: str, symbol: str | None) -> int:
+        """Count a direct pytest module import that binds the requested local name."""
+        matches = 0
+        for alias in node.names:
+            if (alias.asname or alias.name.split(".")[0]) == local_name:
+                if symbol is not None or alias.name != "pytest":
+                    return -1
+                matches += 1
+        return matches
+
+    def _matches_pytest_symbol_import(self, node: ast.ImportFrom, local_name: str, symbol: str | None) -> int:
+        """Count a pytest symbol import that binds the requested local name."""
+        matches = 0
+        for alias in node.names:
+            if (alias.asname or alias.name) == local_name:
+                if node.module != "pytest" or symbol is None or alias.name != symbol:
+                    return -1
+                matches += 1
+        return matches
+
+    def _module_level_rebinds(self, name: str) -> bool:
+        """Reject module assignments that replace an imported source or pytest name."""
+        for node in self._tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name == name:
+                return True
+            if self._statement_assigns_name(node, name):
+                return True
+        return False
+
+    def _statement_assigns_name(self, node: ast.stmt, name: str) -> bool:
+        """Check direct module assignments without scanning function or class bodies."""
+        targets: list[ast.expr] = []
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        if isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+            targets = [node.target]
+        if isinstance(node, (ast.For, ast.AsyncFor)):
+            targets = [node.target]
+        return any(isinstance(child, ast.Name) and child.id == name for target in targets for child in ast.walk(target))
+
+    def _fixture_name_argument(self, decorator: ast.AST) -> tuple[bool, str | None]:
+        """Read a literal fixture-name override without evaluating expressions."""
+        if not isinstance(decorator, ast.Call):
+            return False, None
+        for keyword in decorator.keywords:
+            if keyword.arg == "name":
+                if isinstance(keyword.value, ast.Constant) and isinstance(keyword.value.value, str):
+                    return True, keyword.value.value
+                return True, None
+        return False, None
+
+    def _collect_source_fixtures(self) -> dict[str, ast.FunctionDef]:
+        """Keep pytest fixtures whose executable return proves an imported source instance."""
+        return {
+            fixture_name: node
+            for fixture_name, node in self._pytest_fixtures.items()
+            if self._fixture_returns_source_instance(node)
+        }
+
+    def _fixture_returns_source_instance(self, node: ast.FunctionDef) -> bool:
+        """Require a direct source-class construction on an executable return path."""
+        source_class_names = {name for name in self._source_class_names if not self._parameter_is_shadowed(node, name)}
+        if not source_class_names:
+            return False
+        instance_names: set[str] = set()
+        for statement in node.body:
+            if isinstance(statement, ast.Assign):
+                self._update_fixture_instances(statement, instance_names, source_class_names)
+            if isinstance(statement, ast.Return):
+                return self._returns_source_instance(statement.value, instance_names, source_class_names)
+        return False
+
+    def _update_fixture_instances(
+        self, node: ast.Assign, instance_names: set[str], source_class_names: set[str]
+    ) -> None:
+        """Track simple assignments that construct an imported source class."""
+        for target in node.targets:
+            if not isinstance(target, ast.Name):
+                continue
+            instance_names.discard(target.id)
+            if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name):
+                if node.value.func.id in source_class_names:
+                    instance_names.add(target.id)
+
+    def _returns_source_instance(
+        self, value: ast.AST | None, instance_names: set[str], source_class_names: set[str]
+    ) -> bool:
+        """Accept only a direct source construction or its tracked local name."""
+        if isinstance(value, ast.Name):
+            return value.id in instance_names
+        return isinstance(value, ast.Call) and isinstance(value.func, ast.Name) and value.func.id in source_class_names
+
+    def _calls_source_fixture(self, node: ast.FunctionDef) -> bool:
+        """Require a matching, unshadowed pytest parameter to call a source fixture."""
+        parameters = [*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs]
+        for parameter in parameters:
+            if parameter.arg not in self._source_fixtures or self._parameter_is_shadowed(node, parameter.arg):
+                continue
+            if self._parameter_is_parametrized(node, parameter.arg):
+                continue
+            if any(
+                self._call_uses_parameter(call, parameter.arg) for call in ast.walk(node) if isinstance(call, ast.Call)
+            ):
+                return True
+        return False
+
+    def _parameter_is_shadowed(self, node: ast.FunctionDef, name: str) -> bool:
+        """Reject a fixture parameter that is assigned inside the selected test."""
+        return any(
+            isinstance(child, ast.Name) and child.id == name and isinstance(child.ctx, ast.Store)
+            for child in ast.walk(node)
+        )
+
+    def _parameter_is_parametrized(self, node: ast.FunctionDef, name: str) -> bool:
+        """Reject a fixture parameter replaced by a literal pytest parametrize argument."""
+        for decorator in node.decorator_list:
+            for call in (child for child in ast.walk(decorator) if isinstance(child, ast.Call)):
+                if not isinstance(call.func, ast.Attribute) or call.func.attr != "parametrize":
+                    continue
+                if call.args and name in self._parametrize_names(call.args[0]):
+                    return True
+        return False
+
+    def _parametrize_names(self, node: ast.AST) -> tuple[str, ...]:
+        """Return literal names from pytest's supported parametrize forms."""
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return tuple(name.strip() for name in node.value.split(",") if name.strip())
+        if isinstance(node, (ast.List, ast.Tuple)):
+            return tuple(
+                item.value for item in node.elts if isinstance(item, ast.Constant) and isinstance(item.value, str)
+            )
+        return ()
+
+    def _call_uses_parameter(self, call: ast.Call, name: str) -> bool:
+        """Return True only when a call target is rooted at the fixture parameter."""
+        return isinstance(call.func, ast.Attribute) and self._call_root(call.func) == name
+
     def _calls_source(self, node: ast.FunctionDef) -> bool:
         """Return True when a test function calls source under test."""
         source_roots = set(self._source_call_roots)  # Start with module-level source imports.
         source_roots.update(self._local_source_roots(node))  # Add source imports scoped inside this test function.
-        return any(
-            self._call_drives_source(call, source_roots) for call in ast.walk(node) if isinstance(call, ast.Call)
-        )
+        calls = (child for child in ast.walk(node) if isinstance(child, ast.Call))
+        if any(self._call_drives_source(call, source_roots) for call in calls):
+            return True
+        return self._calls_source_fixture(node)
 
     def _call_drives_source(self, call: ast.Call, source_roots: set[str]) -> bool:
         """Return True when one call targets a source alias or a local SUT."""
