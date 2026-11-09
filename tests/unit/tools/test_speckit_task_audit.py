@@ -94,6 +94,21 @@ class TestSpecTaskAudit:
         assert "1 malformed." in output  # The summary counts only the real defect.
         assert result == 0  # Malformed markers alone must not change the exit code.
 
+    def test_inline_and_reference_links_are_not_task_markers(self, tmp_path: Path) -> None:
+        path = tmp_path / "tasks.md"
+        path.write_text(
+            "- [x](https://example.invalid)\n- [Docs] [T001]\n\n[T001]: https://example.invalid\n",
+            encoding="utf-8",
+        )  # Write a link bullet and a reference-link bullet.
+        counts = TaskFileScanner().scan(path)
+        assert (counts.checked, counts.unchecked, counts.malformed) == (0, 0, 0)  # Neither line is a task.
+
+    def test_real_task_markers_still_count_beside_links(self, tmp_path: Path) -> None:
+        path = tmp_path / "tasks.md"
+        path.write_text("- [x] T001 Done\n- [todo] T001 Bad\n- [ ] T002 Open\n", encoding="utf-8")
+        counts = TaskFileScanner().scan(path)
+        assert (counts.checked, counts.unchecked, counts.malformed_lines) == (1, 1, (2,))  # Real markers stay.
+
     def test_nested_lists_count_as_tasks(self, tmp_path: Path) -> None:
         path = tmp_path / "tasks.md"  # Keep this scanner edge case small.
         path.write_text("  - [ ] T001 Nested\n", encoding="utf-8")  # Write a nested task box.

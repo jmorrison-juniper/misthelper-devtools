@@ -19,13 +19,14 @@ from pathlib import Path  # Keep path handling portable across Windows and Linux
 logger = logging.getLogger(__name__)  # Use a module logger so tests can identify this log source.
 
 LOGGER = logging.getLogger(__name__)  # Use a module logger so callers can configure output.
-CHECKBOX_RE = re.compile(r"^\s*- \[([ xX])\]")  # Count task boxes and nested task boxes only.
+CHECKBOX_RE = re.compile(r"^\s*- \[([ xX])\](?![(\[:])")  # Count task boxes and nested task boxes only.
 MALFORMED_RE = re.compile(  # Match a bracketed marker that is not a link, a legend, or a valid task box.
     r"^\s*- \[(?P<mark>[^\]]*)\](?![(\[:])(?P<rest>.*)$"
 )
 TASK_ID_RE = re.compile(r"\bT\d+\b")  # A task identifier marks a bracketed bullet as a task attempt.
 LABEL_RE = re.compile(r"^[A-WYZ][A-Z0-9]*$")  # Spec Kit legend labels such as P, B, or US1.
 LEADING_TASK_ID_RE = re.compile(r"^\s*T\d+\b")  # A task ID right after the bracket marks a task attempt.
+BRACKET_SPAN_RE = re.compile(r"\[[^\]]*\]")  # Remove shortcut reference links before the task ID check.
 FENCE_RE = re.compile(r"^\s*(```|~~~)")  # Ignore examples inside fenced code blocks.
 STATUS_RE = re.compile(r"^\*\*Status\*\*:\s*(?P<status>.+)$", re.MULTILINE)  # Read the spec state.
 CITATION_RE = re.compile(  # Find proof paths only in evidence notes, not in task descriptions.
@@ -309,7 +310,8 @@ class TaskFileScanner:
             return bool(LEADING_TASK_ID_RE.match(match.group("rest")))  # Only a label that stands in for a box.
         if not mark.strip() or len(mark) == 1:  # Empty or one-character boxes such as [z] are bad boxes.
             return True  # Report the broken box syntax.
-        return bool(TASK_ID_RE.search(match.group("rest")))  # A task ID shows a task, not a legend.
+        prose = BRACKET_SPAN_RE.sub("", match.group("rest"))  # Reference links such as [T001] are prose.
+        return bool(TASK_ID_RE.search(prose))  # A task ID shows a task, not a legend.
 
 
 class SpecTaskAudit:
