@@ -131,6 +131,81 @@ def test_fake_refusal(manager):
 
 
 @pytest.mark.parametrize(
+    ("module_binding", "fixture_binding", "fixture_replacement"),
+    [
+        ("", "from fake_module import Manager", ""),
+        ("if True:\n    Manager = FakeManager", "", ""),
+        ("", "", "subject = fake_subject"),
+        ("", "import fake_module as Manager", ""),
+        ("if True:\n    from fake_module import Manager", "", ""),
+        ("", "", "if True:\n    subject = fake_subject"),
+    ],
+)
+def test_static_bindings_cannot_replace_source_fixture_evidence(
+    tmp_path: Path, module_binding: str, fixture_binding: str, fixture_replacement: str
+) -> None:
+    """Local imports and module bindings cannot preserve obsolete source proof."""
+    source = f"""\
+import pytest
+from subject import Manager
+
+class FakeManager:
+    def request(self):
+        return {{"status_code": 403}}
+
+{module_binding}
+
+@pytest.fixture
+def fake_subject():
+    return FakeManager()
+
+@pytest.fixture
+def subject():
+    {fixture_binding or "pass"}
+    return Manager()
+
+{fixture_replacement}
+
+def test_fake_refusal(subject):
+    assert type(subject) is FakeManager
+    assert subject.request()["status_code"] == 403
+"""
+    test_path, tree, test_source = _case(tmp_path, source)
+
+    assert SourceDrivenCoverageSlicer(test_path, tree).source_text() == ""
+    findings = MissingFailureModeDetector().detect(test_path, tree, test_source)
+    assert "missing_fm_http_4xx" in [finding.rule_id for finding in findings]
+
+
+@pytest.mark.parametrize(
+    "unrelated_binding",
+    [
+        "def unrelated():\n    Manager = object\n    subject = object",
+        "class Unrelated:\n    Manager = object\n    subject = object",
+        "if True:\n    unrelated = object",
+    ],
+)
+def test_other_scopes_do_not_hide_genuine_source_fixture(tmp_path: Path, unrelated_binding: str) -> None:
+    """Bindings in unrelated scopes cannot replace module source or fixture identities."""
+    source = f"""\
+import pytest
+from subject import Manager
+
+{unrelated_binding}
+
+@pytest.fixture
+def subject():
+    instance = Manager()
+    instance.ready = True
+    return instance
+
+def test_source_request(subject):
+    subject.request()
+"""
+    assert "def test_source_request" in _slice(tmp_path, source)
+
+
+@pytest.mark.parametrize(
     "replacement",
     [
         "instance: object = FakeManager()",
@@ -469,6 +544,48 @@ class TestForeign:
     findings = MissingFailureModeDetector().detect(test_path, tree, test_source)
 
     assert findings == []
+
+
+@pytest.mark.parametrize(
+    ("class_rebinding", "receiver_rebinding"),
+    [
+        ("", "self = Fake()"),
+        ("    helper = staticmethod(fake_helper)", ""),
+        ("    helper = fake_helper", ""),
+    ],
+)
+def test_rebound_class_helper_cannot_supply_server_failure(
+    tmp_path: Path, class_rebinding: str, receiver_rebinding: str
+) -> None:
+    """Replaced receivers and static helpers cannot prove the declared helper's status."""
+    source = f"""\
+from subject import Manager
+
+def fake_helper(*values):
+    return {{"status_code": 200}}
+
+class Fake:
+    helper = staticmethod(fake_helper)
+
+class TestSelected:
+    @staticmethod
+    def helper(status_code):
+        return {{"status_code": status_code}}
+
+{class_rebinding}
+    def test_request(self):
+        {receiver_rebinding or "pass"}
+        response = self.helper(503)
+        Manager.request(response)
+        assert response["status_code"] == 200
+"""
+    test_path, tree, test_source = _case(tmp_path, source)
+    sliced = SourceDrivenCoverageSlicer(test_path, tree).source_text()
+
+    assert "def test_request" in sliced
+    assert "def helper(status_code)" not in sliced
+    findings = MissingFailureModeDetector().detect(test_path, tree, test_source)
+    assert "missing_fm_http_5xx" in [finding.rule_id for finding in findings]
 
 
 def test_detector_does_not_count_foreign_class_or_unselected_helper_status(tmp_path: Path) -> None:

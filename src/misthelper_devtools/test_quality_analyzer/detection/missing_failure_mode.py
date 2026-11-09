@@ -519,7 +519,13 @@ class SourceDrivenCoverageSlicer:
         helpers = {
             member.name: member
             for member in owner.body
-            if isinstance(member, ast.FunctionDef) and self._is_static_method(member)
+            if isinstance(member, ast.FunctionDef)
+            and self._is_static_method(member)
+            and not any(
+                member.name in self._statement_bindings(statement)
+                for statement in owner.body
+                if statement is not member
+            )
         }
         selected: list[ast.FunctionDef] = []  # Preserve helper order for stable synthetic source.
         seen: set[str] = set()  # Stop recursive helper cycles and duplicate references.
@@ -537,11 +543,12 @@ class SourceDrivenCoverageSlicer:
     def _class_helper_calls(self, node: ast.AST, owner_name: str) -> set[str]:
         """Return calls explicitly owned by self, cls, or the test class."""
         names: set[str] = set()
+        rebound_names = self._body_bindings(node)  # A replaced receiver no longer identifies the owning class.
         for call in (child for child in ast.walk(node) if isinstance(child, ast.Call)):
             target = call.func
             if not isinstance(target, ast.Attribute) or not isinstance(target.value, ast.Name):
                 continue
-            if target.value.id in {"self", "cls", owner_name}:
+            if target.value.id in {"self", "cls", owner_name} and target.value.id not in rebound_names:
                 names.add(target.attr)
         return names
 
@@ -558,8 +565,15 @@ class SourceDrivenCoverageSlicer:
                 and isinstance(target.value, ast.Name)
                 and target.value.id == "self"
                 and target.attr in helper_names
+                and "self" not in self._body_bindings(node)
             ):
                 target.value = ast.Name(id=owner.name, ctx=ast.Load())
+
+    def _body_bindings(self, node: ast.AST) -> set[str]:
+        """Return names replaced in a function body, without counting its parameters."""
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return set()
+        return set().union(*(self._statement_bindings(statement) for statement in node.body))
 
     def _is_static_method(self, node: ast.stmt) -> bool:
         """Return True only for a directly declared static method."""
@@ -660,7 +674,11 @@ class SourceDrivenCoverageSlicer:
             if not isinstance(node, ast.FunctionDef):
                 continue
             fixture_name = self._pytest_fixture_name(node)
-            if fixture_name:
+            if fixture_name and not any(
+                node.name in self._statement_bindings(statement)
+                for statement in self._tree.body
+                if statement is not node
+            ):
                 fixtures[fixture_name] = node
         return fixtures
 
@@ -723,24 +741,12 @@ class SourceDrivenCoverageSlicer:
         return matches
 
     def _module_level_rebinds(self, name: str) -> bool:
-        """Reject module assignments that replace an imported source or pytest name."""
-        for node in self._tree.body:
-            if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name == name:
-                return True
-            if self._statement_assigns_name(node, name):
-                return True
-        return False
-
-    def _statement_assigns_name(self, node: ast.stmt, name: str) -> bool:
-        """Check direct module assignments without scanning function or class bodies."""
-        targets: list[ast.expr] = []
-        if isinstance(node, ast.Assign):
-            targets = node.targets
-        if isinstance(node, (ast.AnnAssign, ast.AugAssign)):
-            targets = [node.target]
-        if isinstance(node, (ast.For, ast.AsyncFor)):
-            targets = [node.target]
-        return any(isinstance(child, ast.Name) and child.id == name for target in targets for child in ast.walk(target))
+        """Reject module rebindings, including those inside control-flow statements."""
+        return any(
+            name in self._statement_bindings(node)
+            for node in self._tree.body
+            if not isinstance(node, (ast.Import, ast.ImportFrom))
+        )  # Direct imports have separate identity checks, but conditional imports can replace them.
 
     def _fixture_name_argument(self, decorator: ast.AST) -> tuple[bool, str | None]:
         """Read a literal fixture-name override without evaluating expressions."""
@@ -766,10 +772,9 @@ class SourceDrivenCoverageSlicer:
         parameter_names = {
             argument.arg for argument in ast.walk(node.args) if isinstance(argument, ast.arg)
         }  # Fixture dependencies bind locally before the fixture body executes.
+        local_bindings = set().union(*(self._statement_bindings(statement) for statement in node.body))
         source_class_names = {
-            name
-            for name in self._source_class_names
-            if name not in parameter_names and not self._parameter_is_shadowed(node, name)
+            name for name in self._source_class_names if name not in parameter_names and name not in local_bindings
         }
         if not source_class_names:
             return False
@@ -784,20 +789,23 @@ class SourceDrivenCoverageSlicer:
                 return self._returns_source_instance(statement.value, instance_names, source_class_names)
         return False
 
-    def _statement_bindings(self, statement: ast.stmt) -> set[str]:
-        """Return names that a statement can bind or delete, including nested branches."""
+    def _statement_bindings(self, statement: ast.AST) -> set[str]:
+        """Return bindings in the current scope without entering function or class bodies."""
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            return {statement.name}
+        if isinstance(statement, ast.Lambda):
+            return set()
         bindings: set[str] = set()
-        for child in ast.walk(statement):
-            if isinstance(child, ast.Name) and isinstance(child.ctx, (ast.Store, ast.Del)):
-                bindings.add(child.id)
-            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                bindings.add(child.name)
-            if isinstance(child, ast.alias):
-                bindings.add(child.asname or child.name.split(".")[0])
-            if isinstance(child, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)) and child.name:
-                bindings.add(child.name)
-            if isinstance(child, ast.MatchMapping) and child.rest:
-                bindings.add(child.rest)
+        if isinstance(statement, ast.Name) and isinstance(statement.ctx, (ast.Store, ast.Del)):
+            bindings.add(statement.id)
+        if isinstance(statement, ast.alias):
+            bindings.add(statement.asname or statement.name.split(".")[0])
+        if isinstance(statement, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)) and statement.name:
+            bindings.add(statement.name)
+        if isinstance(statement, ast.MatchMapping) and statement.rest:
+            bindings.add(statement.rest)
+        for child in ast.iter_child_nodes(statement):
+            bindings.update(self._statement_bindings(child))
         return bindings
 
     def _update_fixture_instances(
