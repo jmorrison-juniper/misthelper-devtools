@@ -902,15 +902,27 @@ class SourceDrivenCoverageSlicer:
         """Return True when a test function calls source under test."""
         source_roots = set(self._source_call_roots)  # Start with module-level source imports.
         source_roots.update(self._local_source_roots(node))  # Add source imports scoped inside this test function.
-        parameter_names = {argument.arg for argument in ast.walk(node.args) if isinstance(argument, ast.arg)}
+        replaced_names = self._replaced_call_roots(node)
         calls = (
             child
             for child in ast.walk(node)
-            if isinstance(child, ast.Call) and self._call_root(child.func) not in parameter_names
-        )  # Parameters replace imported callable and helper bindings inside the test.
+            if isinstance(child, ast.Call) and self._call_root(child.func) not in replaced_names
+        )  # Replaced callable and helper bindings cannot establish source evidence.
         if any(self._call_drives_source(call, source_roots) for call in calls):
             return True
         return self._calls_source_fixture(node)
+
+    def _replaced_call_roots(self, node: ast.FunctionDef) -> set[str]:
+        """Return local bindings other than verified direct source imports."""
+        names = {argument.arg for argument in ast.walk(node.args) if isinstance(argument, ast.arg)}
+        for statement in node.body:
+            bindings = self._statement_bindings(statement)
+            if isinstance(statement, ast.ImportFrom) and statement.module:
+                bindings.difference_update(self._roots_from_import_from(statement))
+            if isinstance(statement, ast.Import):
+                bindings.difference_update(self._roots_from_import(statement))
+            names.update(bindings)
+        return names
 
     def _call_drives_source(self, call: ast.Call, source_roots: set[str]) -> bool:
         """Return True when one call targets a source alias or a local SUT."""
@@ -940,7 +952,7 @@ class SourceDrivenCoverageSlicer:
                 roots.update(self._roots_from_import_from(node))  # Add each imported source symbol alias.
             if isinstance(node, ast.Import):  # Module imports can expose source modules by alias.
                 roots.update(self._roots_from_import(node))  # Add each source module alias.
-        return roots  # Return every source-call root found in this test file.
+        return {name for name in roots if not self._module_level_rebinds(name)}  # Reject replaced source imports.
 
     def _collect_source_driver_names(self) -> set[str]:
         """Return local helper names that call repository source."""

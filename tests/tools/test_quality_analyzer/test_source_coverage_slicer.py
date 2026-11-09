@@ -94,6 +94,46 @@ def test_refusal({ "fetch" if uses_fixture else "" }):
     assert ("missing_fm_http_4xx" in [finding.rule_id for finding in findings]) is uses_fixture
 
 
+@pytest.mark.parametrize(
+    ("module_binding", "local_binding", "covered"),
+    [
+        ("", "fetch = lambda: Response()", False),
+        ("fetch = lambda: Response()", "", False),
+        ("", "", True),
+        ("", "from subject import fetch", True),
+        ("", "from subject import fetch\n    fetch = lambda: Response()", False),
+    ],
+)
+def test_direct_source_call_requires_unreplaced_binding(
+    tmp_path: Path, module_binding: str, local_binding: str, covered: bool
+) -> None:
+    """Replaced source names cannot prove coverage, but genuine imports still can."""
+    source = f"""\
+from subject import fetch
+
+class Response:
+    status_code = 403
+
+{module_binding}
+
+def test_refusal():
+    {local_binding or "pass"}
+    response = fetch()
+    assert response.status_code == 403
+"""
+    test_path, tree, test_source = _case(tmp_path, source)
+    (tmp_path / "subject.py").write_text(
+        'import mistapi\n\ndef fetch():\n    raise RuntimeError("source must not execute")\n'
+        "    return mistapi.api.request()\n",
+        encoding="utf-8",
+    )
+    sliced = SourceDrivenCoverageSlicer(test_path, tree).source_text()
+    findings = MissingFailureModeDetector().detect(test_path, tree, test_source)
+
+    assert bool(sliced) is covered
+    assert ("missing_fm_http_4xx" in [finding.rule_id for finding in findings]) is not covered
+
+
 def test_fixture_returning_imported_source_instance_selects_parameter_call(tmp_path: Path) -> None:
     """A pytest fixture must prove its returned imported source instance."""
     source = """\
