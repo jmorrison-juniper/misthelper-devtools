@@ -38,6 +38,33 @@ def _slice(tmp_path: Path, test_source: str) -> str:
     return SourceDrivenCoverageSlicer(test_path, tree).source_text()
 
 
+def test_malformed_source_class_lookup_reports_context(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """Malformed source remains nonfatal and reports its path and parse error."""
+    source = """\
+import pytest
+from subject import Manager
+
+@pytest.fixture
+def manager():
+    return Manager()
+
+def test_request(manager):
+    manager.request()
+"""
+    test_path, tree, _ = _case(tmp_path, source)
+    source_path = tmp_path / "subject.py"
+    source_path.write_text("class Manager(\n", encoding="utf-8")
+
+    with caplog.at_level("DEBUG"):
+        sliced = SourceDrivenCoverageSlicer(test_path, tree).source_text()
+
+    assert sliced == ""
+    assert any(
+        str(source_path) in record.getMessage() and "was never closed" in record.getMessage()
+        for record in caplog.records
+    )
+
+
 def test_fixture_returning_imported_source_instance_selects_parameter_call(tmp_path: Path) -> None:
     """A pytest fixture must prove its returned imported source instance."""
     source = """\

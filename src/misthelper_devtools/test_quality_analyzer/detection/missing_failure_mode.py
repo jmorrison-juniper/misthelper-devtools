@@ -641,7 +641,8 @@ class SourceDrivenCoverageSlicer:
                 continue
             try:
                 source_tree = ast.parse(module_path.read_text(encoding="utf-8"))
-            except (OSError, SyntaxError):
+            except (OSError, SyntaxError) as exc:
+                _LOGGER.debug("Cannot inspect failure-mode source %s: %s", module_path, exc)
                 continue
             class_names = {item.name for item in source_tree.body if isinstance(item, ast.ClassDef)}
             for alias in node.names:
