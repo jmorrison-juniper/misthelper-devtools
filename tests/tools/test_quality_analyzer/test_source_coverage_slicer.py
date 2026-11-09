@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import ast
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -23,7 +25,7 @@ class Manager:
 
 def _case(tmp_path: Path, test_source: str) -> tuple[Path, ast.Module, str]:
     """Write a small source project and return its parsed test module."""
-    (tmp_path / "pyproject.toml").write_text("[project]\\nname = 'fixture'\\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[project]\nname = 'fixture'\n", encoding="utf-8")
     (tmp_path / "src").mkdir()
     (tmp_path / "subject.py").write_text(_SOURCE, encoding="utf-8")
     test_path = tmp_path / "tests" / "test_subject.py"
@@ -132,6 +134,53 @@ def test_refusal():
 
     assert bool(sliced) is covered
     assert ("missing_fm_http_4xx" in [finding.rule_id for finding in findings]) is not covered
+
+
+@pytest.mark.parametrize(
+    ("body", "covered"),
+    [
+        ("if True:\n        from subject import fetch", True),
+        ("try:\n        from subject import fetch\n    except ImportError:\n        raise", True),
+        ("if True:\n        from subject import fetch\n        fetch = lambda: Response()", False),
+        ("if True:\n        from subject import fetch\n    fetch = lambda: Response()", False),
+    ],
+)
+def test_control_block_source_import_preserves_binding_proof(tmp_path: Path, body: str, covered: bool) -> None:
+    """Same-scope imports remain source evidence unless another binding replaces them."""
+    source = f"""\
+from subject import fetch
+import subject
+import requests
+
+class Response:
+    status_code = 403
+
+def test_refusal(monkeypatch):
+    monkeypatch.setattr(requests, "get", lambda *args: Response())
+    {body}
+    response = fetch()
+    assert response.status_code == 403
+    assert len(subject.calls) == {1 if covered else 0}
+"""
+    test_path, tree, test_source = _case(tmp_path, source)
+    (tmp_path / "subject.py").write_text(
+        "import requests\ncalls = []\n\ndef fetch():\n"
+        '    calls.append("fetch")\n    return requests.get("https://example.invalid")\n',
+        encoding="utf-8",
+    )
+    sliced = SourceDrivenCoverageSlicer(test_path, tree).source_text()
+
+    assert bool(sliced) is covered
+    findings = MissingFailureModeDetector().detect(test_path, tree, test_source)
+    assert ("missing_fm_http_4xx" in [finding.rule_id for finding in findings]) is not covered
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(test_path)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_fixture_returning_imported_source_instance_selects_parameter_call(tmp_path: Path) -> None:

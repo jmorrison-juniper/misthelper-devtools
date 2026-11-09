@@ -916,13 +916,27 @@ class SourceDrivenCoverageSlicer:
         """Return local bindings other than verified direct source imports."""
         names = {argument.arg for argument in ast.walk(node.args) if isinstance(argument, ast.arg)}
         for statement in node.body:
-            bindings = self._statement_bindings(statement)
-            if isinstance(statement, ast.ImportFrom) and statement.module:
-                bindings.difference_update(self._roots_from_import_from(statement))
-            if isinstance(statement, ast.Import):
-                bindings.difference_update(self._roots_from_import(statement))
-            names.update(bindings)
+            names.update(self._non_source_bindings(statement))
         return names
+
+    def _non_source_bindings(self, node: ast.AST) -> set[str]:
+        """Exclude source imports individually without hiding adjacent replacement bindings."""
+        if isinstance(node, ast.ImportFrom) and node.module:
+            return self._statement_bindings(node) - self._roots_from_import_from(node)
+        if isinstance(node, ast.Import):
+            return self._statement_bindings(node) - self._roots_from_import(node)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            return self._statement_bindings(node)
+        bindings: set[str] = set()
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            bindings.add(node.id)
+        if isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)) and node.name:
+            bindings.add(node.name)
+        if isinstance(node, ast.MatchMapping) and node.rest:
+            bindings.add(node.rest)
+        for child in ast.iter_child_nodes(node):
+            bindings.update(self._non_source_bindings(child))
+        return bindings
 
     def _call_drives_source(self, call: ast.Call, source_roots: set[str]) -> bool:
         """Return True when one call targets a source alias or a local SUT."""
