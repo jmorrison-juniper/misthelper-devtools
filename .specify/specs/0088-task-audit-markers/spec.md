@@ -72,12 +72,12 @@ Malformed markers alone must not change the exit code. The completed-spec and ci
 - **FR-001**: A task box (`- [ ]`, `- [x]`, `- [X]`) followed by `(`, `[`, or `:` MUST NOT count as a task.
 - **FR-002**: A bracketed bullet that is a Markdown link, reference link, or label definition MUST NOT count as malformed.
 - **FR-003**: An uppercase legend label MUST be malformed only when a task ID directly follows it.
-- **FR-004**: An empty or one-character box MUST be malformed.
-- **FR-005**: A longer box MUST be malformed only when a task ID follows it outside bracket spans.
+- **FR-004**: After valid boxes, links, and legends, an empty or one-character box that nothing else classifies MUST be malformed.
+- **FR-005**: After valid boxes, links, and legends, a longer box that nothing else classifies MUST be malformed only when a task ID follows it outside bracket spans.
 - **FR-006**: The audit MUST print the relative file path and line of each malformed marker.
 - **FR-007**: The audit MUST keep the existing exit policy, completed-spec rule, and citation rule.
-- **FR-009**: A bullet whose first bracket label, or whose second bracket label after the first, has a reference definition in the same file outside code fences MUST NOT count as malformed. An undefined label keeps the earlier rules.
 - **FR-008**: The scanner MUST keep the line numbers of malformed markers in `TaskCounts`.
+- **FR-009**: A bullet whose first bracket label, or whose second bracket label after the first, has a reference definition in the same file outside code fences MUST NOT count as malformed. An undefined label keeps the earlier rules.
 
 ### Key Entities
 

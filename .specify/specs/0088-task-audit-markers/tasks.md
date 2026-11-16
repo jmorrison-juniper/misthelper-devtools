@@ -29,14 +29,14 @@ No project initialization or dependency change is needed.
 ## Phase 5: Verification
 
 - [X] T006 Record the counterfactual review evidence in `design/quickstart.md`.
-- [ ] T007 Run the documented gates on the rebased head and record the results in the handoff.
+- [X] T007 Run the documented gates on the rebased head and record the results in the handoff.
 - [ ] T008 Publish the branch after the coordinator authorizes it.
 
 ## Phase 6: Reference definitions (publication review, second source commit)
 
 - [X] T009 [US1] Add failing regressions for the defined shortcut reference and the defined full reference with a task ID caption in `tests/unit/tools/test_speckit_task_audit.py`.
 - [X] T010 [US1] Collect reference definitions outside code fences in `src/misthelper_devtools/speckit_task_audit.py` and skip bullets that use them.
-- [ ] T011 Run the documented gates and record the results in the handoff.
+- [X] T011 Run the documented gates and record the results in the handoff.
 
 ## Dependencies
 
