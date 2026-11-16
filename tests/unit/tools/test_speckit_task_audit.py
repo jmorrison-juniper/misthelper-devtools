@@ -3,6 +3,8 @@ import subprocess  # Run the documented console command as an integration check.
 import sys  # Find scripts beside the active test interpreter.
 from pathlib import Path  # Build isolated repository trees for the audit tests.
 
+import pytest  # Run one regression over several bullet forms.
+
 from misthelper_devtools.speckit_task_audit import (  # Import the tool under test.
     AllowList,
     Command,
@@ -60,6 +62,74 @@ class TestSpecTaskAudit:
         assert counts.unchecked == 0  # A malformed marker must not become an open task.
         assert counts.checked == 0  # A malformed marker must not become a done task.
         assert counts.malformed == 1  # The scanner must report the malformed marker.
+
+    def test_links_and_legends_are_not_malformed(self, tmp_path: Path) -> None:
+        path = tmp_path / "tasks.md"
+        path.write_text(
+            "- [P] tasks = different files\n- [Issue #3300](https://example.com/3300).\n"
+            "- [ref][id]\n- [Label]: text\n",
+            encoding="utf-8",
+        )  # Write legend and link bullets.
+        assert TaskFileScanner().scan(path).malformed == 0  # None of them is a task marker.
+
+    def test_malformed_markers_report_their_lines(self, tmp_path: Path, capsys) -> None:
+        path = tmp_path / "tasks.md"
+        path.write_text("- [P] legend\n- [] T001 a\n- [-] b\n- [todo] T002 c\n", encoding="utf-8")  # Mix.
+        counts = TaskFileScanner().scan(path)
+        assert counts.malformed_lines == (2, 3, 4)  # Only real task attempts count.
+
+    def test_lowercase_box_is_malformed_and_phase_legend_is_not(self, tmp_path: Path) -> None:
+        path = tmp_path / "tasks.md"
+        path.write_text(
+            "- [z] Do this task\n- [P] tasks in Phase 6 (`T025`) can run in parallel\n- [P] T001 bad\n",
+            encoding="utf-8",
+        )  # Mix a bad box, a legend that cites a task ID, and a label used as a box.
+        assert TaskFileScanner().scan(path).malformed_lines == (1, 3)  # The legend on line 2 stays clean.
+
+    def test_report_prints_the_file_and_line_of_each_malformed_marker(self, tmp_path: Path, capsys) -> None:
+        self._write_spec(tmp_path, "100-bad", "Draft")  # Use a draft so the exit policy is unchanged.
+        self._write_tasks(tmp_path, "100-bad", "- [X] T001 Done\n- [z] Bad\n- [P] legend T002 ok\n")
+        result = SpecTaskAudit(tmp_path, AllowList(set())).run()  # Run the real report.
+        output = capsys.readouterr().out  # Capture the printed report.
+        assert "specs/100-bad/tasks.md:2: malformed task marker" in output  # Path and line are printed.
+        assert "tasks.md:3:" not in output  # The legend is not reported.
+        assert "1 malformed." in output  # The summary counts only the real defect.
+        assert result == 0  # Malformed markers alone must not change the exit code.
+
+    def test_inline_and_reference_links_are_not_task_markers(self, tmp_path: Path) -> None:
+        path = tmp_path / "tasks.md"
+        path.write_text(
+            "- [x](https://example.invalid)\n- [Docs] [T001]\n\n[T001]: https://example.invalid\n",
+            encoding="utf-8",
+        )  # Write a link bullet and a reference-link bullet.
+        counts = TaskFileScanner().scan(path)
+        assert (counts.checked, counts.unchecked, counts.malformed) == (0, 0, 0)  # Neither line is a task.
+
+    @pytest.mark.parametrize(
+        "bullet",
+        ["- [a]", "- [Docs] [T001] relates to T002", "- [Docs][T001] relates to T002"],
+    )
+    def test_defined_reference_links_are_not_malformed(self, tmp_path: Path, bullet: str) -> None:
+        path = tmp_path / "tasks.md"
+        path.write_text(
+            f"{bullet}\n\n[a]: https://example.invalid\n[T001]: https://example.invalid\n", encoding="utf-8"
+        )
+        assert TaskFileScanner().scan(path).malformed == 0  # A defined reference is Markdown prose.
+
+    def test_undefined_and_fenced_references_keep_their_classification(self, tmp_path: Path) -> None:
+        path = tmp_path / "tasks.md"
+        path.write_text(
+            "- [z] T001 do this\n- [ ] T002 do that\n- [a] T003 x\n\n```\n[a]: https://example.invalid\n```\n",
+            encoding="utf-8",
+        )  # The only definition sits inside a fence, so it does not count.
+        counts = TaskFileScanner().scan(path)
+        assert (counts.unchecked, counts.malformed_lines) == (1, (1, 3))  # Undefined boxes stay malformed.
+
+    def test_real_task_markers_still_count_beside_links(self, tmp_path: Path) -> None:
+        path = tmp_path / "tasks.md"
+        path.write_text("- [x] T001 Done\n- [todo] T001 Bad\n- [ ] T002 Open\n", encoding="utf-8")
+        counts = TaskFileScanner().scan(path)
+        assert (counts.checked, counts.unchecked, counts.malformed_lines) == (1, 1, (2,))  # Real markers stay.
 
     def test_nested_lists_count_as_tasks(self, tmp_path: Path) -> None:
         path = tmp_path / "tasks.md"  # Keep this scanner edge case small.
