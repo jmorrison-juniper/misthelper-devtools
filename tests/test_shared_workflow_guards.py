@@ -190,6 +190,52 @@ class TestQualityGateIssues:
 class TestAutoMerge:
     """The auto-merge jobs react to the correct events only."""
 
+    def test_merge_and_dispatch_contracts_remain_unchanged(self, merge_workflow: dict[str, Any]) -> None:
+        """The new dispatch path must preserve the reusable workflow safeguards."""
+        inputs = merge_workflow[TRIGGERS]["workflow_call"]["inputs"]
+        assert set(inputs) == {
+            "label",
+            "merge-method",
+            "main-workflows",
+            "default-branch",
+            "report-orphaned-push",
+        }
+        assert {name: item["default"] for name, item in inputs.items()} == {
+            "label": "auto-merge",
+            "merge-method": "squash",
+            "main-workflows": "",
+            "default-branch": "main",
+            "report-orphaned-push": False,
+        }
+        assert {name: item["type"] for name, item in inputs.items()} == {
+            "label": "string",
+            "merge-method": "string",
+            "main-workflows": "string",
+            "default-branch": "string",
+            "report-orphaned-push": "boolean",
+        }
+        assert all(item["required"] is False for item in inputs.values())
+        assert merge_workflow["jobs"]["enable-auto-merge"]["permissions"] == {
+            "contents": "write",
+            "pull-requests": "write",
+        }
+        assert merge_workflow["jobs"]["dispatch-main-workflows"]["permissions"] == {
+            "actions": "write",
+            "contents": "read",
+        }
+        enable_script = job_script(merge_workflow, "enable-auto-merge")
+        assert (
+            "contains(github.event.pull_request.labels.*.name, inputs.label)"
+            in merge_workflow["jobs"]["enable-auto-merge"]["if"]
+        )
+        assert "grep -q '^\\.github/workflows/'" in enable_script
+        assert "blocked=true" in enable_script
+        assert "squash|merge|rebase" in enable_script
+        dispatch = merge_workflow["jobs"]["dispatch-main-workflows"]
+        assert dispatch["concurrency"]["cancel-in-progress"] is False
+        assert dispatch["env"]["COVERAGE_CHECKS"] == "5"
+        assert dispatch["env"]["COVERAGE_CHECK_INTERVAL"] == "20"
+
     def test_a_closed_pull_request_skips_the_merge_job(self, merge_workflow: dict[str, Any]) -> None:
         """A closed pull request cannot accept auto-merge, so the job would fail each time."""
         condition = merge_workflow["jobs"]["enable-auto-merge"]["if"]

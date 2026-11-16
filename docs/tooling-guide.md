@@ -487,11 +487,14 @@ fail with no reason on the pull request. Merge that pull request by hand. The
 cause is that `GITHUB_TOKEN` cannot write a workflow file. The auto-merge
 workflow writes a notice on that pull request.
 
-Note: a dispatch call does not use the `paths` filter of the workflow that it
-starts. The auto-merge workflow runs after each merge and on a schedule. Each
-run starts a workflow in `main-workflows` when no run of that workflow exists on
-the tip of the default branch. Thus a merge that changes only the documentation
-can start a container build that its `paths` filter skipped.
+Note: after `gh pr merge --auto` succeeds, the enable job checks the live pull
+request state. It starts the main workflows only after it confirms `MERGED`
+with a valid `mergedAt` on the configured default branch. An accepted request
+that remains open does not start them. Manual and scheduled runs, and a merged
+closed pull-request event, remain recovery paths. A dispatch call does not use
+the `paths` filter of the workflow that it starts. Thus a merge that changes
+only the documentation can start a container build that its `paths` filter
+skipped.
 
 Note: the run list of GitHub can answer from old data for about a minute at a
 time. An old answer started duplicate runs, so the dispatch job looks for a run

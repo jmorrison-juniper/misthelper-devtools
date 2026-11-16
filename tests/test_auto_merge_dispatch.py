@@ -129,7 +129,7 @@ def run_step(tmp_path: Path, bash: str, dispatch_job: dict[str, Any]) -> Any:
 
     def run(answers: dict[str, list[str]], failing_dispatches: tuple[str, ...] = ()) -> Result:
         bin_dir = tmp_path / "bin"
-        bin_dir.mkdir()
+        bin_dir.mkdir(exist_ok=True)
         fake_gh = bin_dir / "gh"
         fake_gh.write_text(FAKE_GH, encoding="utf-8", newline="\n")
         fake_gh.chmod(0o755)
@@ -178,6 +178,30 @@ def run_step(tmp_path: Path, bash: str, dispatch_job: dict[str, Any]) -> Any:
     return run
 
 
+class TestDispatchEligibility:
+    """The job must preserve recovery and gate immediate dispatch by merge proof."""
+
+    def test_recovery_and_confirmed_merge_conditions_are_distinct(self, dispatch_job: dict[str, Any]) -> None:
+        """A skipped enable job must not suppress recovery or authorize an immediate dispatch."""
+        condition = " ".join(dispatch_job["if"].split())
+        assert dispatch_job["needs"] == "enable-auto-merge"
+        assert condition.startswith("always()")
+        assert "inputs.main-workflows != ''" in condition
+        assert "github.event_name == 'schedule'" in condition
+        assert "|| github.event_name == 'workflow_dispatch'" in condition
+        assert (
+            "|| ( github.event_name == 'pull_request' && github.event.action == 'closed' "
+            "&& github.event.pull_request.merged == true "
+            "&& github.event.pull_request.base.ref == inputs.default-branch )"
+        ) in condition
+        assert (
+            "|| ( github.event_name == 'pull_request' && github.event.action != 'closed' "
+            "&& github.event.pull_request.base.ref == inputs.default-branch "
+            "&& needs.enable-auto-merge.result == 'success' "
+            "&& needs.enable-auto-merge.outputs.merged == 'true' )"
+        ) in condition
+
+
 class TestDispatchCoverage:
     """The job starts a workflow only when no check finds a run on the tip."""
 
@@ -210,6 +234,9 @@ class TestDispatchCoverage:
         assert len(result.queries("ci.yml")) == checks
         assert len(result.queries("container-build.yml")) == checks
         assert "**Started:** ci.yml container-build.yml" in result.summary
+        assert "workflow run ci.yml --ref main" in result.calls
+        assert "workflow run container-build.yml --ref main" in result.calls
+        assert all("/commits/" not in call for call in result.calls if call.startswith("workflow run "))
 
     def test_the_query_asks_for_the_tip_on_the_default_branch(self, run_step: Any) -> None:
         """The newest run on the branch is not a safe test, so the query names the tip commit."""
@@ -224,9 +251,29 @@ class TestDispatchCoverage:
         assert result.returncode == 0, result.output
         assert result.dispatched == ["ci.yml"]
 
+    def test_a_malformed_count_counts_as_no_run(self, run_step: Any) -> None:
+        """A malformed count must retain the existing bounded retry and dispatch behavior."""
+        result = run_step({"ci.yml": ["not-a-count"]})
+        assert result.returncode == 0, result.output
+        assert len(result.queries("ci.yml")) == 5
+        assert result.dispatched == ["ci.yml"]
+
+    def test_a_second_recovery_does_not_dispatch_a_covered_tip(self, run_step: Any) -> None:
+        """The later recovery sees the exact tip run created by the first dispatch."""
+        first = run_step({"ci.yml": ["0"]})
+        assert first.returncode == 0, first.output
+        assert first.dispatched == ["ci.yml"]
+
+        second = run_step({"ci.yml": ["1"]})
+        assert second.returncode == 0, second.output
+        assert second.dispatched == ["ci.yml"]
+        assert len(second.queries("ci.yml")) - len(first.queries("ci.yml")) == 1
+
     def test_a_failed_dispatch_fails_the_job_after_the_other_dispatches(self, run_step: Any) -> None:
         """One failed dispatch must not stop the other dispatches."""
         result = run_step({"ci.yml": ["0"], "codeql.yml": ["0"]}, failing_dispatches=("ci.yml",))
         assert result.returncode == 1
         assert result.dispatched == ["codeql.yml"]
+        assert "workflow run ci.yml --ref main" in result.calls
+        assert "workflow run codeql.yml --ref main" in result.calls
         assert "**Failed:** ci.yml" in result.summary
