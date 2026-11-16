@@ -69,6 +69,8 @@ def run_step(
         "".join(f"{answer if isinstance(answer, str) else json.dumps(answer)}\n" for answer in answers),
         encoding="utf-8",
     )
+    github_output = tmp_path / "github_output"
+    github_output.write_text("", encoding="utf-8")
     env = {
         **os.environ,
         "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
@@ -77,6 +79,7 @@ def run_step(
         "MERGE_METHOD": "squash",
         "PR_NUMBER": pr_number,
         "GH_REPO": "octo/demo",
+        "GITHUB_OUTPUT": str(github_output),
     }
     return subprocess.run(
         [bash, "--noprofile", "--norc", "-eo", "pipefail", "-c", step["run"]],
@@ -106,6 +109,8 @@ def test_failed_request_requires_verified_success(
     assert "Merge already in progress" in result.stderr
     assert calls[0] == f"pr merge {pr_number} --squash --auto"
     assert len(calls) == lookups + 1
+    output = (tmp_path / "github_output").read_text(encoding="utf-8")
+    assert ("merged=true" in output) is (expected == "merged")
 
 
 @pytest.mark.parametrize(
@@ -142,13 +147,46 @@ def test_failed_request_does_not_hide_unverified_states(
     assert message in result.stdout
     assert "Merge already in progress" in result.stderr
     assert len(calls) == lookups + 1
+    assert (tmp_path / "github_output").read_text(encoding="utf-8") == ""
 
 
-def test_successful_request_needs_no_recovery(tmp_path: Path, merge_step: dict[str, Any]) -> None:
-    """An accepted merge request must not make an unnecessary lookup."""
-    result = run_step(tmp_path, merge_step, [], merge_status=0)
-    assert result.returncode == 0
-    assert (tmp_path / "calls").read_text(encoding="utf-8").splitlines() == ["pr merge 4534 --squash --auto"]
+def test_successful_request_fails_when_state_lookup_fails(tmp_path: Path, merge_step: dict[str, Any]) -> None:
+    """A successful merge command must still verify the live pull request."""
+    result = run_step(tmp_path, merge_step, ["LOOKUP_FAILURE"], merge_status=0)
+    assert result.returncode != 0
+    assert "state lookup failed" in result.stdout
+    assert (tmp_path / "calls").read_text(encoding="utf-8").splitlines() == [
+        "pr merge 4534 --squash --auto",
+        "pr view 4534 --json state,mergedAt,autoMergeRequest",
+    ]
+    assert (tmp_path / "github_output").read_text(encoding="utf-8") == ""
+
+
+@pytest.mark.parametrize(
+    ("answer", "expected_output"),
+    [(MERGED, "merged=true\n"), (ENABLED, "")],
+)
+def test_successful_request_publishes_only_a_confirmed_merge(
+    tmp_path: Path, merge_step: dict[str, Any], answer: object, expected_output: str
+) -> None:
+    """A merged state sets the job output, while accepted delayed auto-merge does not."""
+    result = run_step(tmp_path, merge_step, [answer], merge_status=0)
+    calls = (tmp_path / "calls").read_text(encoding="utf-8").splitlines()
+    output = (tmp_path / "github_output").read_text(encoding="utf-8")
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert calls == [
+        "pr merge 4534 --squash --auto",
+        "pr view 4534 --json state,mergedAt,autoMergeRequest",
+    ]
+    assert output == expected_output
+
+
+def test_enable_job_exposes_the_verified_merge_output(merge_step: dict[str, Any]) -> None:
+    """Only the live-state verifier can populate the internal job output."""
+    document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    job = document["jobs"]["enable-auto-merge"]
+    assert merge_step["id"] == "enable_auto_merge"
+    assert job["outputs"]["merged"] == "${{ steps.enable_auto_merge.outputs.merged }}"
 
 
 def test_authorization_failure_does_not_use_merge_recovery(

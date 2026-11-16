@@ -77,6 +77,8 @@ on:
 jobs:
   enable-auto-merge:
     name: Enable auto-merge
+    outputs:
+      merged: ${{ steps.enable_auto_merge.outputs.merged }}
     # A closed pull request cannot accept auto-merge, so the closed type stops
     # here.
     if: >-
@@ -168,6 +170,7 @@ jobs:
           echo "Added the manual merge notice to pull request ${PR_NUMBER}."
 
       - name: Enable auto-merge
+        id: enable_auto_merge
         # A blocked pull request skips the merge call. The call would fail and
         # would show the reason only in this run log.
         if: steps.workflow_guard.outputs.blocked == 'false'
@@ -189,14 +192,14 @@ jobs:
           if gh pr merge "${PR_NUMBER}" "--${method}" --auto 2>"${error_file}"; then
             cat "${error_file}" >&2
             echo "GitHub accepted the merge request."
-            exit 0
+          else
+            cat "${error_file}" >&2
+            if ! grep -qF 'GraphQL: Merge already in progress (mergePullRequest)' "${error_file}"; then
+              echo "::error::The merge request failed without a merge-in-progress response."
+              exit 1
+            fi
+            echo "The merge request failed. Checking the live pull request state."
           fi
-          cat "${error_file}" >&2
-          if ! grep -qF 'GraphQL: Merge already in progress (mergePullRequest)' "${error_file}"; then
-            echo "::error::The merge request failed without a merge-in-progress response."
-            exit 1
-          fi
-          echo "The merge request failed. Checking the live pull request state."
 
           for attempt in 1 2 3 4 5; do
             echo "Checking pull request ${PR_NUMBER}, attempt ${attempt} of 5."
@@ -227,7 +230,15 @@ jobs:
               exit 1
             fi
             case "${state}" in
-              merged|enabled) echo "Verified pull request ${PR_NUMBER}: ${state}."; exit 0 ;;
+              merged)
+                echo "merged=true" >> "${GITHUB_OUTPUT}"
+                echo "Verified pull request ${PR_NUMBER}: merged."
+                exit 0
+                ;;
+              enabled)
+                echo "Verified pull request ${PR_NUMBER}: enabled."
+                exit 0
+                ;;
               closed) echo "::error::The pull request is closed without a merge."; exit 1 ;;
               pending) echo "The pull request is open without auto-merge." ;;
             esac
@@ -240,16 +251,29 @@ jobs:
 
   dispatch-main-workflows:
     name: Start the main workflows that missed the tip
+    needs: enable-auto-merge
     # A merge into the default branch repairs the branch in seconds. The
     # schedule and a manual start repair it when no merge event arrives.
     if: >-
-      inputs.main-workflows != ''
-      && (github.event_name == 'schedule'
+      !cancelled()
+      && inputs.main-workflows != ''
+      && (
+      github.event_name == 'schedule'
       || github.event_name == 'workflow_dispatch'
-      || (github.event_name == 'pull_request'
+      || (
+      github.event_name == 'pull_request'
       && github.event.action == 'closed'
       && github.event.pull_request.merged == true
-      && github.event.pull_request.base.ref == inputs.default-branch))
+      && github.event.pull_request.base.ref == inputs.default-branch
+      )
+      || (
+      github.event_name == 'pull_request'
+      && github.event.action != 'closed'
+      && github.event.pull_request.base.ref == inputs.default-branch
+      && needs.enable-auto-merge.result == 'success'
+      && needs.enable-auto-merge.outputs.merged == 'true'
+      )
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Two merges close together start two jobs, and each job waits before it
@@ -286,6 +310,10 @@ jobs:
           # and the push already started the workflows.
           if ! tip="$(gh api "repos/${GH_REPO}/commits/${DEFAULT_BRANCH}" --jq '.sha')"; then
             echo "::error::The lookup of the tip of ${DEFAULT_BRANCH} failed. No workflow started."
+            exit 1
+          fi
+          if [[ ! "${tip}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::The lookup of the tip of ${DEFAULT_BRANCH} returned an invalid SHA. No workflow started."
             exit 1
           fi
           echo "The tip of ${DEFAULT_BRANCH} is ${tip}."

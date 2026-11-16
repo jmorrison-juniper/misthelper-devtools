@@ -33,6 +33,10 @@ printf '%s\n' "$*" >> "${FAKE_GH_DIR}/calls.log"
 if [ "$1" = "api" ]; then
   case "$2" in
     */commits/*)
+      if [ "${FAKE_TIP}" = "fail" ]; then
+        echo "HTTP 502: Bad Gateway" >&2
+        exit 1
+      fi
       echo "${FAKE_TIP}"
       exit 0
       ;;
@@ -127,9 +131,13 @@ def run_step(tmp_path: Path, bash: str, dispatch_job: dict[str, Any]) -> Any:
     script = "\n".join(str(step["run"]) for step in dispatch_job["steps"] if "run" in step)
     checks = dispatch_job["env"]["COVERAGE_CHECKS"]
 
-    def run(answers: dict[str, list[str]], failing_dispatches: tuple[str, ...] = ()) -> Result:
+    def run(
+        answers: dict[str, list[str]],
+        failing_dispatches: tuple[str, ...] = (),
+        fake_tip: str = TIP,
+    ) -> Result:
         bin_dir = tmp_path / "bin"
-        bin_dir.mkdir()
+        bin_dir.mkdir(exist_ok=True)
         fake_gh = bin_dir / "gh"
         fake_gh.write_text(FAKE_GH, encoding="utf-8", newline="\n")
         fake_gh.chmod(0o755)
@@ -144,7 +152,7 @@ def run_step(tmp_path: Path, bash: str, dispatch_job: dict[str, Any]) -> Any:
             **os.environ,
             "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
             "FAKE_GH_DIR": tmp_path.as_posix(),
-            "FAKE_TIP": TIP,
+            "FAKE_TIP": fake_tip,
             "GH_REPO": REPO,
             "MAIN_WORKFLOWS": " ".join(answers),
             "DEFAULT_BRANCH": "main",
@@ -176,6 +184,29 @@ def run_step(tmp_path: Path, bash: str, dispatch_job: dict[str, Any]) -> Any:
         )
 
     return run
+
+
+class TestDispatchEligibility:
+    """The job must preserve recovery and gate immediate dispatch by merge proof."""
+
+    def test_skipped_enable_allows_recovery_but_cancellation_blocks_dispatch(
+        self, dispatch_job: dict[str, Any]
+    ) -> None:
+        """Recovery bypasses a skipped dependency, but the condition rejects cancellation."""
+        condition = " ".join(dispatch_job["if"].split())
+        assert dispatch_job["needs"] == "enable-auto-merge"
+        assert condition == (
+            "!cancelled() && inputs.main-workflows != '' && ( "
+            "github.event_name == 'schedule' "
+            "|| github.event_name == 'workflow_dispatch' "
+            "|| ( github.event_name == 'pull_request' && github.event.action == 'closed' "
+            "&& github.event.pull_request.merged == true "
+            "&& github.event.pull_request.base.ref == inputs.default-branch ) "
+            "|| ( github.event_name == 'pull_request' && github.event.action != 'closed' "
+            "&& github.event.pull_request.base.ref == inputs.default-branch "
+            "&& needs.enable-auto-merge.result == 'success' "
+            "&& needs.enable-auto-merge.outputs.merged == 'true' ) )"
+        )
 
 
 class TestDispatchCoverage:
@@ -210,6 +241,9 @@ class TestDispatchCoverage:
         assert len(result.queries("ci.yml")) == checks
         assert len(result.queries("container-build.yml")) == checks
         assert "**Started:** ci.yml container-build.yml" in result.summary
+        assert "workflow run ci.yml --ref main" in result.calls
+        assert "workflow run container-build.yml --ref main" in result.calls
+        assert all("/commits/" not in call for call in result.calls if call.startswith("workflow run "))
 
     def test_the_query_asks_for_the_tip_on_the_default_branch(self, run_step: Any) -> None:
         """The newest run on the branch is not a safe test, so the query names the tip commit."""
@@ -218,15 +252,54 @@ class TestDispatchCoverage:
             f"api repos/{REPO}/actions/workflows/ci.yml/runs?branch=main&head_sha={TIP}&per_page=1 --jq .total_count"
         ]
 
+    @pytest.mark.parametrize(
+        "fake_tip",
+        [
+            "fail",
+            "",
+            "not-a-sha",
+            "0" * 39,
+            "A" * 40,
+            "0" * 39 + "g",
+        ],
+    )
+    def test_a_failed_or_malformed_tip_stops_before_gate_checks(self, run_step: Any, fake_tip: str) -> None:
+        """A missing exact tip must not permit a default-branch dispatch."""
+        result = run_step({"ci.yml": ["0"]}, fake_tip=fake_tip)
+        assert result.returncode == 1
+        assert result.dispatched == []
+        assert result.calls == [f"api repos/{REPO}/commits/main --jq .sha"]
+        assert "No workflow started." in result.output
+
     def test_a_failed_query_counts_as_no_run(self, run_step: Any) -> None:
         """A failed query must not stop a workflow that missed the tip."""
         result = run_step({"ci.yml": ["fail"], "codeql.yml": ["1"]})
         assert result.returncode == 0, result.output
         assert result.dispatched == ["ci.yml"]
 
+    def test_a_malformed_count_counts_as_no_run(self, run_step: Any) -> None:
+        """A malformed count must retain the existing bounded retry and dispatch behavior."""
+        result = run_step({"ci.yml": ["not-a-count"]})
+        assert result.returncode == 0, result.output
+        assert len(result.queries("ci.yml")) == 5
+        assert result.dispatched == ["ci.yml"]
+
+    def test_a_second_recovery_does_not_dispatch_a_covered_tip(self, run_step: Any) -> None:
+        """The later recovery sees the exact tip run created by the first dispatch."""
+        first = run_step({"ci.yml": ["0"]})
+        assert first.returncode == 0, first.output
+        assert first.dispatched == ["ci.yml"]
+
+        second = run_step({"ci.yml": ["1"]})
+        assert second.returncode == 0, second.output
+        assert second.dispatched == ["ci.yml"]
+        assert len(second.queries("ci.yml")) - len(first.queries("ci.yml")) == 1
+
     def test_a_failed_dispatch_fails_the_job_after_the_other_dispatches(self, run_step: Any) -> None:
         """One failed dispatch must not stop the other dispatches."""
         result = run_step({"ci.yml": ["0"], "codeql.yml": ["0"]}, failing_dispatches=("ci.yml",))
         assert result.returncode == 1
         assert result.dispatched == ["codeql.yml"]
+        assert "workflow run ci.yml --ref main" in result.calls
+        assert "workflow run codeql.yml --ref main" in result.calls
         assert "**Failed:** ci.yml" in result.summary
