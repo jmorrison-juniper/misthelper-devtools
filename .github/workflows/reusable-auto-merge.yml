@@ -255,7 +255,7 @@ jobs:
     # A merge into the default branch repairs the branch in seconds. The
     # schedule and a manual start repair it when no merge event arrives.
     if: >-
-      always()
+      !cancelled()
       && inputs.main-workflows != ''
       && (
       github.event_name == 'schedule'
@@ -310,6 +310,10 @@ jobs:
           # and the push already started the workflows.
           if ! tip="$(gh api "repos/${GH_REPO}/commits/${DEFAULT_BRANCH}" --jq '.sha')"; then
             echo "::error::The lookup of the tip of ${DEFAULT_BRANCH} failed. No workflow started."
+            exit 1
+          fi
+          if [[ ! "${tip}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::The lookup of the tip of ${DEFAULT_BRANCH} returned an invalid SHA. No workflow started."
             exit 1
           fi
           echo "The tip of ${DEFAULT_BRANCH} is ${tip}."

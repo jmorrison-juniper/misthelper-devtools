@@ -29,8 +29,8 @@ No project initialization or dependency changes are needed. The workflow, test h
 **Independent Test**: Simulate a successful merge command with a live `MERGED` response and valid `mergedAt`. Confirm that the enable job exposes a true merge result and the dispatch job accepts only a successful result for the configured default branch.
 
 - [X] T002 [P] [US1] Add enable-job tests in `tests/test_auto_merge_enable.py` for a successful merge command followed by a valid `MERGED` state and valid `mergedAt`.
-- [X] T003 [P] [US1] Add dispatch eligibility tests in `tests/test_auto_merge_dispatch.py` for a successful enable job with `merged=true` on the configured default branch.
-- [X] T004 [US1] Update `.github/workflows/reusable-auto-merge.yml` to verify live pull-request state after a successful `gh pr merge --auto` request and after the existing merge-in-progress error. Expose `merged=true` only for validated `MERGED` state with valid `mergedAt`. Make the dispatch job depend on the enable job and use `always()` while requiring a successful enable job, `merged=true`, and the configured default branch for immediate-merge dispatch.
+- [X] T003 [P] [US1] Assert the exact dispatch condition in `tests/test_auto_merge_dispatch.py`, including `!cancelled()`, skipped-enable recovery events, and the verified-merge/default-branch gate. Reject any additional permissive `OR` branch.
+- [X] T004 [US1] Update `.github/workflows/reusable-auto-merge.yml` to verify live pull-request state after a successful `gh pr merge --auto` request and after the existing merge-in-progress error. Expose `merged=true` only for validated `MERGED` state with valid `mergedAt`. Make the dispatch job depend on the enable job and use `!cancelled()` while requiring a successful enable job, `merged=true`, and the configured default branch for immediate-merge dispatch.
 
 **Checkpoint**: A confirmed immediate merge can start only uncovered default-branch gates.
 
@@ -50,7 +50,7 @@ No project initialization or dependency changes are needed. The workflow, test h
 
 **Independent Test**: Simulate recovery events, a covered and uncovered exact tip SHA, failed or malformed coverage counts, and a failed gate dispatch. Confirm only the existing default-branch ref is targeted and failures remain visible.
 
-- [X] T006 [P] [US3] Extend `tests/test_auto_merge_dispatch.py` to cover manual, scheduled, and merged-closed recovery when the enable job is skipped. Assert default-branch-only dispatch, the serialized exact-SHA five-check loop with 20-second waits, current failed or malformed coverage-count behavior, visible dispatch failures, and attempts for other uncovered gates. Do not add a per-dispatch tip recheck or change coverage-count semantics.
+- [X] T006 [P] [US3] Extend `tests/test_auto_merge_dispatch.py` to cover manual, scheduled, and merged-closed recovery when the enable job is skipped. Assert default-branch-only dispatch, the serialized exact-SHA five-check loop with 20-second waits, failed and malformed initial tip responses, current failed or malformed per-gate count behavior, visible dispatch failures, and attempts for other gates already found uncovered. Do not add a per-dispatch tip recheck or change coverage-count semantics.
 - [X] T007 [P] [US3] Update `docs/tooling-guide.md` to describe confirmed immediate-merge dispatch, pending auto-merge behavior, and preserved manual, scheduled, and merged-closed recovery.
 
 **Checkpoint**: Recovery paths remain available and safe. Coverage and dispatch behavior remain unchanged beyond merge-trigger eligibility.
@@ -130,4 +130,4 @@ Complete T001 through T004. Validate User Story 1 independently with the focused
 - Keep dispatch failures visible and continue attempts for other uncovered gates.
 - Preserve default-branch safety, guards, permissions, supported merge methods, and retry behavior.
 - The optional `.specify/memory/constitution.md` file is absent. Its governance gate remains unverified.
-- Simulated tests cannot prove the two-minute timing target under GitHub scheduling or API latency.
+- Simulated tests cannot prove hosted scheduling or atomic dispatch.

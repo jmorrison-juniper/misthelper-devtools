@@ -490,11 +490,16 @@ workflow writes a notice on that pull request.
 Note: after `gh pr merge --auto` succeeds, the enable job checks the live pull
 request state. It starts the main workflows only after it confirms `MERGED`
 with a valid `mergedAt` on the configured default branch. An accepted request
-that remains open does not start them. Manual and scheduled runs, and a merged
-closed pull-request event, remain recovery paths. A dispatch call does not use
-the `paths` filter of the workflow that it starts. Thus a merge that changes
-only the documentation can start a container build that its `paths` filter
-skipped.
+that remains open does not start them.
+
+The dispatcher starts scheduled and manual runs when the enable job does not
+run. It also starts workflows after a merged closed pull-request event. A
+canceled workflow does not start dispatch work. A failed or invalid tip lookup
+stops dispatch before per-workflow checks.
+
+A dispatch call does not use the `paths` filter of the workflow that it starts.
+Thus a merge that changes only the documentation can start a container build
+that its `paths` filter skipped.
 
 Note: the run list of GitHub can answer from old data for about a minute at a
 time. An old answer started duplicate runs, so the dispatch job looks for a run

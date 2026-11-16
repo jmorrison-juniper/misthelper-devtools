@@ -22,13 +22,16 @@ The snapshot holds the configured default branch, its current tip SHA, and the
 configured gate names. The coverage query includes both branch and
 exact SHA. Any run count greater than zero includes queued runs and is coverage.
 
-For each gate, the result is `covered`, `uncovered`, `dispatched`, or
-`dispatch-failed`. Preserve the existing bounded retries for failed or
-nonnumeric coverage counts. The job reports failed dispatches after it
-attempts other uncovered gates.
+The initial tip lookup failure stops the job before per-gate checks. For each
+gate, the result is `covered`, `uncovered`, `dispatched`, or `dispatch-failed`.
+Preserve the existing bounded retries and dispatch fallback for failed or
+nonnumeric per-gate counts. The job reports failed dispatches after it attempts
+other gates already found uncovered.
 
 The job dispatches on the configured default-branch ref.
-The existing serialized job and exact-tip checks reduce duplicate dispatches.
+If the branch advances after the snapshot, dispatch can target a newer commit.
+The check and dispatch are not atomic. Visible exact-tip coverage prevents a
+repeat dispatch, but stale or unavailable run data can cause a repeat.
 
 ## Event eligibility
 

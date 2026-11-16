@@ -22,13 +22,14 @@ repository gates named in `.github/copilot-instructions.md` when available.
 
 ## Local validation record
 
-**Checked at:** 2026-11-16T01:17:28Z
+**Checked at:** 2026-11-16T01:37:45Z
 
-- Tests: `rtk .venv/bin/python -m pytest tests/test_auto_merge_enable.py tests/test_auto_merge_dispatch.py tests/test_shared_workflow_guards.py` passed. Result: 54 passed.
-- Ruff: `rtk .venv/bin/python -m ruff check tests/test_auto_merge_enable.py tests/test_auto_merge_dispatch.py tests/test_shared_workflow_guards.py` passed.
+- Tests: `rtk .venv/bin/python -m pytest tests/test_auto_merge_enable.py tests/test_auto_merge_dispatch.py tests/test_shared_workflow_guards.py` passed. Result: 60 passed in 12.80 seconds.
+- Ruff: `rtk .venv/bin/python -m ruff check tests/test_auto_merge_enable.py tests/test_auto_merge_dispatch.py tests/test_shared_workflow_guards.py` passed with `All checks passed!`.
 - Black: `rtk .venv/bin/python -m black --check tests/test_auto_merge_enable.py tests/test_auto_merge_dispatch.py tests/test_shared_workflow_guards.py` passed. Three files would be left unchanged.
-- Workflow lint: the SHA-256-verified actionlint 1.7.12 binary passed on `.github/workflows/reusable-auto-merge.yml`.
+- Workflow lint: `rtk /Users/jmorrison/.copilot/session-state/c6e49da3-9da6-48e5-9a9a-a74721362689/files/actionlint-issue86/actionlint .github/workflows/reusable-auto-merge.yml` passed with actionlint 1.7.12.
 - Prose: `rtk .venv/bin/ste-linter --config .ste-linter.toml --min-score 80 docs/tooling-guide.md` passed with a score of 99/100.
+- Diff whitespace: `rtk git diff --check` passed.
 - Shell versions: Bash 3.2.57 ran the tests. Bash 5 was not available.
 - Spec Kit setup: the setup script was absent. The feature records were read and used directly.
 - Consumer validation: T009 was not run. Wait for an authorized serial publication slot.
@@ -42,16 +43,22 @@ See [workflow.md](contracts/workflow.md) for the interface.
    succeeds without that output. Pending state retries within the bound.
 2. Merge-in-progress followed by merged, enabled, pending, closed, malformed,
    or unavailable state has the documented result. Other merge errors fail.
-3. Schedule, manual, and merged-closed events remain eligible when the enable
-   job is skipped. A confirmed merge on the default branch is eligible.
+3. `!cancelled()` blocks a canceled workflow and still permits schedule,
+   manual, and merged-closed recovery when the enable job is skipped. A
+   confirmed merge on the default branch is eligible.
    Pending, blocked, failed, unlabeled, and non-default cases are not.
 4. Exact-tip queued or completed coverage prevents dispatch. The existing
    bounded coverage retry and failed or malformed count behavior remain intact.
    The dispatch ref is the default branch.
-5. A failed dispatch is visible, and other missing gates still receive an
-   attempt. Repeated and serialized runs with visible coverage do not dispatch
-   again.
-6. Preserve the merge methods, label and workflow-file guards, permissions,
+5. A failed, empty, or invalid initial tip response stops the job before
+   per-gate checks. A failed or malformed per-gate count follows the existing
+   bounded retry and fallback. A failed dispatch is visible, and other gates
+   already found uncovered still receive an attempt.
+6. Coverage is checked against the initial tip SHA, but dispatch uses the
+   mutable branch ref. A branch update can change the run target. Visible
+   coverage prevents repeat dispatch, but stale or unavailable run data can
+   cause a repeat.
+7. Preserve the merge methods, label and workflow-file guards, permissions,
    retry settings, and concurrency configuration.
 
 For an authorized end-to-end validation, observe an immediate merge and its

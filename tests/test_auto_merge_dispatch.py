@@ -33,6 +33,10 @@ printf '%s\n' "$*" >> "${FAKE_GH_DIR}/calls.log"
 if [ "$1" = "api" ]; then
   case "$2" in
     */commits/*)
+      if [ "${FAKE_TIP}" = "fail" ]; then
+        echo "HTTP 502: Bad Gateway" >&2
+        exit 1
+      fi
       echo "${FAKE_TIP}"
       exit 0
       ;;
@@ -127,7 +131,11 @@ def run_step(tmp_path: Path, bash: str, dispatch_job: dict[str, Any]) -> Any:
     script = "\n".join(str(step["run"]) for step in dispatch_job["steps"] if "run" in step)
     checks = dispatch_job["env"]["COVERAGE_CHECKS"]
 
-    def run(answers: dict[str, list[str]], failing_dispatches: tuple[str, ...] = ()) -> Result:
+    def run(
+        answers: dict[str, list[str]],
+        failing_dispatches: tuple[str, ...] = (),
+        fake_tip: str = TIP,
+    ) -> Result:
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir(exist_ok=True)
         fake_gh = bin_dir / "gh"
@@ -144,7 +152,7 @@ def run_step(tmp_path: Path, bash: str, dispatch_job: dict[str, Any]) -> Any:
             **os.environ,
             "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
             "FAKE_GH_DIR": tmp_path.as_posix(),
-            "FAKE_TIP": TIP,
+            "FAKE_TIP": fake_tip,
             "GH_REPO": REPO,
             "MAIN_WORKFLOWS": " ".join(answers),
             "DEFAULT_BRANCH": "main",
@@ -181,25 +189,24 @@ def run_step(tmp_path: Path, bash: str, dispatch_job: dict[str, Any]) -> Any:
 class TestDispatchEligibility:
     """The job must preserve recovery and gate immediate dispatch by merge proof."""
 
-    def test_recovery_and_confirmed_merge_conditions_are_distinct(self, dispatch_job: dict[str, Any]) -> None:
-        """A skipped enable job must not suppress recovery or authorize an immediate dispatch."""
+    def test_skipped_enable_allows_recovery_but_cancellation_blocks_dispatch(
+        self, dispatch_job: dict[str, Any]
+    ) -> None:
+        """Recovery bypasses a skipped dependency, but the condition rejects cancellation."""
         condition = " ".join(dispatch_job["if"].split())
         assert dispatch_job["needs"] == "enable-auto-merge"
-        assert condition.startswith("always()")
-        assert "inputs.main-workflows != ''" in condition
-        assert "github.event_name == 'schedule'" in condition
-        assert "|| github.event_name == 'workflow_dispatch'" in condition
-        assert (
+        assert condition == (
+            "!cancelled() && inputs.main-workflows != '' && ( "
+            "github.event_name == 'schedule' "
+            "|| github.event_name == 'workflow_dispatch' "
             "|| ( github.event_name == 'pull_request' && github.event.action == 'closed' "
             "&& github.event.pull_request.merged == true "
-            "&& github.event.pull_request.base.ref == inputs.default-branch )"
-        ) in condition
-        assert (
+            "&& github.event.pull_request.base.ref == inputs.default-branch ) "
             "|| ( github.event_name == 'pull_request' && github.event.action != 'closed' "
             "&& github.event.pull_request.base.ref == inputs.default-branch "
             "&& needs.enable-auto-merge.result == 'success' "
-            "&& needs.enable-auto-merge.outputs.merged == 'true' )"
-        ) in condition
+            "&& needs.enable-auto-merge.outputs.merged == 'true' ) )"
+        )
 
 
 class TestDispatchCoverage:
@@ -244,6 +251,25 @@ class TestDispatchCoverage:
         assert result.queries("ci.yml") == [
             f"api repos/{REPO}/actions/workflows/ci.yml/runs?branch=main&head_sha={TIP}&per_page=1 --jq .total_count"
         ]
+
+    @pytest.mark.parametrize(
+        "fake_tip",
+        [
+            "fail",
+            "",
+            "not-a-sha",
+            "0" * 39,
+            "A" * 40,
+            "0" * 39 + "g",
+        ],
+    )
+    def test_a_failed_or_malformed_tip_stops_before_gate_checks(self, run_step: Any, fake_tip: str) -> None:
+        """A missing exact tip must not permit a default-branch dispatch."""
+        result = run_step({"ci.yml": ["0"]}, fake_tip=fake_tip)
+        assert result.returncode == 1
+        assert result.dispatched == []
+        assert result.calls == [f"api repos/{REPO}/commits/main --jq .sha"]
+        assert "No workflow started." in result.output
 
     def test_a_failed_query_counts_as_no_run(self, run_step: Any) -> None:
         """A failed query must not stop a workflow that missed the tip."""

@@ -23,15 +23,17 @@ workflow dispatch.
 **Testing**: Focused pytest shell harnesses and workflow contract guards.
 **Target Platform**: GitHub-hosted Ubuntu runners; shell tests also cover Bash 3.
 **Project Type**: Reusable GitHub Actions workflow.
-**Performance Goals**: Attempt uncovered dispatches within two minutes after
-merge confirmation under normal scheduling and API latency.
+**Performance Goals**: Start dispatch processing in the same workflow run
+after a confirmed immediate merge. GitHub controls actual scheduling and API
+latency.
 **Constraints**: Five coverage checks, 20 seconds apart; no new permissions,
 credentials, triggers, workflow files, or consumer changes.
 **Scale/Scope**: One reusable workflow and its configured default-branch gates.
 
 GitHub controls job scheduling, API latency, and the branch tip. This design
-cannot guarantee the two-minute target or an atomic branch-tip dispatch. It
-must not claim those guarantees.
+cannot guarantee a strict elapsed time, an atomic branch-tip dispatch, or
+deduplication when run-list data is stale or unavailable. It must not claim
+those guarantees.
 
 ## Constitution Check
 
@@ -82,14 +84,16 @@ Do not add helper files outside the feature folder. Do not change consumers.
    Preserve the same recovery for the specific merge-in-progress error.
    Other merge-command failures still fail without recovery.
 3. Make the dispatch job depend on the enable job. Its job condition must use
-   `always()` so skipped enable jobs do not suppress manual, scheduled, or
+   `!cancelled()` so skipped enable jobs do not suppress manual, scheduled, or
    merged-closed recovery. The new pull-request path requires a successful
    enable job, `merged=true`, and a base matching `inputs.default-branch`.
    Preserve the nonempty workflow input guard.
 4. Preserve the serialized dispatch job and its existing exact-SHA five-check
    coverage loop, including its current handling of failed or malformed run
-   counts. Keep dispatch attempts on the configured default-branch ref and
-   keep per-workflow dispatch failures visible while attempting other gates.
+   counts. A failed initial tip lookup stops before per-gate checks. Keep
+   dispatch attempts on the configured default-branch ref and keep per-workflow
+   dispatch failures visible while attempting other gates already found
+   uncovered. Document that a branch update can change the mutable ref target.
 5. Update focused tests and directly related guide text. Keep the existing
    caller interface and all job permissions unchanged.
 
@@ -102,8 +106,8 @@ and skipped tests. Validate real Actions scheduling only in an authorized
 consumer. Do not start a live merge or dispatch as a test.
 
 The five checks have four 20-second waits. API calls, runner queue time, and
-serialization consume the remaining time. No test with fake responses proves
-the two-minute success criterion under GitHub delays.
+serialization affect timing. No test with fake responses proves hosted
+scheduling or atomic dispatch.
 
 ## Complexity Tracking
 
