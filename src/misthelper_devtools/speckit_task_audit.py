@@ -27,6 +27,8 @@ TASK_ID_RE = re.compile(r"\bT\d+\b")  # A task identifier marks a bracketed bull
 LABEL_RE = re.compile(r"^[A-WYZ][A-Z0-9]*$")  # Spec Kit legend labels such as P, B, or US1.
 LEADING_TASK_ID_RE = re.compile(r"^\s*T\d+\b")  # A task ID right after the bracket marks a task attempt.
 BRACKET_SPAN_RE = re.compile(r"\[[^\]]*\]")  # Remove shortcut reference links before the task ID check.
+REFERENCE_DEFINITION_RE = re.compile(r"^ {0,3}\[(?P<label>[^\]]+)\]:\s*\S")  # Match a link reference definition.
+LEADING_REFERENCE_RE = re.compile(r"^\s*\[(?P<label>[^\]]+)\]")  # Match a second reference label after a box.
 FENCE_RE = re.compile(r"^\s*(```|~~~)")  # Ignore examples inside fenced code blocks.
 STATUS_RE = re.compile(r"^\*\*Status\*\*:\s*(?P<status>.+)$", re.MULTILINE)  # Read the spec state.
 CITATION_RE = re.compile(  # Find proof paths only in evidence notes, not in task descriptions.
@@ -275,11 +277,12 @@ class TaskFileScanner:
             text = path.read_text(encoding="utf-8")  # Read one file so the scanner can count each line.
         except OSError as error:
             raise AuditInputError(f"Cannot read required task file {path}: {error}") from error  # Fail closed.
-        counts = self._count_lines(text.splitlines())  # Count only valid boxes outside code fences.
+        lines = text.splitlines()  # Split once so both passes share the same line numbers.
+        counts = self._count_lines(lines, self._reference_labels(lines))  # Count valid boxes outside code fences.
         logger.debug("Scanned %s with %s unchecked tasks", path, counts.unchecked)  # Log the result.
         return counts  # Return counts for the reporter and the gate.
 
-    def _count_lines(self, lines: list[str]) -> TaskCounts:
+    def _count_lines(self, lines: list[str], references: frozenset[str] = frozenset()) -> TaskCounts:
         checked = 0  # Track checked task boxes for the report total.
         unchecked = 0  # Track unchecked task boxes for the drift decision.
         malformed_lines: list[int] = []  # Track malformed task line numbers for a repair hint.
@@ -291,7 +294,7 @@ class TaskFileScanner:
             match = CHECKBOX_RE.match(line)  # Match only well-formed task boxes.
             if match:  # A valid box is either open or done.
                 checked, unchecked = (checked + 1, unchecked) if match.group(1) != " " else (checked, unchecked + 1)
-            elif self._is_malformed(line):  # A task attempt with a bad box needs a repair.
+            elif self._is_malformed(line, references):  # A task attempt with a bad box needs a repair.
                 malformed_lines.append(line_number)  # Record the line for the report.
         return TaskCounts(checked, unchecked, len(malformed_lines), tuple(malformed_lines))  # Return the counts.
 
@@ -301,11 +304,25 @@ class TaskFileScanner:
         return in_fence  # Keep the current state for normal lines.
 
     @staticmethod
-    def _is_malformed(line: str) -> bool:
+    def _reference_labels(lines: list[str]) -> frozenset[str]:
+        labels: set[str] = set()  # Collect lower-case labels because Markdown matches them without case.
+        in_fence = False  # A definition inside a code fence is example text.
+        for line in lines:  # Read the whole file because a definition can follow its use.
+            if FENCE_RE.match(line):  # A fence marker flips the state.
+                in_fence = not in_fence  # Enter or leave the fenced block.
+            elif not in_fence and (match := REFERENCE_DEFINITION_RE.match(line)):  # Keep real definitions.
+                labels.add(match.group("label").strip().lower())  # Store the normalized label.
+        return frozenset(labels)  # Freeze the set so the scan cannot change it.
+
+    @staticmethod
+    def _is_malformed(line: str, references: frozenset[str] = frozenset()) -> bool:
         match = MALFORMED_RE.match(line)  # Skip Markdown links, reference links, and label bullets.
         if not match:  # A line with no bracket marker is prose.
             return False  # Leave non-task lines unchanged.
         mark = match.group("mark")  # Read the text between the brackets.
+        second = LEADING_REFERENCE_RE.match(match.group("rest"))  # A second bracket can name a reference.
+        if mark.strip().lower() in references or (second and second.group("label").strip().lower() in references):
+            return False  # A defined reference makes the bullet Markdown prose.
         if LABEL_RE.match(mark):  # An uppercase label such as P or US1 is a legend, not a box.
             return bool(LEADING_TASK_ID_RE.match(match.group("rest")))  # Only a label that stands in for a box.
         if not mark.strip() or len(mark) == 1:  # Empty or one-character boxes such as [z] are bad boxes.

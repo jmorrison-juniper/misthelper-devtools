@@ -38,7 +38,8 @@ tests/unit/tools/test_speckit_task_audit.py
 3. **Legend labels**: `LABEL_RE` matches capital labels such as `P` or `US1`. `X` is excluded. A label is malformed only when `LEADING_TASK_ID_RE` finds a task ID right after it.
 4. **Other boxes**: An empty or one-character box is malformed. A longer box is malformed when a task ID follows it. `BRACKET_SPAN_RE` removes bracket spans first, so link text does not count.
 5. **Report**: `TaskCounts.malformed_lines` holds the line numbers. `SpecTaskAudit` prints one line for each.
-6. **Exit policy**: `blocks_merge` and the citation logic do not change.
+6. **Reference definitions**: `_reference_labels` collects `[label]:` definitions outside code fences, in lower case. A bullet whose first label, or whose second label after it, is defined is a link and is not malformed. Undefined labels keep rules 3 and 4.
+7. **Exit policy**: `blocks_merge` and the citation logic do not change.
 
 Details are in `design/`.
 

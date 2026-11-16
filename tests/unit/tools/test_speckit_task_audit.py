@@ -3,6 +3,8 @@ import subprocess  # Run the documented console command as an integration check.
 import sys  # Find scripts beside the active test interpreter.
 from pathlib import Path  # Build isolated repository trees for the audit tests.
 
+import pytest  # Run one regression over several bullet forms.
+
 from misthelper_devtools.speckit_task_audit import (  # Import the tool under test.
     AllowList,
     Command,
@@ -102,6 +104,26 @@ class TestSpecTaskAudit:
         )  # Write a link bullet and a reference-link bullet.
         counts = TaskFileScanner().scan(path)
         assert (counts.checked, counts.unchecked, counts.malformed) == (0, 0, 0)  # Neither line is a task.
+
+    @pytest.mark.parametrize(
+        "bullet",
+        ["- [a]", "- [Docs] [T001] relates to T002", "- [Docs][T001] relates to T002"],
+    )
+    def test_defined_reference_links_are_not_malformed(self, tmp_path: Path, bullet: str) -> None:
+        path = tmp_path / "tasks.md"
+        path.write_text(
+            f"{bullet}\n\n[a]: https://example.invalid\n[T001]: https://example.invalid\n", encoding="utf-8"
+        )
+        assert TaskFileScanner().scan(path).malformed == 0  # A defined reference is Markdown prose.
+
+    def test_undefined_and_fenced_references_keep_their_classification(self, tmp_path: Path) -> None:
+        path = tmp_path / "tasks.md"
+        path.write_text(
+            "- [z] T001 do this\n- [ ] T002 do that\n- [a] T003 x\n\n```\n[a]: https://example.invalid\n```\n",
+            encoding="utf-8",
+        )  # The only definition sits inside a fence, so it does not count.
+        counts = TaskFileScanner().scan(path)
+        assert (counts.unchecked, counts.malformed_lines) == (1, (1, 3))  # Undefined boxes stay malformed.
 
     def test_real_task_markers_still_count_beside_links(self, tmp_path: Path) -> None:
         path = tmp_path / "tasks.md"
