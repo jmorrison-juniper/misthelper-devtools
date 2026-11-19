@@ -237,7 +237,7 @@ class EdgeCaseApplicabilityInferer:
 
     def _allows_local_signatures(self) -> bool:
         """Return True when local definitions can represent fixture source under test."""
-        resolved = (self._root / self._test_path).resolve() if not self._test_path.is_absolute() else self._test_path
+        resolved = (Path.cwd() / self._test_path).resolve()  # Same working-directory base as _repository_root.
         try:
             resolved.relative_to((self._root / "tests").resolve())  # Real tests use local functions as helpers.
             return False  # Do not infer source-under-test domains from real test helpers.
