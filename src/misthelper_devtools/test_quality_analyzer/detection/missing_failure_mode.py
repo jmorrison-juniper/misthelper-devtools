@@ -346,7 +346,7 @@ class FailureModeApplicabilityInferer:
         return self._risk_from_source(source)  # Analyzer fixtures keep their historical coverage contract.
 
     def _allows_local_source(self) -> bool:
-        resolved = (self._root / self._test_path).resolve() if not self._test_path.is_absolute() else self._test_path
+        resolved = (Path.cwd() / self._test_path).resolve()  # Same working-directory base as _repository_root.
         try:
             resolved.relative_to((self._root / "tests").resolve())  # Real tests usually define local helpers.
             return False  # Do not infer failure-mode scope from real test helper functions.
@@ -596,7 +596,7 @@ class SourceDrivenCoverageSlicer:
 
     def _allows_local_source(self) -> bool:
         """Return True when the test path belongs to the analyzer fixture corpus."""
-        resolved = (self._root / self._test_path).resolve() if not self._test_path.is_absolute() else self._test_path
+        resolved = (Path.cwd() / self._test_path).resolve()  # Same working-directory base as _repository_root.
         try:
             resolved.relative_to((self._root / "tests").resolve())  # Real repository tests live under tests/.
             return False  # Real tests must call imported product source.
