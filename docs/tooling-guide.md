@@ -342,7 +342,8 @@ Then delete each local copy in this table.
 `test-quality-analyzer --gate` can scan only the test files that a pull request
 changes. Give `--changed-from` a git revision, such as the base branch. A
 change to the baseline, to the settings file, or to a `--full-gate-path` file
-scans the whole suite.
+scans the whole suite. The same scan runs when the Mist-API predicate excludes
+each changed test file, because a scan of no module proves nothing.
 
 The MistHelper file names and settings are not defaults. Give them as options,
 for example `--source-files MistHelper.py src/` or

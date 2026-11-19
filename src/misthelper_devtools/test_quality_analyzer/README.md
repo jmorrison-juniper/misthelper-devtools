@@ -66,6 +66,10 @@ file are always trigger paths. Add more paths with `--full-gate-path PATH`.
 Other results:
 
 - A deleted test file leaves the scan.
+- When the Mist-API predicate excludes each changed test file, the run scans all
+  test roots. The command prints a `changed_scope:` line with the excluded
+  count. A changed test file that the predicate keeps limits the scan to the
+  changed files.
 - When no test file changed, the gate prints a zero summary and exits 0. The
   gate still reads the baseline, and exits 2 when the baseline file does not
   exist.

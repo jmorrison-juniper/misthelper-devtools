@@ -10,7 +10,8 @@ Pipeline:
     1. Parse CLI flags via argparse.
     2. Load config via ConfigLoader (ConfigError -> exit 2).
        With --changed-from, replace the roots with the changed test files
-       (see changed_scope.py), or stop early when no test file changed.
+       (see changed_scope.py). When the Mist-API predicate excludes every one
+       of them, scan every root instead. Stop early when no test file changed.
     3. Discover test files via TestFileDiscoverer.
     4. Import all 5 detector modules to trigger DetectorRegistry registration.
     5. For each discovered file:
@@ -261,7 +262,7 @@ class TestQualityCLI:
         config_snapshot = ConfigLoader().load(Path(args.config))  # Immutable snapshot.
         # 1b. --changed-from: replace the roots with the changed test files, or stop when none changed.
         if args.changed_from is not None:
-            scope_exit = self._apply_changed_scope(args)  # None means the pipeline continues.
+            scope_exit = self._apply_changed_scope(args, config_snapshot)  # None means the pipeline continues.
             if scope_exit is not None:
                 return scope_exit  # No test file changed, or git cannot list the changes.
         # 2. Discover test files under the requested roots.
@@ -451,7 +452,7 @@ class TestQualityCLI:
             return None
         return "test_quality_analyzer: --changed-from cannot be used with %s\n" % " or ".join(selected)
 
-    def _apply_changed_scope(self, args: argparse.Namespace) -> int | None:
+    def _apply_changed_scope(self, args: argparse.Namespace, config_snapshot: ConfigSnapshot) -> int | None:
         """Scope the run to the changed test files; return an exit code when the run must stop."""
         triggers = [*args.full_gate_path, str(args.baseline or ""), str(args.config)]  # Gate inputs always count.
         _LOGGER.info("Selecting the scan scope from the changes since %s", args.changed_from)  # Log before git.
@@ -465,10 +466,36 @@ class TestQualityCLI:
             _LOGGER.info("%s changed, so the run scans every test root", scope.full_gate_trigger)
             return None  # Continue with the default roots.
         if scope.test_files:  # Scan the changed test files only.
+            excluded_count = self._count_excluded_changed_tests(scope.test_files, args, config_snapshot)
+            if excluded_count:  # A scope of excluded tests inspects no module, so widen it to every root.
+                _LOGGER.info("The Mist-API predicate excludes each changed test file, so the run scans all test roots")
+                sys.stdout.write(
+                    "changed_scope: the Mist-API predicate excludes %d changed test file(s). "
+                    "The run scans the full scope.\n" % excluded_count
+                )
+                return None  # args.roots stays unset, so the run scans every root.
             _LOGGER.info("Scanning %d changed test file(s)", len(scope.test_files))
             args.roots = list(scope.test_files)  # The discoverer accepts a file as a root.
             return None  # Continue with the scoped roots.
         return self._finish_empty_scope(args)  # No test file changed.
+
+    def _count_excluded_changed_tests(
+        self,
+        test_files: Sequence[str],  # Changed test files, relative to the current directory.
+        args: argparse.Namespace,  # Carries --include-mist-api, which lifts the exclusion.
+        config_snapshot: ConfigSnapshot,  # The Mist-API predicate that the scan itself uses.
+    ) -> int:
+        """Return the changed test count when the Mist-API predicate excludes every one, else 0."""
+        _LOGGER.info("Checking the Mist-API predicate for %d changed test file(s)", len(test_files))
+        parsed_files, skipped, parse_errors = self._parse_and_partition(
+            test_files=[Path(path) for path in test_files],  # Git reports each path relative to here.
+            include_mist_api=args.include_mist_api,  # With the override, no changed test is excluded.
+            config_snapshot=config_snapshot,
+        )
+        # An eligible or unparseable test keeps the changed scope, so the gate reports its findings or its error.
+        excluded_count = 0 if parsed_files or parse_errors else len(skipped)
+        _LOGGER.debug("Changed test files excluded by the Mist-API predicate: %d", excluded_count)
+        return excluded_count
 
     def _finish_empty_scope(self, args: argparse.Namespace) -> int:
         """Print the zero summary for a run with no changed test file and return its exit code."""
