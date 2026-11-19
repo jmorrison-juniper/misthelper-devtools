@@ -12,7 +12,8 @@ The rules:
   baseline and the analyzer config are always trigger paths, and the caller
   can add more, for example the CI workflow or the pinned tool versions.
   When a trigger path changed, the run scans every test root.
-- Otherwise the run scans only the changed test files that still exist.
+- Otherwise the run scans only the changed test files that still exist. The CLI
+  scans every root when the Mist-API predicate excludes all of them.
 - When no test file changed, the run has nothing to scan.
 """
 

@@ -83,6 +83,28 @@ def _append_comment(path: Path) -> None:
     path.write_text(path.read_text(encoding="utf-8") + "# changed\n", encoding="utf-8")
 
 
+_API_CLIENT_TEST = '''"""A test module that imports the Mist API client at module scope."""
+
+import mistapi
+
+
+def test_client_module_name() -> None:
+    """The client module keeps its name."""
+    assert mistapi.__name__ == "mistapi"
+'''
+
+
+def _add_api_client_test(repository: Path) -> None:
+    """Write an API-client test module, which the Mist-API predicate excludes."""
+    (repository / "tests" / "test_api_client.py").write_text(_API_CLIENT_TEST, encoding="utf-8")
+
+
+@pytest.fixture
+def no_source_scope_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Skip the full-scope guard, because the temporary repository has no module that a detector measures."""
+    monkeypatch.setattr(TestQualityCLI, "_zero_detector_scope_metric", lambda *_args, **_kwargs: None)
+
+
 class TestChangedScopeResolver:
     """The resolver selects the scan scope from the git diff."""
 
@@ -309,3 +331,132 @@ class TestChangedFromCommandLine:
 
         assert rc == 2
         assert "--changed-from cannot be used with %s" % named in capsys.readouterr().err
+
+
+class TestChangedFromMistApiExclusion:
+    """A changed test that the Mist-API predicate excludes must not leave the gate without a scan."""
+
+    def test_only_excluded_changed_tests_run_the_full_gate(
+        self, repository: Path, no_source_scope_guard: None, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _add_api_client_test(repository)
+        _commit(repository, "add an API-client test")
+
+        rc = main(["--gate", "--changed-from", "base"])
+
+        out = capsys.readouterr().out
+        assert rc == 0  # The full scan holds no finding that the baseline lacks.
+        assert "changed_scope: the Mist-API predicate excludes 1 changed test file(s)." in out
+        assert "gate_scope: 3 files checked" in out  # The full scan reads both clean tests and the excluded module.
+        assert "1 skipped" in out  # The excluded module stays out of every detector.
+
+    def test_a_new_finding_in_the_full_scan_fails_after_the_fallback(
+        self,
+        repository: Path,
+        repo_root: Path,
+        no_source_scope_guard: None,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        bad = repo_root / "src" / "misthelper_devtools" / "test_quality_analyzer" / "fixtures" / "bad"
+        shutil.copyfile(bad / "test_weak_assertion_bad.py", repository / "tests" / "test_weak.py")
+        _commit(repository, "add a weak test")
+        _git(repository, "tag", "seeded")
+        _add_api_client_test(repository)
+        _commit(repository, "add an API-client test")
+
+        rc = main(["--gate", "--changed-from", "seeded"])
+
+        assert rc == 1  # The weak test is outside the changed scope, but the full scan still reads it.
+        assert "gate_new: " in capsys.readouterr().out
+
+    def test_a_full_run_keeps_the_mist_api_exclusion(
+        self, repository: Path, no_source_scope_guard: None, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _add_api_client_test(repository)
+        _commit(repository, "add an API-client test")
+
+        rc = main(["--gate"])
+
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "changed_scope:" not in out  # Only a changed-file run can widen to the full scope.
+        assert "1 skipped" in out
+
+    def test_an_eligible_changed_test_keeps_the_changed_scope(
+        self, repository: Path, repo_root: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        bad = repo_root / "src" / "misthelper_devtools" / "test_quality_analyzer" / "fixtures" / "bad"
+        shutil.copyfile(bad / "test_weak_assertion_bad.py", repository / "tests" / "test_weak.py")
+        _add_api_client_test(repository)
+        _commit(repository, "add a weak test and an API-client test")
+
+        rc = main(["--gate", "--changed-from", "base"])
+
+        out = capsys.readouterr().out
+        assert rc == 1  # The weak test is new, so its finding still fails the mixed scope.
+        assert "gate_scope: 2 files checked" in out  # Only the two changed files are read.
+        assert "changed_scope:" not in out
+
+    def test_an_unparseable_changed_test_fails_without_widening(
+        self, repository: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _add_api_client_test(repository)
+        (repository / "tests" / "test_broken.py").write_text("def broken(:\n", encoding="utf-8")
+        _commit(repository, "add an API-client test and a broken test")
+
+        rc = main(["--gate", "--changed-from", "base"])
+
+        out = capsys.readouterr().out
+        assert rc == 2  # An unparseable required input fails closed.
+        assert "gate_scope: 2 files checked" in out  # The run keeps the changed scope.
+        assert "changed_scope:" not in out
+
+    def test_an_unreadable_changed_test_exits_two(
+        self, repository: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _add_api_client_test(repository)
+        _commit(repository, "add an API-client test")
+        real_read_text = Path.read_text
+
+        def deny_read(self: Path, *args: Any, **kwargs: Any) -> str:
+            """Refuse to read the API-client test, and read every other file normally."""
+            if self.name == "test_api_client.py":
+                raise PermissionError(13, "Permission denied", str(self))
+            return real_read_text(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", deny_read)
+
+        rc = main(["--gate", "--changed-from", "base"])
+
+        assert rc == 2  # An unreadable required input fails closed.
+        assert "IO error" in capsys.readouterr().err
+
+    def test_a_malformed_baseline_still_fails_after_the_fallback(
+        self, repository: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        (repository / _BASELINE).write_text("{not-json\n", encoding="utf-8")
+        _commit(repository, "corrupt the baseline")
+        _git(repository, "tag", "seeded")
+        _add_api_client_test(repository)
+        _commit(repository, "add an API-client test")
+
+        rc = main(["--gate", "--changed-from", "seeded"])
+
+        assert rc == 2  # The gate cannot compare against a damaged baseline.
+        assert "baseline error" in capsys.readouterr().err
+
+    def test_a_fallback_scan_with_no_eligible_module_fails_the_zero_scope_guard(
+        self, repository: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        (repository / "tests" / "test_alpha.py").unlink()
+        (repository / "tests" / "test_beta.py").unlink()
+        _add_api_client_test(repository)
+        _commit(repository, "keep only an API-client test")
+        _git(repository, "tag", "seeded")
+        _append_comment(repository / "tests" / "test_api_client.py")
+        _commit(repository, "change the API-client test")
+
+        rc = main(["--gate", "--changed-from", "seeded"])
+
+        assert rc == 2  # A full scan that inspects no module must not pass.
+        assert "inspected zero real modules" in capsys.readouterr().err
