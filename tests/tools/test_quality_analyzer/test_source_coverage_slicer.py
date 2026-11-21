@@ -41,6 +41,450 @@ def _slice(tmp_path: Path, test_source: str) -> str:
     return SourceDrivenCoverageSlicer(test_path, tree).source_text()
 
 
+@pytest.mark.parametrize(
+    ("dependency", "expected_http"),
+    [
+        ("from mistapi.__logger import LogSanitizer\n        return LogSanitizer", False),
+        ("import mistapi.__logger as sdk_logging\n        return sdk_logging", False),
+        ("import mistapi.__logger\n        return mistapi.__logger.LogSanitizer", False),
+        ("from mistapi import __logger\n        return __logger.LogSanitizer", False),
+        ("from mistapi import __logger, api\n        return __logger.LogSanitizer", True),
+        ("from mistapi import api, __logger\n        return api", True),
+        ("from logging import Filter\n        return Filter", False),
+        ("import requests\n        return requests.get('https://example.invalid')", True),
+        ("from mistapi.api.v1.orgs.sites import listOrgSites\n        return listOrgSites()", True),
+    ],
+)
+def test_sdk_logging_import_does_not_create_http_applicability(
+    tmp_path: Path, dependency: str, expected_http: bool
+) -> None:
+    """An unrelated logging import cannot impose HTTP coverage on an offline class test."""
+    test_source = """\
+import pytest
+from subject import Bootstrap
+
+@pytest.fixture
+def bootstrap(monkeypatch):
+    monkeypatch.setattr(Bootstrap, "start", lambda self: "offline")
+    return Bootstrap()
+
+def test_offline_start(bootstrap):
+    assert bootstrap.start() == "offline"
+"""
+    test_path, tree, _ = _case(tmp_path, test_source)
+    (tmp_path / "subject.py").write_text(
+        "class Bootstrap:\n    def start(self):\n        return 'started'\n\n"
+        f"    def other_method(self):\n        {dependency}\n",
+        encoding="utf-8",
+    )
+    risk = FailureModeApplicabilityInferer(test_path, tree).infer()
+    findings = MissingFailureModeDetector().detect(test_path, tree, test_source)
+
+    assert risk.http_status is expected_http
+    http_rules = {finding.rule_id for finding in findings if finding.rule_id.startswith("missing_fm_http_")}
+    assert http_rules == ({"missing_fm_http_4xx", "missing_fm_http_5xx"} if expected_http else set())
+
+
+@pytest.mark.parametrize(
+    ("imports", "expression", "connection_error", "timeout"),
+    [
+        ("import mistapi", "mistapi.APISession()", True, False),
+        ("import mistapi as sdk", "sdk.APISession()", True, False),
+        ("from mistapi import APISession", "APISession()", True, False),
+        ("from mistapi import APISession as Session", "Session()", True, False),
+        ("import mistapi", "mistapi.api.v1.self.self.getSelf(session)", False, False),
+        ("from mistapi.__logger import LogSanitizer", "LogSanitizer()", False, False),
+        ("from mistapi import APISession", "object()", False, False),
+        ("import requests", "requests.get('https://example.invalid')", True, True),
+    ],
+)
+def test_sdk_constructor_requires_connection_but_not_timeout_coverage(
+    tmp_path: Path, imports: str, expression: str, connection_error: bool, timeout: bool
+) -> None:
+    """SDK construction can expose connection failures without exposing token-validation timeouts."""
+    test_source = """\
+from subject import Client
+
+def test_success():
+    Client().fetch()
+"""
+    test_path, tree, _ = _case(tmp_path, test_source)
+    (tmp_path / "subject.py").write_text(
+        f"{imports}\n\nclass Client:\n    def fetch(self):\n        return {expression}\n", encoding="utf-8"
+    )
+    findings = MissingFailureModeDetector().detect(test_path, tree, test_source)
+    rules = {finding.rule_id for finding in findings}
+
+    assert ("missing_fm_connection_error" in rules) is connection_error
+    assert ("missing_fm_connection_timeout" in rules) is timeout
+
+
+@pytest.mark.parametrize(
+    ("module_source", "parameters", "body", "expected"),
+    [
+        ("import mistapi.api.v1.orgs.sites", "", "return mistapi.APISession()", True),
+        ("import mistapi", ", mistapi", "return mistapi.APISession()", False),
+        ("from mistapi import APISession as Session", ", Session", "return Session()", False),
+        ("def unrelated():\n    from mistapi import APISession as Session", ", Session", "return Session()", False),
+        ("def unrelated():\n    from mistapi import APISession as Session", "", "return Session()", False),
+        ("", "", "from mistapi import APISession as Session\n        return Session()", True),
+        ("", "", "import mistapi as sdk\n        return sdk.APISession()", True),
+        ("import mistapi", "", "mistapi = object()\n        return mistapi.APISession()", False),
+        ("from mistapi import APISession as Session\nSession = object", "", "return Session()", False),
+        ("import mistapi.api.v1.orgs.sites as sites", ", mistapi", "return mistapi.APISession()", False),
+        ("", "", "if True:\n            from mistapi import APISession as Session\n        return Session()", True),
+        (
+            "",
+            "",
+            "def unrelated():\n            from mistapi import APISession as Session\n        return Session()",
+            False,
+        ),
+    ],
+)
+def test_sdk_constructor_binding_scope(
+    tmp_path: Path, module_source: str, parameters: str, body: str, expected: bool
+) -> None:
+    """Only constructor imports visible in the calling scope can impose a connection obligation."""
+    test_source = """\
+from subject import Client
+
+def test_success():
+    Client().fetch()
+"""
+    test_path, tree, _ = _case(tmp_path, test_source)
+    (tmp_path / "subject.py").write_text(
+        f"{module_source}\n\nclass Client:\n    def fetch(self{parameters}):\n        {body}\n",
+        encoding="utf-8",
+    )
+    findings = MissingFailureModeDetector().detect(test_path, tree, test_source)
+    rules = {finding.rule_id for finding in findings}
+
+    assert ("missing_fm_connection_error" in rules) is expected
+    assert "missing_fm_connection_timeout" not in rules
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ("return (lambda: sdk.APISession())()", True),
+        ("from mistapi import APISession as Session\n        return (lambda: Session())()", True),
+        ("return (lambda session=sdk.APISession(): session)()", True),
+        ("return (lambda sdk=sdk.APISession(): sdk)()", True),
+        ("ignored = [sdk for sdk in ()]\n        return sdk.APISession()", True),
+        ("return [sdk for sdk in (sdk.APISession(),)]", True),
+        ("sdk = object()\n        import mistapi as sdk\n        return sdk.APISession()", True),
+        ("return [sdk.APISession() for item in (1,)]", True),
+        ("return (lambda sdk: sdk.APISession())(object())", False),
+        ("return [sdk.APISession() for sdk in ()]", False),
+        ("import mistapi as sdk\n        sdk = object()\n        return sdk.APISession()", False),
+        (
+            "sdk = object()\n        if enabled:\n            import mistapi as sdk\n        return sdk.APISession()",
+            False,
+        ),
+    ],
+)
+def test_sdk_expression_scopes(tmp_path: Path, body: str, expected: bool) -> None:
+    """Lambda and comprehension bindings must not replace enclosing SDK imports."""
+    test_source = "from subject import Client\n\ndef test_client():\n    Client().make()\n"
+    test_path, tree, _ = _case(tmp_path, test_source)
+    (tmp_path / "subject.py").write_text(
+        f"import mistapi as sdk\n\nclass Client:\n    def make(self):\n        {body}\n", encoding="utf-8"
+    )
+    risk = FailureModeApplicabilityInferer(test_path, tree).infer()
+    assert risk.sdk_connection_error is expected
+    rules = {item.rule_id for item in MissingFailureModeDetector().detect(test_path, tree, test_source)}
+    assert ("missing_fm_connection_error" in rules) is expected
+    assert "missing_fm_connection_timeout" not in rules
+
+
+@pytest.mark.parametrize(
+    "import_text", ["from src import client", "from src import client as api", "import src.client as client"]
+)
+@pytest.mark.parametrize("shadow", ["", "parameter", "local", "module"])
+def test_package_submodule_import_scope(tmp_path: Path, import_text: str, shadow: str) -> None:
+    """Package-imported source modules retain risk only through unshadowed calls."""
+    alias = "api" if " as api" in import_text else "client"
+    source = (
+        f"{import_text}\n"
+        + (f"{alias} = object()\n" if shadow == "module" else "")
+        + f"\ndef test_fetch({alias if shadow == 'parameter' else ''}):\n"
+        + (f"    {alias} = object()\n" if shadow == "local" else "")
+        + f"    {alias}.fetch()\n"
+    )
+    test_path, tree, _ = _case(tmp_path, source)
+    (tmp_path / "src/client.py").write_text(
+        "def fetch():\n    import requests\n    return requests.get('https://example.invalid')\n", encoding="utf-8"
+    )
+    rules = {item.rule_id for item in MissingFailureModeDetector().detect(test_path, tree, source)}
+    assert rules == (
+        {"missing_fm_http_4xx", "missing_fm_http_5xx", "missing_fm_connection_error", "missing_fm_connection_timeout"}
+        if not shadow
+        else set()
+    )
+
+
+@pytest.mark.parametrize("calls_fetch", [True, False])
+def test_package_import_does_not_infer_uncalled_http_symbol(tmp_path: Path, calls_fetch: bool) -> None:
+    """Only the called symbol in a package submodule supplies applicability."""
+    source = (
+        "from src import client as api\n\ndef test_lookup():\n" f"    api.{'fetch' if calls_fetch else 'lookup'}()\n"
+    )
+    test_path, tree, _ = _case(tmp_path, source)
+    (tmp_path / "src/client.py").write_text(
+        "def lookup():\n    from mistapi.__logger import LogSanitizer\n    return LogSanitizer\n\n"
+        "def fetch():\n    import requests\n    return requests.get('https://example.invalid')\n",
+        encoding="utf-8",
+    )
+    risk = FailureModeApplicabilityInferer(test_path, tree).infer()
+    assert risk.http_status is calls_fetch
+    assert risk.network_exception is calls_fetch
+
+
+@pytest.mark.parametrize(
+    ("import_text", "alias"),
+    [
+        ("import src.client as client", "client"),
+        ("from src import client", "client"),
+        ("from src import client as api", "api"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ("return (lambda: client.fetch())()", True),
+        ("return [client.fetch() for _ in range(1)]", True),
+        ("unrelated = [client for client in (1,)]\n    return client.fetch()", True),
+        ("return (lambda client: client.fetch())(None)", False),
+        ("return [client.fetch() for client in ()]", False),
+        ("return (lambda client=client.fetch(): client)()", True),
+        ("return [client for client in (client.fetch(),)]", True),
+        ("return [item for client in () for item in client.fetch()]", False),
+    ],
+)
+def test_module_alias_expression_scope(tmp_path: Path, import_text: str, alias: str, body: str, expected: bool) -> None:
+    """Module aliases remain visible in expressions unless expression parameters or targets replace them."""
+    source = f"{import_text}\n\ndef test_fetch():\n    {body.replace('client', alias)}\n"
+    test_path, tree, _ = _case(tmp_path, source)
+    (tmp_path / "src/client.py").write_text(
+        "def fetch():\n    import requests\n    return requests.get('https://example.invalid')\n", encoding="utf-8"
+    )
+    rules = {item.rule_id for item in MissingFailureModeDetector().detect(test_path, tree, source)}
+    assert rules == (
+        {"missing_fm_http_4xx", "missing_fm_http_5xx", "missing_fm_connection_error", "missing_fm_connection_timeout"}
+        if expected
+        else set()
+    )
+
+
+@pytest.mark.parametrize(
+    ("import_text", "alias"),
+    [
+        ("import src.client as client", "client"),
+        ("from src import client", "client"),
+        ("from src import client as api", "api"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("definition", "expected"),
+    [
+        ("def test_fetch(result=client.fetch()):\n    return result\n", True),
+        ("def test_fetch(*, result=client.fetch()):\n    return result\n", True),
+        ("@client.fetch()\ndef test_fetch():\n    return 1\n", True),
+        ("def test_fetch():\n    @client.fetch()\n    def inner():\n        return 1\n", True),
+        ("def test_fetch(client=client.fetch()):\n    return client\n", True),
+        (
+            "def test_fetch():\n    def inner(result=client.fetch()):\n"
+            "        client = object()\n        return result\n",
+            True,
+        ),
+        ("def test_fetch(client):\n    def inner(result=client.fetch()):\n        return result\n", False),
+        (
+            "def test_fetch():\n    client = object()\n    @client.fetch()\n    def inner():\n        return 1\n",
+            False,
+        ),
+    ],
+)
+def test_module_alias_definition_scope(
+    tmp_path: Path, import_text: str, alias: str, definition: str, expected: bool
+) -> None:
+    """Defaults and decorators use enclosing bindings, not the bindings inside their defined function."""
+    source = f"{import_text}\n\n{definition.replace('client', alias)}"
+    test_path, tree, _ = _case(tmp_path, source)
+    (tmp_path / "src/client.py").write_text(
+        "def fetch():\n    import requests\n    return requests.get('https://example.invalid')\n", encoding="utf-8"
+    )
+    rules = {item.rule_id for item in MissingFailureModeDetector().detect(test_path, tree, source)}
+    assert rules == (
+        {"missing_fm_http_4xx", "missing_fm_http_5xx", "missing_fm_connection_error", "missing_fm_connection_timeout"}
+        if expected
+        else set()
+    )
+
+
+@pytest.mark.parametrize(
+    ("import_text", "alias"),
+    [
+        ("import src.client as client", "client"),
+        ("from src import client", "client"),
+        ("from src import client as api", "api"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("definition", "expected"),
+    [
+        ("@client.fetch()\n    def test_fetch(self):\n        return 1\n", True),
+        ("def test_fetch(self, result=client.fetch()):\n        return result\n", True),
+        ("def test_fetch(self, *, result=client.fetch()):\n        return result\n", True),
+        ("def test_fetch(self, client=client.fetch()):\n        return client\n", True),
+        (
+            "def test_fetch(self, result=client.fetch()):\n        client = object()\n        return result\n",
+            True,
+        ),
+        (
+            "def test_fetch(self, result=client.fetch()):\n        return result\n    client = object()\n",
+            True,
+        ),
+        ("client = object()\n    @client.fetch()\n    def test_fetch(self):\n        return 1\n", False),
+        (
+            "client = object()\n    def test_fetch(self, result=client.fetch()):\n        return result\n",
+            False,
+        ),
+    ],
+)
+def test_module_alias_method_definition_scope(
+    tmp_path: Path, import_text: str, alias: str, definition: str, expected: bool
+) -> None:
+    """Method defaults and decorators read the class bindings that exist before the method definition."""
+    source = f"{import_text}\n\nclass TestClient:\n    {definition.replace('client', alias)}"
+    test_path, tree, _ = _case(tmp_path, source)
+    (tmp_path / "src/client.py").write_text(
+        "def fetch():\n    import requests\n    return requests.get('https://example.invalid')\n", encoding="utf-8"
+    )
+    rules = {item.rule_id for item in MissingFailureModeDetector().detect(test_path, tree, source)}
+    assert rules == (
+        {"missing_fm_http_4xx", "missing_fm_http_5xx", "missing_fm_connection_error", "missing_fm_connection_timeout"}
+        if expected
+        else set()
+    )
+
+
+@pytest.mark.parametrize(
+    "definition",
+    [
+        "@client.fetch()\nclass TestClient:\n    pass\n",
+        "class TestClient(client.fetch()):\n    pass\n",
+        "class TestClient(metaclass=client.fetch()):\n    pass\n",
+    ],
+)
+def test_module_alias_class_header_scope(tmp_path: Path, definition: str) -> None:
+    """Class decorators, bases, and keywords read the enclosing module alias."""
+    source = f"import src.client as client\n\n{definition}"
+    test_path, tree, _ = _case(tmp_path, source)
+    (tmp_path / "src/client.py").write_text(
+        "def fetch():\n    import requests\n    return requests.get('https://example.invalid')\n", encoding="utf-8"
+    )
+    rules = {item.rule_id for item in MissingFailureModeDetector().detect(test_path, tree, source)}
+    assert rules == {
+        "missing_fm_http_4xx",
+        "missing_fm_http_5xx",
+        "missing_fm_connection_error",
+        "missing_fm_connection_timeout",
+    }
+
+
+@pytest.mark.parametrize("alias", ["Client", "Service"])
+@pytest.mark.parametrize(
+    ("call", "expected"),
+    [
+        ("{alias}.classify('ap')", False),
+        ("{alias}.fetch()", True),
+        ("{alias}.forward()", True),
+        ("{alias}().classify('ap')", True),
+    ],
+)
+def test_static_class_risk_uses_called_methods(tmp_path: Path, alias: str, call: str, expected: bool) -> None:
+    """Explicit static calls exclude unrelated methods without reducing constructed-class risk."""
+    source = f"from src.client import Client as {alias}\n\ndef test_client():\n    {call.format(alias=alias)}\n"
+    test_path, tree, _ = _case(tmp_path, source)
+    (tmp_path / "src/client.py").write_text(
+        "class Client:\n"
+        "    @staticmethod\n    def classify(value):\n        return value\n\n"
+        "    @staticmethod\n    def fetch():\n"
+        "        import requests\n        return requests.get('https://example.invalid')\n\n"
+        "    @staticmethod\n    def forward():\n        return Client.fetch()\n",
+        encoding="utf-8",
+    )
+    rules = {item.rule_id for item in MissingFailureModeDetector().detect(test_path, tree, source)}
+    assert rules == (
+        {"missing_fm_http_4xx", "missing_fm_http_5xx", "missing_fm_connection_error", "missing_fm_connection_timeout"}
+        if expected
+        else set()
+    )
+
+
+@pytest.mark.parametrize(
+    "class_source",
+    [
+        "class Client:\n    @classmethod\n    def classify(cls, value):\n        return value\n",
+        "class Client(Base):\n    @staticmethod\n    def classify(value):\n        return value\n",
+        "class Client:\n    @staticmethod\n    def classify(value):\n        return value\n"
+        "    @staticmethod\n    def other(value=make_default()):\n        return value\n",
+        "class Client:\n    @staticmethod\n    def classify(value):\n        return Client.unknown(value)\n",
+        "class Client:\n    @staticmethod\n    def classify(value):\n        return value\n"
+        "    @custom_decorator\n    def other(self):\n        return 1\n",
+    ],
+)
+def test_uncertain_class_dispatch_retains_http_risk(tmp_path: Path, class_source: str) -> None:
+    """Unsupported dispatch and definition side effects must not lose existing HTTP requirements."""
+    source = "from src.client import Client\n\ndef test_client():\n    Client.classify('ap')\n"
+    test_path, tree, _ = _case(tmp_path, source)
+    (tmp_path / "src/client.py").write_text(
+        class_source + "    def fetch(self):\n        import requests\n"
+        "        return requests.get('https://example.invalid')\n",
+        encoding="utf-8",
+    )
+    risk = FailureModeApplicabilityInferer(test_path, tree).infer()
+    assert risk.http_status
+    assert risk.network_exception
+
+
+def test_constructed_class_keeps_sdk_connection_obligation(tmp_path: Path) -> None:
+    """A pure method does not remove risk from its class constructor."""
+    source = "from src.client import Client\n\ndef test_client():\n    Client().classify('ap')\n"
+    test_path, tree, _ = _case(tmp_path, source)
+    (tmp_path / "src/client.py").write_text(
+        "import mistapi\n\nclass Client:\n    def __init__(self):\n        self.session = mistapi.APISession()\n"
+        "    @staticmethod\n    def classify(value):\n        return value\n",
+        encoding="utf-8",
+    )
+    rules = {item.rule_id for item in MissingFailureModeDetector().detect(test_path, tree, source)}
+    assert "missing_fm_connection_error" in rules
+    assert "missing_fm_connection_timeout" not in rules
+
+
+def test_sdk_constructor_connection_coverage_clears_only_its_obligation(tmp_path: Path) -> None:
+    """A selected constructor failure test satisfies connection coverage without requiring a timeout."""
+    test_source = """\
+from subject import Client
+import pytest
+
+def test_connection_failure():
+    with pytest.raises(ConnectionError):
+        Client().fetch()
+"""
+    test_path, tree, _ = _case(tmp_path, test_source)
+    (tmp_path / "subject.py").write_text(
+        "import mistapi\n\nclass Client:\n    def fetch(self):\n        return mistapi.APISession()\n",
+        encoding="utf-8",
+    )
+    findings = MissingFailureModeDetector().detect(test_path, tree, test_source)
+    rules = {finding.rule_id for finding in findings}
+
+    assert "missing_fm_connection_error" not in rules
+    assert "missing_fm_connection_timeout" not in rules
+    assert rules == {"missing_fm_http_4xx", "missing_fm_http_5xx"}
+
+
 def test_malformed_source_class_lookup_reports_context(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     """Malformed source remains nonfatal and reports its path and parse error."""
     source = """\
