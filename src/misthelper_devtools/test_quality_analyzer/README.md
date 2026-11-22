@@ -126,6 +126,24 @@ The missing-failure-mode detector selects tests that call repository source dire
 fixture. A fixture qualifies when it returns an instance of an imported source class. An annotation, a setup call, or an
 unused fixture does not qualify.
 
+An import from `mistapi.__logger` provides logging support, not HTTP response evidence.
+Other SDK and HTTP client imports retain their existing failure-mode requirements.
+
+SDK session construction requires connection-error coverage. It does not require timeout-exception coverage,
+because SDK token validation does not expose that timeout to the caller.
+
+Constructor inference separates lambda parameters and comprehension targets from enclosing imports.
+A later unconditional SDK import can restore a replaced alias. Conditional restoration remains unresolved.
+
+Package imports such as `from src import client as api` resolve repository submodules.
+Only calls through an unchanged alias provide applicability evidence. Uncalled HTTP functions do not provide evidence.
+Lambda parameters and comprehension targets hide module aliases only within their expression scope.
+Function defaults and decorators use the enclosing bindings.
+Method defaults and decorators use class bindings before the method definition.
+Explicit calls to imported static methods use the called methods and their named static helpers.
+Constructed classes, inheritance, custom decorators, and unresolved class access keep conservative class risk.
+Direct HTTP clients retain both transport requirements.
+
 For a selected test method, the detector includes only referenced static helpers from its class. It excludes sibling
 tests, unused helpers, and helpers from other classes. A status argument counts only for its matching module or class
 helper.

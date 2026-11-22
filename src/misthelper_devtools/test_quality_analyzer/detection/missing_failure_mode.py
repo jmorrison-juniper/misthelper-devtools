@@ -58,12 +58,13 @@ class FailureModeRisk:
     http_status: bool = False  # True when the source can expose HTTP 4xx and 5xx status results.
     network_exception: bool = False  # True when the source can raise connection failures to the caller.
     json_parse: bool = False  # True when the source can raise body parsing failures.
+    sdk_connection_error: bool = False  # SDK token validation can expose connection errors, but not timeouts.
 
     @property
     def applies(self) -> bool:
         """Return True when the rule can measure this test module."""
         return (
-            self.http_status or self.network_exception or self.json_parse
+            self.http_status or self.network_exception or self.json_parse or self.sdk_connection_error
         )  # Any source risk puts the module in scope.
 
 
@@ -330,11 +331,12 @@ class FailureModeApplicabilityInferer:
         risk = FailureModeRisk()  # Accumulate risk for one import statement.
         module_path = self._module_path(node.module or "")  # Resolve only repository source modules.
         module_source = self._source_tree(module_path)  # Parse the module once when it exists.
-        if module_source is None:  # Third-party imports do not describe the source under test.
-            return risk  # Keep external test helpers outside scope.
-        tree, source = module_source  # Split the parsed tree from its source text.
         for alias in node.names:  # Each imported symbol can be the source under test.
-            self._merge(risk, self._risk_from_symbol(tree, source, alias.name))  # Inspect the real symbol body.
+            if module_source is not None:
+                tree, source = module_source
+                self._merge(risk, self._risk_from_symbol(tree, source, alias.name, alias.asname or alias.name))
+            submodule_path = self._module_path(f"{node.module}.{alias.name}")
+            self._merge(risk, self._risk_from_module_alias(submodule_path, alias.asname or alias.name))
         return risk  # Return merged risk for the statement.
 
     def _risk_from_import(self, node: ast.Import) -> FailureModeRisk:
@@ -345,13 +347,100 @@ class FailureModeApplicabilityInferer:
             self._merge(risk, self._risk_from_module_alias(module_path, alias_name))  # Inspect called symbols.
         return risk  # Return merged risk for the statement.
 
-    def _risk_from_symbol(self, tree: ast.Module, source: str, symbol: str) -> FailureModeRisk:
+    def _risk_from_symbol(
+        self, tree: ast.Module, source: str, symbol: str, imported_name: str | None = None
+    ) -> FailureModeRisk:
         for node in tree.body:  # Top-level symbols hold public functions and classes.
             if isinstance(node, ast.FunctionDef) and node.name == symbol:  # Direct function import.
-                return self._risk_from_source(ast.get_source_segment(source, node) or "")  # Inspect function body.
+                return self._risk_from_source(ast.get_source_segment(source, node) or "", tree)  # Keep SDK aliases.
             if isinstance(node, ast.ClassDef) and node.name == symbol:  # Direct class import.
-                return self._risk_from_source(ast.get_source_segment(source, node) or "")  # Inspect class body.
+                if imported_name is not None:
+                    selected = self._static_class_source(tree, node, imported_name)
+                    if selected is not None:
+                        return self._risk_from_source(selected, tree)
+                return self._risk_from_source(ast.get_source_segment(source, node) or "", tree)  # Keep SDK aliases.
         return FailureModeRisk()  # Constants and unknown names do not prove network or parse risk.
+
+    def _static_class_source(self, tree: ast.Module, node: ast.ClassDef, imported_name: str) -> str | None:
+        """Limit explicit static calls while keeping uncertain instance and class behavior conservative."""
+        if node.bases or node.decorator_list or node.keywords:
+            return None
+        slicer = SourceDrivenCoverageSlicer(self._test_path, self._tree)
+        if any(
+            slicer._statement_bindings(statement) & {node.name, "staticmethod", "classmethod"}
+            for statement in tree.body
+            if statement is not node
+        ):
+            return None
+        parents = {id(child): parent for parent in ast.walk(self._tree) for child in ast.iter_child_nodes(parent)}
+        names: set[str] = set()
+        for reference in ast.walk(self._tree):
+            if (
+                not isinstance(reference, ast.Name)
+                or reference.id != imported_name
+                or not isinstance(reference.ctx, ast.Load)
+            ):
+                continue
+            attribute = parents.get(id(reference))
+            call = parents.get(id(attribute)) if attribute is not None else None
+            if not isinstance(attribute, ast.Attribute) or not isinstance(call, ast.Call) or call.func is not attribute:
+                return None
+            names.add(attribute.attr)
+        if not names:
+            return None
+        methods = {member.name: member for member in node.body if isinstance(member, ast.FunctionDef)}
+        if len(methods) != sum(isinstance(member, ast.FunctionDef) for member in node.body):
+            return None
+        if any(not isinstance(member, (ast.FunctionDef, ast.Pass, ast.Expr)) for member in node.body):
+            return None
+        for method in methods.values():
+            if method.args.defaults or method.args.kw_defaults or method.returns is not None:
+                return None
+            if any(
+                argument.annotation is not None for argument in ast.walk(method.args) if isinstance(argument, ast.arg)
+            ):
+                return None
+            if any(
+                not isinstance(decorator, ast.Name) or decorator.id not in {"staticmethod", "classmethod"}
+                for decorator in method.decorator_list
+            ):
+                return None
+        selected = self._static_method_closure(node.name, methods, names)
+        if selected is None:
+            return None
+        return "\n".join(
+            ast.unparse(member)
+            for member in node.body
+            if not isinstance(member, ast.FunctionDef) or member.name in selected
+        )
+
+    def _static_method_closure(
+        self, class_name: str, methods: dict[str, ast.FunctionDef], pending: set[str]
+    ) -> set[str] | None:
+        """Follow named static helpers and reject unresolved class-member access."""
+        selected: set[str] = set()
+        while pending:
+            name = pending.pop()
+            if name in selected:
+                continue
+            method = methods.get(name)
+            if method is None or len(method.decorator_list) != 1:
+                return None
+            decorator = method.decorator_list[0]
+            if not isinstance(decorator, ast.Name) or decorator.id != "staticmethod":
+                return None
+            selected.add(name)
+            for child in ast.walk(method):
+                if isinstance(child, ast.Name) and child.id == class_name:
+                    if not any(
+                        isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute) and call.func.value is child
+                        for call in ast.walk(method)
+                    ):
+                        return None
+                if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute):
+                    if isinstance(child.func.value, ast.Name) and child.func.value.id == class_name:
+                        pending.add(child.func.attr)
+        return selected
 
     def _risk_from_module_alias(self, module_path: Path | None, alias_name: str) -> FailureModeRisk:
         risk = FailureModeRisk()  # Accumulate risk for symbols called through a module alias.
@@ -359,10 +448,106 @@ class FailureModeApplicabilityInferer:
         if module_source is None:  # Unknown modules cannot prove source-under-test behavior.
             return risk  # Keep the module outside scope.
         tree, source = module_source  # Split the source module into parsed and raw forms.
-        for call in (node for node in ast.walk(self._tree) if isinstance(node, ast.Call)):  # Find test calls.
+        slicer = SourceDrivenCoverageSlicer(self._test_path, self._tree)
+        if self._module_scope_replaces(self._tree, alias_name, slicer):
+            return risk
+        for call in self._module_alias_calls(alias_name, slicer):
             if isinstance(call.func, ast.Attribute) and self._root_name(call.func.value) == alias_name:  # Alias call.
                 self._merge(risk, self._risk_from_symbol(tree, source, call.func.attr))  # Inspect called symbol.
         return risk  # Return only risk from symbols the test calls.
+
+    def _module_alias_calls(self, alias_name: str, slicer: SourceDrivenCoverageSlicer) -> list[ast.Call]:
+        """Find module calls without accepting test parameters or replacement bindings."""
+        calls: list[ast.Call] = []
+        scopes: list[ast.Module | ast.FunctionDef] = [
+            self._tree,
+            *(node for node in ast.walk(self._tree) if isinstance(node, ast.FunctionDef)),
+        ]
+        for scope in scopes:
+            if self._module_scope_replaces(scope, alias_name, slicer):
+                continue
+            for statement in scope.body:
+                calls.extend(self._module_expression_calls(statement, alias_name))
+        return calls
+
+    def _module_scope_replaces(
+        self, scope: ast.Module | ast.FunctionDef, alias_name: str, slicer: SourceDrivenCoverageSlicer
+    ) -> bool:
+        """Check enclosing replacements without collecting expression-local targets."""
+        if isinstance(scope, ast.FunctionDef):
+            arguments = [*scope.args.posonlyargs, *scope.args.args, *scope.args.kwonlyargs]
+            arguments.extend(argument for argument in (scope.args.vararg, scope.args.kwarg) if argument is not None)
+            if any(argument.arg == alias_name for argument in arguments):
+                return True
+        for node in self._sdk_scope_nodes(scope.body):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)) and node.id == alias_name:
+                return True
+            if isinstance(node, (ast.Import, ast.ImportFrom)) and alias_name in slicer._non_source_bindings(node):
+                return True
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == alias_name:
+                return True
+            if isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)) and node.name == alias_name:
+                return True
+            if isinstance(node, ast.MatchMapping) and node.rest == alias_name:
+                return True
+        return False
+
+    def _module_expression_calls(self, node: ast.AST, alias_name: str) -> list[ast.Call]:
+        """Visit expression calls with lambda and comprehension alias visibility."""
+        if isinstance(node, ast.FunctionDef):
+            expressions = [
+                *node.decorator_list,
+                *node.args.defaults,
+                *(value for value in node.args.kw_defaults if value is not None),
+            ]
+            return [call for value in expressions for call in self._module_expression_calls(value, alias_name)]
+        if isinstance(node, ast.ClassDef):
+            return self._module_class_calls(node, alias_name)
+        if isinstance(node, ast.AsyncFunctionDef):
+            return []
+        if isinstance(node, ast.Lambda):
+            defaults = [*node.args.defaults, *(value for value in node.args.kw_defaults if value is not None)]
+            calls = [call for value in defaults for call in self._module_expression_calls(value, alias_name)]
+            arguments = [*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs]
+            arguments.extend(argument for argument in (node.args.vararg, node.args.kwarg) if argument is not None)
+            if not any(argument.arg == alias_name for argument in arguments):
+                calls.extend(self._module_expression_calls(node.body, alias_name))
+            return calls
+        if isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+            return self._module_comprehension_calls(node, alias_name)
+        calls = [node] if isinstance(node, ast.Call) else []
+        calls.extend(
+            call for child in ast.iter_child_nodes(node) for call in self._module_expression_calls(child, alias_name)
+        )
+        return calls
+
+    def _module_class_calls(self, node: ast.ClassDef, alias_name: str) -> list[ast.Call]:
+        """Read definition expressions before class statements replace their enclosing module alias."""
+        expressions = [*node.decorator_list, *node.bases, *(keyword.value for keyword in node.keywords)]
+        calls = [call for value in expressions for call in self._module_expression_calls(value, alias_name)]
+        slicer = SourceDrivenCoverageSlicer(self._test_path, self._tree)
+        for statement in node.body:
+            calls.extend(self._module_expression_calls(statement, alias_name))
+            scope = ast.Module(body=[statement], type_ignores=[])
+            if self._module_scope_replaces(scope, alias_name, slicer):
+                break
+        return calls
+
+    def _module_comprehension_calls(
+        self, node: ast.ListComp | ast.SetComp | ast.DictComp | ast.GeneratorExp, alias_name: str
+    ) -> list[ast.Call]:
+        """Check each iterable before its target changes comprehension-local visibility."""
+        calls: list[ast.Call] = []
+        for generator in node.generators:
+            calls.extend(self._module_expression_calls(generator.iter, alias_name))
+            if any(isinstance(target, ast.Name) and target.id == alias_name for target in ast.walk(generator.target)):
+                return calls
+            calls.extend(
+                call for condition in generator.ifs for call in self._module_expression_calls(condition, alias_name)
+            )
+        values = [node.key, node.value] if isinstance(node, ast.DictComp) else [node.elt]
+        calls.extend(call for value in values for call in self._module_expression_calls(value, alias_name))
+        return calls
 
     def _local_source_risk(self) -> FailureModeRisk:
         if not self._allows_local_source():  # Real test helpers must not create scope by themselves.
@@ -378,7 +563,7 @@ class FailureModeApplicabilityInferer:
         except ValueError:
             return True  # Analyzer fixtures and synthetic tests can define a local source under test.
 
-    def _risk_from_source(self, source: str) -> FailureModeRisk:
+    def _risk_from_source(self, source: str, module_tree: ast.Module | None = None) -> FailureModeRisk:
         try:
             tree = ast.parse(source)  # Parse the source slice so docstrings do not create false scope.
         except SyntaxError:
@@ -386,22 +571,171 @@ class FailureModeApplicabilityInferer:
         http_status = any(self._node_has_http_status_risk(node) for node in ast.walk(tree))  # Find response risks.
         network_exception = any(self._node_has_exception_risk(node) for node in ast.walk(tree))  # Find raised risks.
         json_parse = any(self._node_has_json_risk(node) for node in ast.walk(tree))  # Find executable JSON parsing.
+        sdk_connection_error = self._has_sdk_constructor(tree, module_tree or tree)
         return FailureModeRisk(  # Return each failure channel separately so unreachable exceptions stay out of scope.
             http_status=http_status,  # HTTP status remains visible through mistapi APIResponse objects.
             network_exception=network_exception,  # Mistapi swallows request exceptions before callers can catch them.
             json_parse=json_parse,  # Empty and malformed body findings require an in-process parser.
+            sdk_connection_error=sdk_connection_error,
+        )
+
+    def _has_sdk_constructor(self, tree: ast.Module, module_tree: ast.Module) -> bool:
+        """Find SDK constructors using imports visible in each calling scope."""
+        bindings = self._sdk_scope_bindings(module_tree.body, {})
+        return self._sdk_scope_calls(tree.body, bindings)
+
+    def _sdk_scope_nodes(self, nodes: list[ast.stmt]) -> list[ast.AST]:
+        """Visit compound statements without entering a different lexical scope."""
+        queue: list[ast.AST] = list(nodes)
+        scoped: list[ast.AST] = []
+        while queue:
+            node = queue.pop()
+            scoped.append(node)
+            if not isinstance(
+                node,
+                (
+                    ast.FunctionDef,
+                    ast.AsyncFunctionDef,
+                    ast.ClassDef,
+                    ast.Lambda,
+                    ast.ListComp,
+                    ast.SetComp,
+                    ast.DictComp,
+                    ast.GeneratorExp,
+                ),
+            ):
+                queue.extend(ast.iter_child_nodes(node))
+        return scoped
+
+    def _sdk_import_bindings(self, node: ast.AST) -> dict[str, str]:
+        """Map imported names to SDK module, SDK constructor, or unrelated identities."""
+        if isinstance(node, ast.Import):
+            return {
+                alias.asname
+                or alias.name.split(".")[0]: (
+                    "module"
+                    if alias.name == "mistapi" or (alias.name.startswith("mistapi.") and not alias.asname)
+                    else ""
+                )
+                for alias in node.names
+            }
+        if isinstance(node, ast.ImportFrom):
+            return {
+                alias.asname
+                or alias.name: ("constructor" if node.module == "mistapi" and alias.name == "APISession" else "")
+                for alias in node.names
+            }
+        return {}
+
+    def _sdk_scope_bindings(self, nodes: list[ast.stmt], inherited: dict[str, str]) -> dict[str, str]:
+        """Keep imports only when no competing binding replaces their local names."""
+        bindings = dict(inherited)
+        imports: dict[str, set[str]] = {}
+        replaced: set[str] = set()
+        for node in self._sdk_scope_nodes(nodes):
+            for name, identity in self._sdk_import_bindings(node).items():
+                imports.setdefault(name, set()).add(identity)
+            if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+                replaced.add(node.id)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                replaced.add(node.name)
+            if isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)) and node.name:
+                replaced.add(node.name)
+            if isinstance(node, ast.MatchMapping) and node.rest:
+                replaced.add(node.rest)
+        bindings.update({name: next(iter(values)) if len(values) == 1 else "" for name, values in imports.items()})
+        return {name: identity for name, identity in bindings.items() if identity and name not in replaced}
+
+    def _sdk_scope_calls(self, nodes: list[ast.stmt], inherited: dict[str, str], class_scope: bool = False) -> bool:
+        """Check calls and descend into functions with parameter-aware import bindings."""
+        bindings = self._sdk_scope_bindings(nodes, inherited)
+        for index, statement in enumerate(nodes):
+            if isinstance(statement, (ast.Import, ast.ImportFrom)):
+                restored = self._sdk_import_bindings(statement)
+                for name, identity in restored.items():
+                    if (
+                        identity
+                        and bindings.get(name) != identity
+                        and self._sdk_scope_calls(nodes[index + 1 :], {**bindings, name: identity}, class_scope)
+                    ):
+                        return True
+        for node in self._sdk_scope_nodes(nodes):
+            if isinstance(node, (ast.Lambda, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+                if self._sdk_expression_calls(node, bindings):
+                    return True
+            if isinstance(node, ast.Call) and self._is_sdk_constructor_call(node, bindings):
+                return True
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                parameters = {argument.arg for argument in ast.walk(node.args) if isinstance(argument, ast.arg)}
+                local = self._sdk_scope_bindings(node.body, inherited if class_scope else bindings)
+                local = {name: identity for name, identity in local.items() if name not in parameters}
+                if self._sdk_scope_calls(node.body, local):
+                    return True
+            if isinstance(node, ast.ClassDef) and self._sdk_scope_calls(node.body, inherited, class_scope=True):
+                return True
+        return False
+
+    def _sdk_expression_calls(self, node: ast.AST, bindings: dict[str, str]) -> bool:
+        """Resolve lambda defaults and comprehension targets in their own expression scopes."""
+        if isinstance(node, ast.Lambda):
+            defaults = [*node.args.defaults, *(value for value in node.args.kw_defaults if value is not None)]
+            if any(self._sdk_expression_calls(value, bindings) for value in defaults):
+                return True
+            parameters = {argument.arg for argument in ast.walk(node.args) if isinstance(argument, ast.arg)}
+            local = {name: identity for name, identity in bindings.items() if name not in parameters}
+            return self._sdk_expression_calls(node.body, local)
+        if isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+            local = dict(bindings)
+            for generator in node.generators:
+                if self._sdk_expression_calls(generator.iter, local):
+                    return True
+                targets = {child.id for child in ast.walk(generator.target) if isinstance(child, ast.Name)}
+                local = {name: identity for name, identity in local.items() if name not in targets}
+                if any(self._sdk_expression_calls(condition, local) for condition in generator.ifs):
+                    return True
+            values = [node.key, node.value] if isinstance(node, ast.DictComp) else [node.elt]
+            return any(self._sdk_expression_calls(value, local) for value in values)
+        if isinstance(node, ast.Call) and self._is_sdk_constructor_call(node, bindings):
+            return True
+        return any(self._sdk_expression_calls(child, bindings) for child in ast.iter_child_nodes(node))
+
+    def _is_sdk_constructor_call(self, node: ast.Call, bindings: dict[str, str]) -> bool:
+        """Match a constructor only against its resolved import identity."""
+        if isinstance(node.func, ast.Name):
+            return bindings.get(node.func.id) == "constructor"
+        return (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr == "APISession"
+            and isinstance(node.func.value, ast.Name)
+            and bindings.get(node.func.value.id) == "module"
         )
 
     def _node_has_http_status_risk(self, node: ast.AST) -> bool:
         if isinstance(node, ast.Import):  # Direct imports identify source dependencies.
-            return any(alias.name.split(".")[0] in _SOURCE_HTTP_STATUS_MODULES for alias in node.names)  # HTTP client.
+            return any(self._module_has_http_status_risk(alias.name) for alias in node.names)
         if isinstance(node, ast.ImportFrom) and node.module:  # From-imports identify source dependencies.
-            return node.module.split(".")[0] in _SOURCE_HTTP_STATUS_MODULES  # HTTP client module.
+            if node.module == "mistapi":
+                return any(self._module_has_http_status_risk(f"mistapi.{alias.name}") for alias in node.names)
+            return self._module_has_http_status_risk(node.module)
         if isinstance(node, ast.Attribute):  # Dotted names catch annotations and direct SDK calls.
-            return self._root_name(node) in _SOURCE_HTTP_STATUS_MODULES  # A client root means HTTP response scope.
+            parts: list[str] = []
+            current: ast.AST = node
+            while isinstance(current, ast.Attribute):
+                parts.insert(0, current.attr)
+                current = current.value
+            if isinstance(current, ast.Name):
+                return self._module_has_http_status_risk(".".join([current.id, *parts]))
+            return False
         if isinstance(node, ast.Constant) and isinstance(node.value, str):  # Dynamic imports often use strings.
             return "mistapi.api." in node.value  # Mist SDK import paths mean cloud API scope.
         return False  # Other syntax does not prove an HTTP status result.
+
+    def _module_has_http_status_risk(self, module_name: str) -> bool:
+        """Distinguish SDK logging support from modules that can expose HTTP responses."""
+        parts = module_name.split(".")
+        if parts[:2] == ["mistapi", "__logger"]:
+            return False  # SDK log sanitization does not perform an HTTP request.
+        return parts[0] in _SOURCE_HTTP_STATUS_MODULES
 
     def _node_has_exception_risk(self, node: ast.AST) -> bool:
         if isinstance(node, ast.Import):  # Direct imports identify exception-raising clients.
@@ -457,6 +791,7 @@ class FailureModeApplicabilityInferer:
     def _merge(self, target: FailureModeRisk, source: FailureModeRisk) -> None:
         target.http_status = target.http_status or source.http_status  # Preserve any HTTP status risk already found.
         target.network_exception = target.network_exception or source.network_exception  # Preserve raised network risk.
+        target.sdk_connection_error = target.sdk_connection_error or source.sdk_connection_error
         target.json_parse = target.json_parse or source.json_parse  # Preserve any parse risk already found.
 
 
@@ -1129,8 +1464,8 @@ class MissingFailureModeDetector:
                 )
             )
         if (
-            risk.network_exception and not coverage.connection_error
-        ):  # Direct network clients can fail before a response.
+            risk.network_exception or risk.sdk_connection_error
+        ) and not coverage.connection_error:  # Direct network clients can fail before a response.
             findings.append(
                 self._finding(
                     posix,
